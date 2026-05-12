@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>TableX</title>
+  <link rel="stylesheet" href="css/main.css"/>
+</head>
+<body>
+
+  <!-- Gooey button filter -->
+  <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;">
+    <defs>
+      <filter id="goo">
+        <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
+        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo"/>
+        <feBlend in="SourceGraphic" in2="goo"/>
+      </filter>
+    </defs>
+  </svg>
+
+  <!-- Island background filters (UIverse by AatreyuShau) -->
+  <svg height="0" width="0">
+    <filter id="octave1">
+      <feTurbulence type="fractalNoise" baseFrequency="0.0004" numOctaves="8" seed="4" result="o1"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o2"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0001" numOctaves="8" seed="4" result="o3"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0018" numOctaves="8" seed="4" result="o4"></feTurbulence>
+      <feMerge result="finalIsland">
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="o3"></feMergeNode>
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="o3"></feMergeNode>
+      </feMerge>
+      <feGaussianBlur in="finalIsland" stdDeviation="5" result="noiseo"></feGaussianBlur>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o1"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o2"></feTurbulence>
+      <feMerge result="noiseo">
+        <feMergeNode in="o2"></feMergeNode>
+        <feMergeNode in="o4"></feMergeNode>
+        <feMergeNode in="noiseo"></feMergeNode>
+      </feMerge>
+      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o1"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.002"  numOctaves="8" seed="4" result="o2"></feTurbulence>
+      <feMerge result="noiseo">
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="noiseo"></feMergeNode>
+      </feMerge>
+      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
+      <feDiffuseLighting in="noiseo" surfaceScale="12" diffuseConstant="1" lighting-color="#d7bb98" result="lit">
+        <feDistantLight azimuth="90" elevation=""></feDistantLight>
+      </feDiffuseLighting>
+      <feBlend in="lit" in2="SourceGraphic" mode="normal"></feBlend>
+    </filter>
+
+    <filter id="octave2">
+      <feTurbulence type="fractalNoise" baseFrequency="0.0004" numOctaves="8" seed="4" result="o1"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o2"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0001" numOctaves="8" seed="4" result="o3"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0018" numOctaves="8" seed="4" result="o4"></feTurbulence>
+      <feMerge result="finalIsland">
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="o3"></feMergeNode>
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="o3"></feMergeNode>
+      </feMerge>
+      <feGaussianBlur in="finalIsland" stdDeviation="5" result="noiseo"></feGaussianBlur>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o1"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o2"></feTurbulence>
+      <feMerge result="noiseo">
+        <feMergeNode in="o2"></feMergeNode>
+        <feMergeNode in="o4"></feMergeNode>
+        <feMergeNode in="noiseo"></feMergeNode>
+      </feMerge>
+      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
+      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o1"></feTurbulence>
+      <feTurbulence type="fractalNoise" baseFrequency="0.002"  numOctaves="8" seed="4" result="o2"></feTurbulence>
+      <feMerge result="noiseo">
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="o1"></feMergeNode>
+        <feMergeNode in="noiseo"></feMergeNode>
+      </feMerge>
+      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
+      <feDiffuseLighting in="noiseo" surfaceScale="12" diffuseConstant="1" lighting-color="#d1bf96" result="lit">
+        <feDistantLight azimuth="-90" elevation=""></feDistantLight>
+      </feDiffuseLighting>
+      <feBlend in="lit" in2="SourceGraphic" mode="normal"></feBlend>
+    </filter>
+  </svg>
+
+  <div class="island"></div>
+  <div class="islandt"></div>
+  <div class="hatch"></div>
+
+  <!-- LANDING -->
+  <div id="viewLanding" class="view">
+    <div class="landing-content">
+      <h1 class="title">TableX</h1>
+      <p class="subtitle">מחולל טבלת נתונים</p>
+      <div class="buttons">
+        <button id="btnOpen" class="button">
+          <div class="gradient-container"><div class="gradient"></div></div>
+          <div class="label">הכנס נתונים</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- INPUT MODAL -->
+  <div id="overlay" class="overlay hidden">
+    <div class="modal" dir="rtl">
+      <div class="modal-head">
+        <h2>הכנסת נתונים</h2>
+        <button id="btnClose" class="btn-x">✕</button>
+      </div>
+      <p class="modal-hint">
+        הדבק נתונים מ-Excel (Tab מפריד) — סדר עמודות מהדבקה מגיליון RTL:<br/>
+        <code>אתר_3 | אתר_2 | אתר_1 | עוצמה_3 | עוצמה_2 | עוצמה_1 | נקודה</code><br/>
+        <span style="opacity:0.6">אתר_1 = חזק ביותר · עוצמות כערכים חיוביים (יוצגו כ-dBm שלילי)</span>
+      </p>
+      <textarea id="inputArea" class="modal-ta" spellcheck="false"
+        placeholder="דוגמה:&#10;IDF_Ziporen_3&#9;IDF_Narkis_2&#9;IDF_Narkis_3&#9;93&#9;89&#9;85&#9;1&#10;IDF_Hadas_3_900&#9;IDF_Har_Dov_3&#9;IDF_Ziporen_3&#9;94&#9;90&#9;86&#9;2"></textarea>
+      <div class="modal-foot">
+        <button id="btnSample" class="btn-secondary">טען דוגמה</button>
+        <span style="flex:1"></span>
+        <button id="btnCancel" class="btn-secondary">ביטול</button>
+        <button id="btnGenerate" class="btn-primary">← צור טבלה</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABLE VIEW -->
+  <div id="viewTable" class="view hidden">
+    <div class="ctrl-bar" dir="rtl">
+      <button id="btnBack" class="ctrl-btn">→ חזור</button>
+      <span class="ctrl-spacer"></span>
+      <button id="btnPrint" class="ctrl-btn">הדפס / PDF</button>
+      <button id="btnPptx" class="ctrl-btn ctrl-accent">הורד PPTX ⬇</button>
+    </div>
+    <div class="doc-wrap">
+      <div id="docPage" class="doc-page"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

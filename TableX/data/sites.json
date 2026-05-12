@@ -1,0 +1,16 @@
+{
+  "partner": {
+    "JA2446": { "displayName": "JA2446" },
+    "NA6551": { "displayName": "NA6551" }
+  },
+  "idf": {
+    "IDF_Ziporen_3":   { "displayName": "זיפורן 3",    "sector": 3 },
+    "IDF_Narkis_2":    { "displayName": "נרקיס 2",     "sector": 2 },
+    "IDF_Narkis_3":    { "displayName": "נרקיס 3",     "sector": 3 },
+    "IDF_Har_Dov_3":   { "displayName": "הר דוב 3",    "sector": 3 },
+    "IDF_Hadas_3_900": { "displayName": "הדס 3 900",   "sector": 3 }
+  },
+  "cellcom": {},
+  "hot_mobile": {},
+  "phone": {}
+}
