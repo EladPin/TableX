@@ -68,6 +68,15 @@ body {
   color: rgba(140, 175, 195, 0.5);
   margin-bottom: 3.5rem;
 }
+.db-status {
+  margin-top: 1.8rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.05em;
+  color: rgba(140, 175, 195, 0.45);
+  direction: rtl;
+  transition: color 0.3s;
+}
+.db-status.db-loaded { color: #a090e8; }
 .buttons { display: flex; gap: 2rem; justify-content: center; }
 
 /* ── Landing Button (UIverse by Na3ar-17) ── */

@@ -11,6 +11,9 @@
   const btnBack     = $('btnBack');
   const btnPrint    = $('btnPrint');
   const btnPptx     = $('btnPptx');
+  const btnLoadDb   = $('btnLoadDb');
+  const dbFileInput = $('dbFileInput');
+  const dbStatus    = $('dbStatus');
   const overlay     = $('overlay');
   const viewLanding = $('viewLanding');
   const viewTable   = $('viewTable');
@@ -18,6 +21,38 @@
   const docPage     = $('docPage');
 
   let lastData = null;
+  let siteDB   = {};   // siteId → { name, sector, freq, bw }
+
+  // ── DB Import ───────────────────────────────────────────────
+  btnLoadDb.onclick  = () => dbFileInput.click();
+  dbFileInput.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const wb = XLSX.read(ev.target.result, { type: 'array' });
+      const ws = wb.Sheets['DB'];
+      if (!ws) { alert('גיליון DB לא נמצא בקובץ'); return; }
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      siteDB = {};
+      for (let i = 1; i < rows.length; i++) {
+        const [, siteId, siteName, sector, freq, bw] = rows[i];
+        if (siteId && !siteDB[siteId]) {
+          siteDB[siteId] = {
+            name:   siteName || siteId,
+            sector: sector   || '-',
+            freq:   freq     || '-',
+            bw:     bw       || '-',
+          };
+        }
+      }
+      const count = Object.keys(siteDB).length;
+      dbStatus.textContent = `✓ ${file.name} — ${count} אתרים נטענו`;
+      dbStatus.classList.add('db-loaded');
+      dbFileInput.value = '';
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   // ── Navigation ──────────────────────────────────────────────
   function showOverlay()  { overlay.classList.remove('hidden'); }
@@ -33,38 +68,31 @@
   overlay.onclick    = e => { if (e.target === overlay) hideOverlay(); };
 
   // ── Sample data ─────────────────────────────────────────────
-  // Matches the actual input format (paste from RTL Excel):
-  // site_3rd | site_2nd | site_1st | power_3rd | power_2nd | power_1st | נקודה
+  // Format: site_3rd | site_2nd | site_1st | power_3rd | power_2nd | power_1st | נקודה
+  // site codes = Partner Site IDs (lookup via DB)
   const SAMPLE = [
-    'IDF_Ziporen_3\tIDF_Narkis_2\tIDF_Narkis_3\t93\t89\t85\t1',
-    'IDF_Hadas_3_900\tIDF_Har_Dov_3\tIDF_Ziporen_3\t94\t90\t86\t2',
-    'IDF_Hadas_3_900\tIDF_Har_Dov_3\tIDF_Ziporen_3\t95\t91\t87\t4',
-    'IDF_Ziporen_3\tIDF_Narkis_2\tIDF_Narkis_3\t96\t92\t88\t3',
+    'IN0625B\tNE4295B\tMN4610A\t93\t89\t85\t1',
+    'EI2085C\tIN0625B\tNE4295B\t94\t90\t86\t2',
+    'MN4610A\tEI2085C\tSI5505A\t95\t91\t87\t3',
+    'SI5505A\tMN4610A\tIN0625B\t96\t92\t88\t4',
   ].join('\n');
 
   btnSample.onclick = () => { inputArea.value = SAMPLE; };
 
-  // ── Helpers ─────────────────────────────────────────────────
-
-  // Extract sector from site code: last single-digit (1-9) in underscore parts
-  // IDF_Narkis_3 → 3 | IDF_Hadas_3_900 → 3 (900 is band, not sector)
-  function extractSector(name) {
-    const parts = name.split('_');
+  // ── Site lookup ─────────────────────────────────────────────
+  function lookupSite(code) {
+    if (siteDB[code]) return siteDB[code];
+    // fallback for IDF-style codes: extract sector from trailing digit
+    const parts = code.split('_');
+    let sector = '-';
     for (let i = parts.length - 1; i >= 0; i--) {
       const n = parseInt(parts[i]);
-      if (!isNaN(n) && n >= 1 && n <= 9) return n;
+      if (!isNaN(n) && n >= 1 && n <= 9) { sector = n; break; }
     }
-    return '-';
+    return { name: code, sector, freq: '-', bw: '-' };
   }
 
   // ── Parse ───────────────────────────────────────────────────
-  // Auto-detects two formats:
-  //
-  // NEW (paste from RTL Excel — col[0] is text):
-  //   site_3rd | site_2nd | site_1st | power_3rd | power_2nd | power_1st | נקודה
-  //
-  // OLD (manual entry — col[0] is a number):
-  //   נקודה | מס"ד | שם אתר | סקטור | תדר מרכזי | רוחב פס | עוצמה
   function parseInput(raw) {
     const groups = {};
 
@@ -73,28 +101,26 @@
       if (c.length < 7) continue;
 
       if (isNaN(parseFloat(c[0]))) {
-        // ── NEW format ─────────────────────────────────────────
-        // col[0..2] = sites weakest→strongest
-        // col[3..5] = matching power values (absolute dBm, larger = weaker)
-        // col[6]    = נקודה number
+        // NEW format: site_3rd | site_2nd | site_1st | pwr_3rd | pwr_2nd | pwr_1st | נקודה
         const pt = parseInt(c[6]);
         if (isNaN(pt)) continue;
-
-        groups[pt] = []; // one input row = one complete נקודה
+        groups[pt] = [];
         [2, 1, 0].forEach((siteIdx, rankIdx) => {
-          const abs = parseFloat(c[siteIdx + 3]);
+          const code = c[siteIdx];
+          const info = lookupSite(code);
+          const abs  = parseFloat(c[siteIdx + 3]);
           groups[pt].push({
             rank:   rankIdx + 1,
-            site:   c[siteIdx],
-            sector: extractSector(c[siteIdx]),
-            freq:   '-',
-            bw:     '-',
+            site:   info.name,
+            sector: info.sector,
+            freq:   info.freq,
+            bw:     info.bw,
             power:  isNaN(abs) ? '-' : `-${Math.abs(abs).toFixed(0)}`,
           });
         });
 
       } else {
-        // ── OLD format ─────────────────────────────────────────
+        // OLD format: נקודה | מס"ד | שם אתר | סקטור | תדר | רוחב פס | עוצמה
         const pt = parseInt(c[0]);
         if (isNaN(pt)) continue;
         if (!groups[pt]) groups[pt] = [];
@@ -179,7 +205,7 @@
     }
 
     const pptx = new PptxGenJS();
-    pptx.layout = 'LAYOUT_WIDE'; // 13.33 x 7.5 in
+    pptx.layout = 'LAYOUT_WIDE';
 
     const slide = pptx.addSlide();
     slide.background = { color: 'FFFFFF' };
@@ -198,8 +224,6 @@
       fontSize: 10, fontFace: 'Arial',
     });
 
-    // Columns left→right in slide = RTL reading order:
-    // עוצמה | רוחב פס | תדר מרכזי | סקטור | שם אתר | מס"ד | (blank nk header)
     const hOpts = { ...baseCell('4a3f8c', true), color: 'FFFFFF' };
     const headerRow = [
       { text: 'עוצמה(dBm)',      options: hOpts },

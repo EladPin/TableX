@@ -94,17 +94,25 @@
   <div class="islandt"></div>
   <div class="hatch"></div>
 
+  <!-- DB file input (hidden) -->
+  <input type="file" id="dbFileInput" accept=".xlsx" style="display:none"/>
+
   <!-- LANDING -->
   <div id="viewLanding" class="view">
     <div class="landing-content">
       <h1 class="title">TableX</h1>
       <p class="subtitle">מחולל טבלת נתונים</p>
       <div class="buttons">
+        <button id="btnLoadDb" class="button">
+          <div class="gradient-container"><div class="gradient"></div></div>
+          <div class="label">טען DB</div>
+        </button>
         <button id="btnOpen" class="button">
           <div class="gradient-container"><div class="gradient"></div></div>
           <div class="label">הכנס נתונים</div>
         </button>
       </div>
+      <p id="dbStatus" class="db-status">לא נטען DB</p>
     </div>
   </div>
 
@@ -121,7 +129,7 @@
         <span style="opacity:0.6">אתר_1 = חזק ביותר · עוצמות כערכים חיוביים (יוצגו כ-dBm שלילי)</span>
       </p>
       <textarea id="inputArea" class="modal-ta" spellcheck="false"
-        placeholder="דוגמה:&#10;IDF_Ziporen_3&#9;IDF_Narkis_2&#9;IDF_Narkis_3&#9;93&#9;89&#9;85&#9;1&#10;IDF_Hadas_3_900&#9;IDF_Har_Dov_3&#9;IDF_Ziporen_3&#9;94&#9;90&#9;86&#9;2"></textarea>
+        placeholder="דוגמה:&#10;IN0625B&#9;NE4295B&#9;MN4610A&#9;93&#9;89&#9;85&#9;1&#10;EI2085C&#9;IN0625B&#9;NE4295B&#9;94&#9;90&#9;86&#9;2"></textarea>
       <div class="modal-foot">
         <button id="btnSample" class="btn-secondary">טען דוגמה</button>
         <span style="flex:1"></span>
@@ -144,6 +152,7 @@
     </div>
   </div>
 
+  <script src="js/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
   <script src="js/app.js"></script>
 </body>
