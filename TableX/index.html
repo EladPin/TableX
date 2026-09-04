@@ -1,159 +1,370 @@
 <!DOCTYPE html>
-<html lang="he">
+<html lang="he" dir="rtl">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>TableX</title>
+  <link rel="icon" href="favicon.ico" sizes="any"/>
+  <script>
+    /* Runs BEFORE any stylesheet paints. Applying theme and direction here
+       is what stops a white flash before a dark-mode user's CSS lands, and
+       an RTL->LTR jump for an English user. Everything else waits for
+       js/i18n.js; this only touches <html> attributes. */
+    (function () {
+      try {
+        var t = localStorage.getItem('tablex_theme');
+        if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+        var l = localStorage.getItem('tablex_lang') || 'he';
+        document.documentElement.lang = l;
+        document.documentElement.dir = l === 'he' ? 'rtl' : 'ltr';
+      } catch (e) { document.documentElement.dataset.theme = 'light'; }
+    })();
+  </script>
+  <link rel="stylesheet" href="fonts/fonts.css"/>
   <link rel="stylesheet" href="css/main.css"/>
 </head>
 <body>
 
-  <!-- Gooey button filter -->
-  <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;">
-    <defs>
-      <filter id="goo">
-        <feGaussianBlur in="SourceGraphic" stdDeviation="10" result="blur"/>
-        <feColorMatrix in="blur" mode="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 18 -7" result="goo"/>
-        <feBlend in="SourceGraphic" in2="goo"/>
-      </filter>
-    </defs>
-  </svg>
+<!-- ══ LOADER ══ covers the async DB fetch; removed by app.js when ready ══ -->
+<div class="loader" id="loader">
+  <div class="loader-inner">
 
-  <!-- Island background filters (UIverse by AatreyuShau) -->
-  <svg height="0" width="0">
-    <filter id="octave1">
-      <feTurbulence type="fractalNoise" baseFrequency="0.0004" numOctaves="8" seed="4" result="o1"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o2"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0001" numOctaves="8" seed="4" result="o3"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0018" numOctaves="8" seed="4" result="o4"></feTurbulence>
-      <feMerge result="finalIsland">
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="o3"></feMergeNode>
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="o3"></feMergeNode>
-      </feMerge>
-      <feGaussianBlur in="finalIsland" stdDeviation="5" result="noiseo"></feGaussianBlur>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o1"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o2"></feTurbulence>
-      <feMerge result="noiseo">
-        <feMergeNode in="o2"></feMergeNode>
-        <feMergeNode in="o4"></feMergeNode>
-        <feMergeNode in="noiseo"></feMergeNode>
-      </feMerge>
-      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o1"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.002"  numOctaves="8" seed="4" result="o2"></feTurbulence>
-      <feMerge result="noiseo">
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="noiseo"></feMergeNode>
-      </feMerge>
-      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
-      <feDiffuseLighting in="noiseo" surfaceScale="12" diffuseConstant="1" lighting-color="#d7bb98" result="lit">
-        <feDistantLight azimuth="90" elevation=""></feDistantLight>
-      </feDiffuseLighting>
-      <feBlend in="lit" in2="SourceGraphic" mode="normal"></feBlend>
-    </filter>
-
-    <filter id="octave2">
-      <feTurbulence type="fractalNoise" baseFrequency="0.0004" numOctaves="8" seed="4" result="o1"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o2"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0001" numOctaves="8" seed="4" result="o3"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0018" numOctaves="8" seed="4" result="o4"></feTurbulence>
-      <feMerge result="finalIsland">
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="o3"></feMergeNode>
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="o3"></feMergeNode>
-      </feMerge>
-      <feGaussianBlur in="finalIsland" stdDeviation="5" result="noiseo"></feGaussianBlur>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0008" numOctaves="8" seed="4" result="o1"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o2"></feTurbulence>
-      <feMerge result="noiseo">
-        <feMergeNode in="o2"></feMergeNode>
-        <feMergeNode in="o4"></feMergeNode>
-        <feMergeNode in="noiseo"></feMergeNode>
-      </feMerge>
-      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
-      <feTurbulence type="fractalNoise" baseFrequency="0.0016" numOctaves="8" seed="4" result="o1"></feTurbulence>
-      <feTurbulence type="fractalNoise" baseFrequency="0.002"  numOctaves="8" seed="4" result="o2"></feTurbulence>
-      <feMerge result="noiseo">
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="o1"></feMergeNode>
-        <feMergeNode in="noiseo"></feMergeNode>
-      </feMerge>
-      <feGaussianBlur in="noiseo" stdDeviation="5" result="noiseo"></feGaussianBlur>
-      <feDiffuseLighting in="noiseo" surfaceScale="12" diffuseConstant="1" lighting-color="#d1bf96" result="lit">
-        <feDistantLight azimuth="-90" elevation=""></feDistantLight>
-      </feDiffuseLighting>
-      <feBlend in="lit" in2="SourceGraphic" mode="normal"></feBlend>
-    </filter>
-  </svg>
-
-  <div class="island"></div>
-  <div class="islandt"></div>
-  <div class="hatch"></div>
-
-  <!-- DB file input (hidden) -->
-  <input type="file" id="dbFileInput" accept=".xlsx" style="display:none"/>
-
-  <!-- LANDING -->
-  <div id="viewLanding" class="view">
-    <div class="landing-content">
-      <h1 class="title">TableX</h1>
-      <p class="subtitle">מחולל טבלת נתונים</p>
-      <div class="buttons">
-        <button id="btnLoadDb" class="button">
-          <div class="gradient-container"><div class="gradient"></div></div>
-          <div class="label">טען DB</div>
-        </button>
-        <button id="btnOpen" class="button">
-          <div class="gradient-container"><div class="gradient"></div></div>
-          <div class="label">הכנס נתונים</div>
-        </button>
+    <!-- Pixel ghost, adapted from Uiverse.io by moraxh. 14x14 CSS grid at 10px
+         a cell; the bottom two rows flicker between two states to wave the
+         skirt. Face pieces sit inside .gh-body so they ride the bob. -->
+    <div class="gh" aria-hidden="true">
+      <div class="gh-shadow"></div>
+      <div class="gh-body">
+        <i class="t0"></i><i class="t1"></i><i class="t2"></i><i class="t3"></i><i class="t4"></i>
+        <i class="s0"></i><i class="s1"></i><i class="s2"></i><i class="s3"></i><i class="s4"></i><i class="s5"></i>
+        <i class="a1  f0"></i><i class="a2  f1"></i><i class="a3  f1"></i><i class="a4  f1"></i>
+        <i class="a5  f1"></i><i class="a6  f0"></i><i class="a7  f0"></i><i class="a8  f0"></i>
+        <i class="a9  f1"></i><i class="a10 f1"></i><i class="a11 f0"></i><i class="a12 f0"></i>
+        <i class="a13 f0"></i><i class="a14 f1"></i><i class="a15 f1"></i><i class="a16 f1"></i>
+        <i class="a17 f1"></i><i class="a18 f0"></i>
+        <span class="gh-pupil"></span><span class="gh-pupil2"></span>
+        <span class="gh-m0"></span><span class="gh-m1"></span><span class="gh-m2"></span>
+        <span class="gh-m3"></span><span class="gh-m4"></span><span class="gh-m5"></span>
+        <span class="gh-m6"></span>
       </div>
-      <p id="dbStatus" class="db-status">לא נטען DB</p>
+    </div>
+
+    <div class="loader-word">TableX</div>
+    <div class="loader-track"><div class="loader-bar" id="loaderBar"></div></div>
+    <div class="loader-status" id="loaderStatus" data-i18n="loader.status"></div>
+  </div>
+</div>
+
+<!-- hidden file input, reused by every DB update -->
+<input type="file" id="dbFileInput" accept=".xlsx" hidden/>
+
+<!-- ══ NAV ══ -->
+<header class="nav" id="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#" id="brandHome">
+      <!-- Ghost mark, generated by tools/build_icon.py from the same 14x14
+           grid as the loader and the .ico. Regenerate, don't hand-edit. -->
+      <svg class="brand-mark" viewBox="0 0 14 14" shape-rendering="crispEdges" aria-hidden="true">
+        <rect x="5" y="0" width="4" height="1" fill="currentColor"/>
+        <rect x="3" y="1" width="8" height="1" fill="currentColor"/>
+        <rect x="2" y="2" width="10" height="1" fill="currentColor"/>
+        <rect x="1" y="3" width="12" height="1" fill="currentColor"/>
+        <rect x="1" y="4" width="12" height="1" fill="currentColor"/>
+        <rect x="1" y="5" width="2" height="1" fill="currentColor"/>
+        <rect x="3" y="5" width="2" height="1" fill="var(--paper)"/>
+        <rect x="5" y="5" width="4" height="1" fill="currentColor"/>
+        <rect x="9" y="5" width="2" height="1" fill="var(--paper)"/>
+        <rect x="11" y="5" width="2" height="1" fill="currentColor"/>
+        <rect x="0" y="6" width="3" height="1" fill="currentColor"/>
+        <rect x="3" y="6" width="2" height="1" fill="var(--paper)"/>
+        <rect x="5" y="6" width="4" height="1" fill="currentColor"/>
+        <rect x="9" y="6" width="2" height="1" fill="var(--paper)"/>
+        <rect x="11" y="6" width="3" height="1" fill="currentColor"/>
+        <rect x="0" y="7" width="14" height="1" fill="currentColor"/>
+        <rect x="0" y="8" width="14" height="1" fill="currentColor"/>
+        <rect x="0" y="9" width="2" height="1" fill="currentColor"/>
+        <rect x="2" y="9" width="2" height="1" fill="var(--paper)"/>
+        <rect x="4" y="9" width="2" height="1" fill="currentColor"/>
+        <rect x="6" y="9" width="2" height="1" fill="var(--paper)"/>
+        <rect x="8" y="9" width="2" height="1" fill="currentColor"/>
+        <rect x="10" y="9" width="2" height="1" fill="var(--paper)"/>
+        <rect x="12" y="9" width="2" height="1" fill="currentColor"/>
+        <rect x="0" y="10" width="1" height="1" fill="currentColor"/>
+        <rect x="1" y="10" width="1" height="1" fill="var(--paper)"/>
+        <rect x="2" y="10" width="2" height="1" fill="currentColor"/>
+        <rect x="4" y="10" width="2" height="1" fill="var(--paper)"/>
+        <rect x="6" y="10" width="2" height="1" fill="currentColor"/>
+        <rect x="8" y="10" width="2" height="1" fill="var(--paper)"/>
+        <rect x="10" y="10" width="2" height="1" fill="currentColor"/>
+        <rect x="12" y="10" width="1" height="1" fill="var(--paper)"/>
+        <rect x="13" y="10" width="1" height="1" fill="currentColor"/>
+        <rect x="0" y="11" width="14" height="1" fill="currentColor"/>
+        <rect x="0" y="12" width="4" height="1" fill="currentColor"/>
+        <rect x="5" y="12" width="4" height="1" fill="currentColor"/>
+        <rect x="10" y="12" width="4" height="1" fill="currentColor"/>
+        <rect x="1" y="13" width="3" height="1" fill="currentColor"/>
+        <rect x="6" y="13" width="2" height="1" fill="currentColor"/>
+        <rect x="10" y="13" width="3" height="1" fill="currentColor"/>
+      </svg>
+      <span class="brand-word">TableX</span>
+    </a>
+
+    <nav class="nav-links">
+      <button class="nav-link" data-goto="home" data-i18n="nav.input"></button>
+      <button class="nav-link" data-goto="db" data-i18n="nav.db"></button>
+    </nav>
+
+    <div class="nav-actions">
+      <span class="db-chip" id="dbChip" data-i18n-title="chip.title">
+        <span class="db-chip-dot" id="dbChipDot"></span>
+        <span id="dbChipText" data-i18n="chip.loading"></span>
+      </span>
+
+      <div class="set-wrap">
+        <button class="icon-btn" id="btnSettings" aria-haspopup="true"
+                aria-expanded="false" data-i18n-title="set.open">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <circle cx="10" cy="10" r="2.6" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M10 2.2v1.9M10 15.9v1.9M17.8 10h-1.9M4.1 10H2.2M15.5 4.5l-1.3 1.3M5.8 14.2l-1.3 1.3M15.5 15.5l-1.3-1.3M5.8 5.8 4.5 4.5"
+                  stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+
+        <div class="set-pop hidden" id="setPop" role="dialog" aria-label="Settings">
+          <div class="set-group">
+            <p class="set-label" data-i18n="set.theme"></p>
+            <div class="seg" id="segTheme">
+              <button class="seg-btn" data-set-theme="light" data-i18n="set.light"></button>
+              <button class="seg-btn" data-set-theme="dark"  data-i18n="set.dark"></button>
+            </div>
+          </div>
+          <div class="set-group">
+            <p class="set-label" data-i18n="set.lang"></p>
+            <div class="seg" id="segLang">
+              <button class="seg-btn" data-set-lang="he" dir="rtl">עברית</button>
+              <button class="seg-btn" data-set-lang="en" dir="ltr">English</button>
+            </div>
+          </div>
+          <p class="set-note" data-i18n="set.note"></p>
+        </div>
+      </div>
     </div>
   </div>
+</header>
 
-  <!-- INPUT MODAL -->
-  <div id="overlay" class="overlay hidden">
-    <div class="modal" dir="rtl">
-      <div class="modal-head">
-        <h2>הכנסת נתונים</h2>
-        <button id="btnClose" class="btn-x">✕</button>
-      </div>
-      <p class="modal-hint">
-        הדבק נתונים מ-Excel (Tab מפריד) — סדר עמודות מהדבקה מגיליון RTL:<br/>
-        <code>אתר_3 | אתר_2 | אתר_1 | עוצמה_3 | עוצמה_2 | עוצמה_1 | נקודה</code><br/>
-        <span style="opacity:0.6">אתר_1 = חזק ביותר · עוצמות כערכים חיוביים (יוצגו כ-dBm שלילי)</span>
+<!-- ══ HOME ══ -->
+<main class="view" id="viewHome">
+
+  <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <p class="eyebrow eyebrow-on-dark reveal" style="--d:0ms">
+        <span class="dot"></span><span dir="ltr">PLANET 7.10 → PPTX</span>
       </p>
-      <textarea id="inputArea" class="modal-ta" spellcheck="false"
-        placeholder="דוגמה:&#10;IN0625B&#9;NE4295B&#9;MN4610A&#9;93&#9;89&#9;85&#9;1&#10;EI2085C&#9;IN0625B&#9;NE4295B&#9;94&#9;90&#9;86&#9;2"></textarea>
-      <div class="modal-foot">
-        <button id="btnSample" class="btn-secondary">טען דוגמה</button>
-        <span style="flex:1"></span>
-        <button id="btnCancel" class="btn-secondary">ביטול</button>
-        <button id="btnGenerate" class="btn-primary">← צור טבלה</button>
+      <h1 class="hero-title reveal" style="--d:60ms" data-i18n-html="hero.title"></h1>
+      <p class="hero-sub reveal" style="--d:120ms" data-i18n="hero.sub"></p>
+    </div>
+  </section>
+
+  <!-- paste card bridges the dark hero into the white page below -->
+  <section class="bridge">
+    <div class="card paste-card reveal" style="--d:180ms">
+      <div class="paste-head">
+        <div>
+          <h2 class="card-title" data-i18n="paste.title"></h2>
+          <p class="card-sub" data-i18n="paste.sub"></p>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btnSample" data-i18n="paste.sample"></button>
       </div>
+
+      <div class="schema" dir="ltr">
+        <span class="schema-cell" data-i18n="col.site3"></span>
+        <span class="schema-cell" data-i18n="col.site2"></span>
+        <span class="schema-cell" data-i18n="col.site1"></span>
+        <span class="schema-cell" data-i18n="col.pwr3"></span>
+        <span class="schema-cell" data-i18n="col.pwr2"></span>
+        <span class="schema-cell" data-i18n="col.pwr1"></span>
+        <span class="schema-cell schema-pt" data-i18n="col.point"></span>
+      </div>
+      <p class="schema-note" data-i18n-html="paste.note"></p>
+
+      <textarea id="inputArea" class="ta" spellcheck="false" dir="ltr" rows="9"
+        placeholder="LIN0625Da&#9;LNE4295Da&#9;LNN4610Da&#9;93&#9;89&#9;85&#9;1&#10;LEI2085Da&#9;LIN0625Da&#9;LNE4295Da&#9;94&#9;90&#9;86&#9;2"></textarea>
+
+      <div class="paste-foot">
+        <span class="hint" id="pasteHint" data-i18n="hint.waiting"></span>
+        <button class="btn btn-primary" id="btnGenerate">
+          <span data-i18n="paste.generate"></span>
+          <svg class="btn-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ DATABASES ══ -->
+  <section class="section" id="sectionDb">
+    <div class="section-head">
+      <p class="eyebrow"><span class="dot"></span><span data-i18n="db.eyebrow"></span></p>
+      <h2 class="section-title" data-i18n="db.title"></h2>
+      <p class="section-sub" data-i18n="db.sub"></p>
+    </div>
+    <div class="db-grid" id="dbGrid"><!-- rendered by app.js --></div>
+  </section>
+
+  <footer class="foot">
+    <span>TableX</span>
+    <span class="foot-sep">·</span>
+    <span data-i18n="foot.tag"></span>
+    <span class="grow"></span>
+    <button class="credit" id="btnAbout" data-i18n="foot.credit" data-i18n-title="foot.creditTitle"></button>
+  </footer>
+</main>
+
+<!-- ══ TABLE ══ -->
+<main class="view hidden" id="viewTable">
+  <div class="toolbar">
+    <div class="toolbar-inner">
+      <button class="btn btn-ghost btn-sm" id="btnBack">
+        <svg class="btn-arrow flip" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span data-i18n="tbl.back"></span>
+      </button>
+      <span class="toolbar-meta" id="tableMeta"></span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="btnPrint" data-i18n="tbl.print"></button>
+      <button class="btn btn-primary btn-sm" id="btnPptx" data-i18n="tbl.pptx"></button>
     </div>
   </div>
 
-  <!-- TABLE VIEW -->
-  <div id="viewTable" class="view hidden">
-    <div class="ctrl-bar" dir="rtl">
-      <button id="btnBack" class="ctrl-btn">→ חזור</button>
-      <span class="ctrl-spacer"></span>
-      <button id="btnPrint" class="ctrl-btn">הדפס / PDF</button>
-      <button id="btnPptx" class="ctrl-btn ctrl-accent">הורד PPTX ⬇</button>
-    </div>
-    <div class="doc-wrap">
+  <div class="doc-wrap">
+    <div class="doc-shell">
+      <div class="notice hidden" id="missNotice">
+        <svg class="notice-ico" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.4" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M8 4.8v3.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <circle cx="8" cy="11" r=".85" fill="currentColor"/>
+        </svg>
+        <div>
+          <strong id="missTitle"></strong>
+          <div class="notice-body" id="missBody"></div>
+        </div>
+      </div>
       <div id="docPage" class="doc-page"></div>
     </div>
   </div>
+</main>
 
-  <script src="js/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-  <script src="js/app.js"></script>
+<!-- ══ SITE EDITOR ══ per-site add/remove, so a one-site change needs no xlsx ══ -->
+<div class="ed-overlay hidden" id="dbEditor">
+  <div class="ed-modal" role="dialog" aria-modal="true" aria-labelledby="edTitle">
+
+    <header class="ed-head">
+      <div>
+        <p class="eyebrow"><span class="dot"></span><span id="edNet"></span></p>
+        <h2 class="ed-title" id="edTitle" data-i18n="ed.title"></h2>
+        <p class="ed-count" id="edCount"></p>
+      </div>
+      <button class="ab-x" id="edClose" data-i18n-title="ed.close" aria-label="Close">✕</button>
+    </header>
+
+    <div class="ed-bar">
+      <input class="ed-search" id="edSearch" type="search" autocomplete="off"
+             data-i18n-placeholder="ed.search"/>
+      <button class="btn btn-primary btn-sm" id="edAddToggle">
+        <span class="ed-plus" aria-hidden="true">+</span>
+        <span data-i18n="ed.add"></span>
+      </button>
+    </div>
+
+    <!-- add form, collapsed by default -->
+    <form class="ed-add hidden" id="edAdd" autocomplete="off">
+      <p class="set-label" data-i18n="ed.addTitle"></p>
+      <div class="ed-grid">
+        <label class="ed-field">
+          <span data-i18n="ed.sectorId"></span>
+          <input id="edSectorId" dir="ltr" required placeholder="LNN4610Da"/>
+        </label>
+        <label class="ed-field">
+          <span data-i18n="ed.siteId"></span>
+          <input id="edSiteId" dir="ltr" required placeholder="MN4610A"/>
+        </label>
+        <label class="ed-field ed-wide">
+          <span data-i18n="ed.siteName"></span>
+          <input id="edSiteName" placeholder="גג בית העם  דישון"/>
+        </label>
+        <label class="ed-field">
+          <span data-i18n="ed.sector"></span>
+          <input id="edSector" dir="ltr" placeholder="Da"/>
+        </label>
+        <label class="ed-field">
+          <span data-i18n="ed.freq"></span>
+          <input id="edFreq" dir="ltr" inputmode="decimal" placeholder="1800"/>
+        </label>
+        <label class="ed-field">
+          <span data-i18n="ed.bw"></span>
+          <input id="edBw" dir="ltr" inputmode="decimal" placeholder="20"/>
+        </label>
+      </div>
+      <div class="ed-add-foot">
+        <button type="button" class="btn btn-ghost btn-sm" id="edAddCancel" data-i18n="ed.cancel"></button>
+        <button type="submit" class="btn btn-primary btn-sm" data-i18n="ed.submit"></button>
+      </div>
+    </form>
+
+    <div class="ed-list" id="edList"></div>
+
+    <footer class="ed-foot">
+      <span class="ed-dirty" id="edDirty"></span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="edCancel" data-i18n="ed.cancel"></button>
+      <button class="btn btn-primary btn-sm" id="edSave" disabled data-i18n="ed.save"></button>
+    </footer>
+  </div>
+</div>
+
+<!-- ══ ABOUT THE BUILDER ══ -->
+<div class="ab-overlay hidden" id="aboutModal">
+  <div class="ab-modal card" role="dialog" aria-modal="true" aria-labelledby="abName">
+    <button class="ab-x" id="btnAboutClose" data-i18n-title="about.close" aria-label="Close">✕</button>
+
+    <div class="ab-head">
+      <div class="ab-photo-wrap">
+        <img class="ab-photo" src="img/elad.jpg" alt="Elad Pinhasov"
+             onerror="this.hidden=true;this.nextElementSibling.hidden=false"/>
+        <div class="ab-photo-fallback" hidden>EP</div>
+      </div>
+      <div>
+        <p class="eyebrow ab-eyebrow"><span class="dot"></span>
+          <span dir="ltr">TABLEX · RF PLANNING · PLANET 7.10</span>
+        </p>
+        <h2 class="ab-name" id="abName" dir="ltr">Elad Pinhasov</h2>
+        <p class="ab-role" data-i18n="about.role"></p>
+      </div>
+    </div>
+
+    <ul class="ab-facts" id="abFacts"></ul>
+
+    <blockquote class="ab-quote" data-i18n="about.quote"></blockquote>
+
+    <div class="ab-foot">
+      <span class="ab-stat"><strong>14,252</strong> <span data-i18n="about.stat1"></span></span>
+      <span class="ab-stat"><strong>~20</strong> <span data-i18n="about.stat2"></span></span>
+      <span class="ab-stat"><strong data-i18n="about.stat3n"></strong> <span data-i18n="about.stat3"></span></span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="js/i18n.js"></script>
+<script src="js/xlsx.full.min.js"></script>
+<script src="js/pptxgen.bundle.js"></script>
+<script src="js/app.js"></script>
 </body>
 </html>

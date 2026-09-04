@@ -1,0 +1,13 @@
+# Rollback copies written by server.ps1 before a database update.
+TableX/data/*.bak
+
+# Scratch output from tools/build_icon.py (the inline SVG snippet, which is
+# pasted into index.html rather than shipped as a file).
+tools/_ghost-inline.svg.txt
+
+# Build scaffolding, if TableX is ever packaged like Interfex.
+node_modules/
+dist/
+main.js
+package.json
+package-lock.json
