@@ -1,32 +1,62 @@
 #!/usr/bin/env python3
 """Planet network export (.xlsx) -> TableX/data/<network>.json
 
-    python tools/build_db.py partner TableX/DB/DEMO_DB.xlsx
-    python tools/build_db.py idf     path\\to\\idf_sites.xlsx
-    python tools/build_db.py cellcom path\\to\\cellcom.xlsx
+    python tools/build_db.py partner path\\to\\Partner_May_26_V3.xlsx
+    python tools/build_db.py idf     path\\to\\IDF_Share.xlsx
 
 Stdlib only -- an .xlsx is a zip of XML -- so this runs anywhere Python does,
 same as Interfex's tools/build_cell_map.py.
 
-The sheet is found by its HEADERS, not its name, so a future export that
-renames the tab still converts. Required headers (case/space-insensitive):
+TWO WORKBOOK LAYOUTS, both found by HEADERS and never by tab name, so a
+renamed tab still converts and a sheet we do not need is simply never matched:
 
-    Sector ID | Site ID | Site Name | Sector | Frequency (MHz) | Bandwidth (MHz)
+  A. PLANET GROUP EXPORT (multi-sheet) -- what "export group" produces for
+     Cellcom_Share / Partner_Share / Pelephone_Share / IDF_Share. Planet adds
+     further sheets to the workbook after the first upload; we match the two we
+     need by signature and ignore everything else, so the file needs no cleaning
+     before import and a future Planet version that appends more sheets still
+     works.
+
+       Sites   sheet:  Site ID + a name column, and NO Sector ID
+       Sectors sheet:  Sector ID + Site ID + Band Name
+
+     Three derivations, each verified against the shipped partner.json over the
+     14,008 sector ids the two sources share (2026-09-05):
+
+       site name   <- the BEST POPULATED of Description / Site Name.
+                      Planet's `Site Name` column is EMPTY in all 3,129 rows of
+                      the Partner export and the Hebrew lives in `Description`,
+                      so keying blindly on the column called "Site Name" builds
+                      a database of blank names. Presence is not enough; count.
+       sector      <- trailing letters of the Sector ID (LEA0402Da -> Da).
+                      14,008/14,008 exact.
+       freq + bw   <- Band Name, "1800_20" -> 1800 MHz / 20 MHz.
+                      freq 14,008/14,008 exact; bw 13,984/14,008, the 24
+                      differences being a real 700 MHz carrier change that the
+                      export's own `Carrier Bandwidth (MHz)` column confirms.
+
+  B. FLAT SHEET (single-sheet) -- the older DEMO_DB.xlsx shape. Kept so existing
+     workbooks still import. All six headers in ONE sheet:
+
+       Sector ID | Site ID | Site Name | Sector | Frequency (MHz) | Bandwidth (MHz)
 
 Output shape -- names are deduplicated per site, which matters because a site
-carries up to 9 sectors and the Hebrew name is the longest field:
+carries up to 12 sectors here and the Hebrew name is the longest field:
 
     {
       "network": "partner",
       "label":   "Partner",
-      "source":  "DEMO_DB.xlsx",
-      "built":   "2026-09-04",
-      "sites":   { "MN4610A": "גג בית העם  דישון" },
+      "source":  "Partner_May_26_V3.xlsx",
+      "built":   "2026-09-05",
+      "sites":   { "MN4610A": "..." },
       "sectors": { "LNN4610Da": ["MN4610A", "Da", 1800, 20] }
     }
 
 The app keys on sector id (what Planet's point analysis reports) and falls back
 to site id, flagging that row as approximate.
+
+parseWorkbook() in TableX/js/app.js implements this SAME contract in the
+browser. Change one, change the other.
 """
 import datetime
 import json
@@ -42,8 +72,14 @@ DATA = os.path.join(ROOT, 'TableX', 'data')
 LABELS = {'idf': 'IDF', 'cellcom': 'Cellcom',
           'partner': 'Partner', 'pelephone': 'Pelephone'}
 
+# Layout B: every header required in one sheet.
 WANT = ['sector id', 'site id', 'site name', 'sector',
         'frequency (mhz)', 'bandwidth (mhz)']
+
+# Layout A: candidate site-name columns, best-populated wins (see module docs).
+NAME_COLS = ['description', 'site name', 'site name 2']
+
+TRAILING_ALPHA = re.compile(r'([A-Za-z]+)$')
 
 
 def col_index(ref):
@@ -108,20 +144,177 @@ def num(s):
     return int(f) if f == int(f) else f
 
 
-def find_sheet(zf, sst):
-    """Return (path, {header: column index}) for the first sheet carrying all
-    the required headers in one of its first few rows."""
-    sheets = sorted(n for n in zf.namelist()
-                    if re.match(r'xl/worksheets/sheet\d+\.xml$', n))
-    for path in sheets:
-        for depth, row in enumerate(rows_of(zf, path, sst)):
-            if depth > 4:
+def sheet_index(zf):
+    """[(display name, xml path)] in workbook order, so messages can name the
+    sheet a human sees rather than 'sheet4.xml'."""
+    wb = zf.read('xl/workbook.xml').decode('utf8')
+    rels = zf.read('xl/_rels/workbook.xml.rels').decode('utf8')
+    target = {}
+    for rm in re.finditer(r'<Relationship\b[^>]*/>', rels):
+        tag = rm.group(0)
+        rid = re.search(r'Id="([^"]+)"', tag)
+        tgt = re.search(r'Target="([^"]+)"', tag)
+        if rid and tgt:
+            # Targets come BOTH ways in the wild: '/xl/worksheets/sheet1.xml'
+            # (absolute, DEMO_DB.xlsx) and 'worksheets/sheet1.xml' (relative to
+            # xl/, Partner_May_26_V3.xlsx). Strip, then prefix only if needed.
+            path = tgt.group(1).lstrip('/')
+            if not path.startswith('xl/'):
+                path = 'xl/' + path
+            target[rid.group(1)] = path
+    out = []
+    for sm in re.finditer(r'<sheet\b[^>]*/>', wb):
+        tag = sm.group(0)
+        name = re.search(r'name="([^"]*)"', tag)
+        rid = re.search(r'r:id="([^"]*)"', tag)
+        if name and rid and rid.group(1) in target:
+            out.append((unescape(name.group(1)), target[rid.group(1)]))
+    names = set(zf.namelist())
+    out = [(n, p) for n, p in out if p in names]
+    if not out:                     # unreadable workbook.xml -- fall back to
+        out = [(p, p) for p in sorted(                    # positional order
+            n for n in names if re.match(r'xl/worksheets/sheet\d+\.xml$', n))]
+    return out
+
+
+def load_sheets(zf, sst):
+    """[(name, {normalised header: column index}, [data rows])] for every sheet
+    carrying a recognisable header row in its first five lines."""
+    out = []
+    for name, path in sheet_index(zf):
+        try:
+            rows = list(rows_of(zf, path, sst))
+        except KeyError:
+            continue
+        for i, row in enumerate(rows[:5]):
+            hdr = {re.sub(r'\s+', ' ', c).strip().lower(): j
+                   for j, c in enumerate(row) if c}
+            if 'site id' in hdr:
+                out.append((name, hdr, rows[i + 1:]))
                 break
-            norm = {re.sub(r'\s+', ' ', c).strip().lower(): i
-                    for i, c in enumerate(row) if c}
-            if all(w in norm for w in WANT):
-                return path, norm
-    return None, None
+    return out
+
+
+def cell(row, hdr, key):
+    i = hdr.get(key)
+    return row[i].strip() if i is not None and i < len(row) else ''
+
+
+def best_name_col(hdr, rows):
+    """Which candidate column actually holds the site name. Planet ships a
+    `Site Name` column that is entirely empty, so presence is not enough --
+    pick the one with the most populated cells."""
+    best, best_n = None, 0
+    for key in NAME_COLS:
+        if key not in hdr:
+            continue
+        n = sum(1 for r in rows if cell(r, hdr, key))
+        if n > best_n:
+            best, best_n = key, n
+    return best
+
+
+def parse_band(s):
+    """'1800_20' -> (1800, 20).  '700_5_9435' -> (700, 5).  '' -> (None, None)"""
+    nums = re.findall(r'\d+', s or '')
+    return (int(nums[0]) if nums else None,
+            int(nums[1]) if len(nums) > 1 else None)
+
+
+def build_multi(sheets):
+    """Layout A. Returns (sites, sectors, description) or None."""
+    sec_sheet = None
+    for name, hdr, rows in sheets:
+        if 'sector id' in hdr and 'site id' in hdr and (
+                'band name' in hdr or
+                ('frequency (mhz)' in hdr and 'bandwidth (mhz)' in hdr)):
+            sec_sheet = (name, hdr, rows)
+            break
+    if not sec_sheet:
+        return None
+
+    site_sheet = None
+    for name, hdr, rows in sheets:
+        if 'sector id' in hdr:               # that is a sector sheet, not sites
+            continue
+        if best_name_col(hdr, rows):
+            site_sheet = (name, hdr, rows)
+            break
+    if not site_sheet:
+        return None
+
+    s_name, s_hdr, s_rows = site_sheet
+    name_col = best_name_col(s_hdr, s_rows)
+    sites = {}
+    for row in s_rows:
+        site_id = cell(row, s_hdr, 'site id')
+        if not site_id:
+            continue
+        nm = cell(row, s_hdr, name_col)
+        if site_id not in sites or (nm and not sites[site_id]):
+            sites[site_id] = nm
+
+    c_name, c_hdr, c_rows = sec_sheet
+    sectors, skipped = {}, 0
+    for row in c_rows:
+        sec_id = cell(row, c_hdr, 'sector id')
+        site_id = cell(row, c_hdr, 'site id')
+        if not sec_id or not site_id:
+            skipped += 1
+            continue
+        sector = cell(row, c_hdr, 'sector')
+        if not sector:
+            m = TRAILING_ALPHA.search(sec_id)
+            sector = m.group(1) if m else None
+        freq, bw = parse_band(cell(row, c_hdr, 'band name'))
+        if 'frequency (mhz)' in c_hdr:                # explicit beats derived
+            freq = num(cell(row, c_hdr, 'frequency (mhz)')) or freq
+        if 'bandwidth (mhz)' in c_hdr:
+            bw = num(cell(row, c_hdr, 'bandwidth (mhz)')) or bw
+        elif 'carrier bandwidth (mhz)' in c_hdr:
+            bw = num(cell(row, c_hdr, 'carrier bandwidth (mhz)')) or bw
+        sectors[sec_id] = [site_id, sector or None, freq, bw]
+
+    # A site with no sectors is unreachable by any lookup, so carrying its name
+    # only grows a file the browser fetches on every load. Same rule the site
+    # editor applies when you remove a site's last sector.
+    used = set(v[0] for v in sectors.values())
+    dropped = [k for k in sites if k not in used]
+    for k in dropped:
+        del sites[k]
+
+    desc = ('multi-sheet: sites=%r (name column %r), sectors=%r'
+            % (s_name, name_col, c_name))
+    if dropped:
+        desc += '\n  dropped %d site(s) with no sectors' % len(dropped)
+    if skipped:
+        desc += '\n  skipped %d sector row(s) with no sector id / site id' % skipped
+    return sites, sectors, desc
+
+
+def build_flat(sheets):
+    """Layout B. Returns (sites, sectors, description) or None."""
+    for name, hdr, rows in sheets:
+        if not all(w in hdr for w in WANT):
+            continue
+        sites, sectors, skipped = {}, {}, 0
+        for row in rows:
+            sec_id = cell(row, hdr, 'sector id')
+            site_id = cell(row, hdr, 'site id')
+            if not sec_id or not site_id:
+                skipped += 1
+                continue
+            nm = cell(row, hdr, 'site name')
+            if site_id not in sites or (nm and not sites[site_id]):
+                sites[site_id] = nm
+            sectors[sec_id] = [site_id, cell(row, hdr, 'sector') or None,
+                               num(cell(row, hdr, 'frequency (mhz)')),
+                               num(cell(row, hdr, 'bandwidth (mhz)'))]
+        desc = 'flat sheet: %r' % name
+        if skipped:
+            desc += '\n  skipped %d row(s) with no sector id / site id' % skipped
+        return sites, sectors, desc
+    return None
 
 
 def main():
@@ -135,29 +328,17 @@ def main():
 
     zf = zipfile.ZipFile(xlsx)
     sst = shared_strings(zf)
-    path, cols = find_sheet(zf, sst)
-    if not path:
-        sys.exit('No sheet carries all required headers:\n  %s'
-                 % '\n  '.join(WANT))
-    print('sheet: %s' % path)
+    sheets = load_sheets(zf, sst)
+    print('sheets read: %s' % ', '.join(repr(s[0]) for s in sheets))
 
-    sites, sectors, skipped = {}, {}, 0
-    header_seen = False
-    for row in rows_of(zf, path, sst):
-        get = lambda k: row[cols[k]] if cols[k] < len(row) else ''
-        if not header_seen:                       # the header row itself
-            if get('site id').strip().lower() == 'site id':
-                header_seen = True
-                continue
-        sec_id, site_id = get('sector id'), get('site id')
-        if not sec_id or not site_id:
-            skipped += 1
-            continue
-        name = get('site name')
-        if site_id not in sites or (name and not sites[site_id]):
-            sites[site_id] = name
-        sectors[sec_id] = [site_id, get('sector') or None,
-                           num(get('frequency (mhz)')), num(get('bandwidth (mhz)'))]
+    built = build_flat(sheets) or build_multi(sheets)
+    if not built:
+        sys.exit('No usable layout. Needs EITHER one sheet carrying\n  %s\n'
+                 'OR a Planet group export with a Sites sheet (Site ID + a '
+                 'name column)\nand a Sectors sheet (Sector ID + Site ID + '
+                 'Band Name).' % ' | '.join(WANT))
+    sites, sectors, desc = built
+    print('layout: %s' % desc)
 
     out = {
         'network': network,
@@ -169,13 +350,16 @@ def main():
     }
     os.makedirs(DATA, exist_ok=True)
     dest = os.path.join(DATA, '%s.json' % network)
+    if os.path.exists(dest):                       # the .bak has saved this
+        with open(dest, 'rb') as fh:               # database twice already
+            prev = fh.read()
+        with open(dest + '.bak', 'wb') as fh:
+            fh.write(prev)
     with open(dest, 'w', encoding='utf8') as fh:
         json.dump(out, fh, ensure_ascii=False, separators=(',', ':'))
 
     print('sites:   %6d' % len(sites))
     print('sectors: %6d' % len(sectors))
-    if skipped:
-        print('skipped: %6d (no sector id or no site id)' % skipped)
     print('wrote:   %s  (%.1f KB)' % (dest, os.path.getsize(dest) / 1024.0))
 
 

@@ -11,3 +11,7 @@ dist/
 main.js
 package.json
 package-lock.json
+
+# python bytecode from tools/*.py
+__pycache__/
+*.pyc

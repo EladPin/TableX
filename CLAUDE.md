@@ -211,21 +211,69 @@ DB card → **עדכן** → pick an `.xlsx`. The browser parses it with SheetJS
 `api/db/<network>`, and the server writes `data/<network>.json` (keeping one `.bak`). The card
 and the nav chip refresh immediately.
 
-The workbook's sheet is found **by its headers, not its name**, so a renamed tab still imports.
-Required, case- and space-insensitive:
+**Two workbook layouts are accepted, and both are found by HEADERS, never by tab name** — so a
+renamed tab still imports and a sheet we do not need is simply never matched.
+
+**A. Planet group export (multi-sheet) — the normal path.** `Partner_Share`, `Cellcom_Share`,
+`Pelephone_Share` and `IDF_Share` are groups the team *already* maintains in Planet, because the
+area analysis depends on them being current. So: `export group` → load. There is no cleaning step
+and no bespoke sheet to build. Planet appends extra sheets to the workbook after the first
+upload and they are ignored, which also means a future Planet version that adds more sheets
+still imports.
+
+Two of the seven sheets are used:
+
+| Sheet | Matched by | Gives |
+|-------|------------|-------|
+| `Sites`   | `Site ID` + a name column, and **no** `Sector ID` | Site ID → Hebrew name |
+| `Sectors` | `Sector ID` + `Site ID` + `Band Name`            | the sector row |
+
+Three values are derived, each verified against the shipped `partner.json` across the 14,008
+sector ids the two sources share (2026-09-05):
+
+- **The site name comes from `Description`, not `Site Name`.** Planet emits a `Site Name` column
+  that is **empty in all 3,129 rows** of the Partner export, while the Hebrew lives in
+  `Description`. The parser therefore picks the **best-populated** of `Description` /
+  `Site Name` / `Site Name 2` rather than the first one present — keying on the column merely
+  *called* "Site Name" builds a database of 3,129 blank names.
+- **The sector is the trailing letters of the Sector ID** (`LEA0402Da` → `Da`).
+  14,008 / 14,008 exact.
+- **Frequency and bandwidth come from `Band Name`** (`1800_20` → 1800 MHz / 20 MHz;
+  `700_5_9435` → 700 / 5). **No EARFCN conversion is needed** — Planet already reports MHz here.
+  Frequency 14,008 / 14,008 exact; bandwidth 13,984 / 14,008, the 24 differences being a real
+  700 MHz carrier change that the export's own `Carrier Bandwidth (MHz)` column confirms.
+
+An explicit `Frequency (MHz)` / `Bandwidth (MHz)` column on the sectors sheet beats the derived
+value when one is present. Sites carrying no sectors are dropped: a site no sector points at is
+unreachable by any lookup, which is the same rule the site editor applies.
+
+**B. Flat sheet (single-sheet) — the legacy path**, still accepted so older workbooks import. All
+six headers in ONE sheet, case- and space-insensitive:
 
 ```
 Sector ID | Site ID | Site Name | Sector | Frequency (MHz) | Bandwidth (MHz)
 ```
 
+Flat is tried **first**, which is what keeps `DEMO_DB.xlsx` reproducing its old output exactly —
+it turns out to be this same Planet group export with a hand-built `DB` tab appended, and that
+hand-built tab is precisely the manual step this path removes.
+
 `tools/build_db.py` implements the *same* contract offline, for building a DB without the app:
 
 ```
-python tools/build_db.py partner path	o\planet_export.xlsx
+python tools/build_db.py partner path\to\planet_export.xlsx
 ```
 
-Keep the two parsers in step — if you change the accepted headers or the output shape in one,
-change the other.
+Keep the two parsers in step — if you change the accepted headers, the derivations or the output
+shape in one, change the other. Verify by parsing the same workbook with both and diffing: on
+`Partner_May_26_V3.xlsx` and `DEMO_DB.xlsx` they agree on every site and every sector.
+
+**An import REPLACES the database — it does not merge.** A group export filtered to one region
+would otherwise quietly shrink a live DB, and the first sign of trouble is a table of
+untranslated English codes — the exact failure this app exists to prevent. So if the incoming
+sector count is **below 60% of the current one**, the import confirms first (`db.shrink`), and
+cancelling leaves the file untouched. A refresh that grows — the normal case — is never
+interrupted.
 
 **If the POST fails** (someone opened the page without the server), the parsed DB is still used
 for that session and the toast says plainly that it will not persist. Silent in-memory-only
@@ -435,6 +483,12 @@ the raw key.
   chokes on it. The route uses `[IO.File]::WriteAllText` with `UTF8Encoding($false)`.
 - **`docPage.innerHTML` is built by string concatenation** but every interpolated value now goes
   through `esc()`. Keep it that way.
+- **`xl/_rels/workbook.xml.rels` gives sheet targets BOTH ways.** `DEMO_DB.xlsx` writes them
+  absolute (`/xl/worksheets/sheet1.xml`), the Partner group export writes them relative
+  (`worksheets/sheet1.xml`). Prefixing blindly produces `xl/xl/...`, every sheet lookup misses,
+  and `build_db.py` reports *no usable layout* on a perfectly good workbook. Strip the leading
+  slash, then add `xl/` only if it isn't already there — and keep the `namelist()` guard that
+  falls back to positional order if `workbook.xml` can't be read.
 - **Verifying Hebrew in a terminal is useless here** — the console codepage mangles it and it
   looks like corruption when the data is fine. Verify by *comparing against a known-good
   source* (that is what the Interfex cross-check is for), not by eyeballing console output.
@@ -442,8 +496,9 @@ the raw key.
 ## Known gaps
 
 - **`idf`, `cellcom` and `pelephone` are empty.** The slots, both write paths and every UI state
-  work; they just have no data yet. Add rows through the site editor, import a Planet workbook
-  via the card, or run `tools/build_db.py`.
+  work; they just have no data yet. The intended route is now `export group` in Planet on
+  `IDF_Share` / `Cellcom_Share` / `Pelephone_Share` and load the workbook straight into the card;
+  the site editor and `tools/build_db.py` remain for single rows and for offline builds.
 - **PPTX is one slide with no pagination.** ~7 points (21 rows) fits; past ~15 rows the table
   runs off the bottom. `slide.addTable` supports `autoPage`; not enabled.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized

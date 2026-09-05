@@ -67,6 +67,9 @@
     'db.built': 'עודכן',
     'db.load': 'טען קובץ',
     'db.update': 'עדכן',
+    'db.shrink': 'ייבוא מחליף את מסד הנתונים — הוא אינו ממזג.\n\n' +
+                 '{label}: {was} סקטורים ← {now} סקטורים (ירידה של {pct}%).\n\n' +
+                 'ייתכן שהקובץ מכיל רק חלק מהרשת. לייבא בכל זאת?',
 
     'foot.tag': 'ניתוח נקודות Planet 7.10 → PPTX',
     'foot.credit': 'נבנה על ידי Elad Pinhasov',
@@ -91,7 +94,11 @@
     'toast.badData': 'לא זוהו נתונים תקינים. ודא שהעמודות מופרדות ב-Tab ושיש 7 עמודות בכל שורה.',
     'toast.dbsLoading': 'מסדי הנתונים עדיין נטענים — רגע אחד',
     'toast.reading': 'קורא את {f}…',
-    'toast.badSheet': 'לא נמצא גיליון עם העמודות הנדרשות: Sector ID · Site ID · Site Name · Sector · Frequency (MHz) · Bandwidth (MHz)',
+    'toast.badSheet': 'לא זוהה מבנה מוכר בקובץ. דרוש ייצוא קבוצה מ-Planet ' +
+                      '(גיליון Sites עם Site ID ועמודת שם, וגיליון Sectors עם ' +
+                      'Sector ID · Site ID · Band Name), או גיליון יחיד עם: ' +
+                      'Sector ID · Site ID · Site Name · Sector · Frequency (MHz) · Bandwidth (MHz)',
+    'toast.importCancelled': 'הייבוא בוטל — מסד הנתונים לא שונה',
     'toast.dbSaved': 'עודכן {label} — {n} סקטורים נשמרו בשרת',
     'toast.dbSession': 'נטען לשימוש בהפעלה זו בלבד — השמירה לשרת נכשלה ({e}). הפעל דרך start.bat כדי לשמור לצמיתות.',
     'toast.pptxMissing': 'ספריית PPTX לא נטענה — js/pptxgen.bundle.js חסר.',
@@ -175,6 +182,9 @@
     'db.built': 'Updated',
     'db.load': 'Load file',
     'db.update': 'Update',
+    'db.shrink': 'An import replaces the database — it does not merge.\n\n' +
+                 '{label}: {was} sectors → {now} sectors (down {pct}%).\n\n' +
+                 'This file may cover only part of the network. Import anyway?',
 
     'foot.tag': 'Planet 7.10 point analysis → PPTX',
     'foot.credit': 'Built by Elad Pinhasov',
@@ -199,7 +209,12 @@
     'toast.badData': 'No valid data found. Check that columns are Tab-separated and every line has 7 columns.',
     'toast.dbsLoading': 'Databases are still loading — one moment',
     'toast.reading': 'Reading {f}…',
-    'toast.badSheet': 'No sheet carries the required columns: Sector ID · Site ID · Site Name · Sector · Frequency (MHz) · Bandwidth (MHz)',
+    'toast.badSheet': 'No recognised layout in this file. It needs either a Planet ' +
+                      'group export (a Sites sheet with Site ID and a name column, plus ' +
+                      'a Sectors sheet with Sector ID · Site ID · Band Name), or a single ' +
+                      'sheet carrying: Sector ID · Site ID · Site Name · Sector · ' +
+                      'Frequency (MHz) · Bandwidth (MHz)',
+    'toast.importCancelled': 'Import cancelled — the database is unchanged',
     'toast.dbSaved': 'Updated {label} — {n} sectors saved on the server',
     'toast.dbSession': 'Loaded for this session only — the server write failed ({e}). Run via start.bat to persist it.',
     'toast.pptxMissing': 'PPTX library not loaded — js/pptxgen.bundle.js is missing.',

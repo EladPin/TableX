@@ -194,35 +194,141 @@
 
   function pickFile(net) { pendingNet = net; fileInput.value = ''; fileInput.click(); }
 
-  // Same contract as tools/build_db.py: find the sheet by its HEADERS, so a
-  // renamed tab still imports.
+  // Same contract as tools/build_db.py — TWO workbook layouts, both found by
+  // HEADERS and never by tab name, so a renamed tab still imports:
+  //
+  //   A. PLANET GROUP EXPORT (multi-sheet) — what "export group" produces for
+  //      Partner_Share / Cellcom_Share / Pelephone_Share / IDF_Share. A Sites
+  //      sheet (Site ID + a name column, no Sector ID) joined to a Sectors
+  //      sheet (Sector ID + Site ID + Band Name). Planet appends more sheets
+  //      to the workbook after the first upload; we match the two we need by
+  //      signature and ignore the rest, so nobody has to clean the file first
+  //      and a future Planet version that adds further sheets still works.
+  //   B. FLAT SHEET (single-sheet) — the older DEMO_DB.xlsx shape, all six
+  //      headers in ONE sheet. Kept so existing workbooks still import.
+  //
+  // Change either parser and change the other.
   const WANT = ['sector id', 'site id', 'site name', 'sector',
                 'frequency (mhz)', 'bandwidth (mhz)'];
+  // Best-POPULATED wins, not first present: Planet ships a `Site Name` column
+  // that is empty in all 3,129 rows of the Partner export while the Hebrew
+  // lives in `Description`. Keying on the column called "Site Name" would
+  // build a database of blank names.
+  const NAME_COLS = ['description', 'site name', 'site name 2'];
   const norm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
+  const TRAILING_ALPHA = /([A-Za-z]+)$/;
 
-  function parseWorkbook(wb) {
+  const cellAt = (row, hdr, k) => {
+    const i = hdr[k];
+    if (i == null || !row || row[i] == null) return '';
+    return String(row[i]).trim();
+  };
+
+  // Every sheet carrying a recognisable header row in its first five lines.
+  function readSheets(wb) {
+    const out = [];
     for (const name of wb.SheetNames) {
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false });
       for (let r = 0; r < Math.min(5, rows.length); r++) {
-        const cols = {};
-        (rows[r] || []).forEach((c, i) => { if (c) cols[norm(c)] = i; });
-        if (!WANT.every(w => w in cols)) continue;
-
-        const sites = Object.create(null), sectors = Object.create(null);
-        const at = (row, k) => { const v = row[cols[k]]; return v == null ? '' : String(v).trim(); };
-        for (let i = r + 1; i < rows.length; i++) {
-          const row = rows[i]; if (!row) continue;
-          const secId = at(row, 'sector id'), siteId = at(row, 'site id');
-          if (!secId || !siteId) continue;
-          const nm = at(row, 'site name');
-          if (!(siteId in sites) || (nm && !sites[siteId])) sites[siteId] = nm;
-          sectors[secId] = [siteId, at(row, 'sector') || null,
-                            num(at(row, 'frequency (mhz)')), num(at(row, 'bandwidth (mhz)'))];
-        }
-        return { sheet: name, sites, sectors };
+        const hdr = {};
+        (rows[r] || []).forEach((c, i) => { const k = norm(c); if (k) hdr[k] = i; });
+        if ('site id' in hdr) { out.push({ name, hdr, rows: rows.slice(r + 1) }); break; }
       }
     }
+    return out;
+  }
+
+  function bestNameCol(sh) {
+    let best = null, bestN = 0;
+    for (const k of NAME_COLS) {
+      if (!(k in sh.hdr)) continue;
+      let n = 0;
+      for (const row of sh.rows) if (cellAt(row, sh.hdr, k)) n++;
+      if (n > bestN) { best = k; bestN = n; }
+    }
+    return best;
+  }
+
+  // '1800_20' → [1800, 20].  '700_5_9435' → [700, 5].  '' → [null, null]
+  function parseBand(s) {
+    const nums = String(s == null ? '' : s).match(/\d+/g) || [];
+    return [nums.length ? +nums[0] : null, nums.length > 1 ? +nums[1] : null];
+  }
+
+  function buildFlat(sheets) {
+    for (const sh of sheets) {
+      if (!WANT.every(w => w in sh.hdr)) continue;
+      const sites = Object.create(null), sectors = Object.create(null);
+      for (const row of sh.rows) {
+        const secId = cellAt(row, sh.hdr, 'sector id');
+        const siteId = cellAt(row, sh.hdr, 'site id');
+        if (!secId || !siteId) continue;
+        const nm = cellAt(row, sh.hdr, 'site name');
+        if (!(siteId in sites) || (nm && !sites[siteId])) sites[siteId] = nm;
+        sectors[secId] = [siteId, cellAt(row, sh.hdr, 'sector') || null,
+                          num(cellAt(row, sh.hdr, 'frequency (mhz)')),
+                          num(cellAt(row, sh.hdr, 'bandwidth (mhz)'))];
+      }
+      return { layout: 'flat', sheet: sh.name, sites, sectors };
+    }
     return null;
+  }
+
+  function buildMulti(sheets) {
+    const secSheet = sheets.find(sh =>
+      'sector id' in sh.hdr && 'site id' in sh.hdr &&
+      ('band name' in sh.hdr ||
+       ('frequency (mhz)' in sh.hdr && 'bandwidth (mhz)' in sh.hdr)));
+    if (!secSheet) return null;
+    // A sheet with a Sector ID is a sector sheet, never the site list.
+    const siteSheet = sheets.find(sh => !('sector id' in sh.hdr) && bestNameCol(sh));
+    if (!siteSheet) return null;
+
+    const nameCol = bestNameCol(siteSheet);
+    const sites = Object.create(null);
+    for (const row of siteSheet.rows) {
+      const siteId = cellAt(row, siteSheet.hdr, 'site id');
+      if (!siteId) continue;
+      const nm = cellAt(row, siteSheet.hdr, nameCol);
+      if (!(siteId in sites) || (nm && !sites[siteId])) sites[siteId] = nm;
+    }
+
+    const hdr = secSheet.hdr, sectors = Object.create(null);
+    for (const row of secSheet.rows) {
+      const secId = cellAt(row, hdr, 'sector id');
+      const siteId = cellAt(row, hdr, 'site id');
+      if (!secId || !siteId) continue;
+      let sector = cellAt(row, hdr, 'sector');
+      if (!sector) {                               // LEA0402Da → Da
+        const m = TRAILING_ALPHA.exec(secId);
+        sector = m ? m[1] : '';
+      }
+      let [freq, bw] = parseBand(cellAt(row, hdr, 'band name'));
+      if ('frequency (mhz)' in hdr) {              // explicit beats derived
+        freq = num(cellAt(row, hdr, 'frequency (mhz)')) || freq;
+      }
+      if ('bandwidth (mhz)' in hdr) {
+        bw = num(cellAt(row, hdr, 'bandwidth (mhz)')) || bw;
+      } else if ('carrier bandwidth (mhz)' in hdr) {
+        bw = num(cellAt(row, hdr, 'carrier bandwidth (mhz)')) || bw;
+      }
+      sectors[secId] = [siteId, sector || null, freq, bw];
+    }
+
+    // A site with no sectors is unreachable by any lookup, so carrying its name
+    // only grows a file the browser fetches on every load. Same rule the site
+    // editor applies when you remove a site's last sector.
+    const used = Object.create(null);
+    for (const k in sectors) used[sectors[k][0]] = 1;
+    for (const k in sites) if (!(k in used)) delete sites[k];
+
+    return { layout: 'multi', sheet: siteSheet.name + ' + ' + secSheet.name,
+             sites, sectors };
+  }
+
+  function parseWorkbook(wb) {
+    const sheets = readSheets(wb);
+    return buildFlat(sheets) || buildMulti(sheets);
   }
 
   function num(s) {
@@ -248,6 +354,25 @@
         if (card) card.classList.remove('busy');
         toast(T('toast.badSheet') + (err ? ' — ' + err : ''), true);
         return;
+      }
+
+      // An import REPLACES the database, it does not merge. A group export
+      // filtered to one region would otherwise quietly shrink a live DB, and
+      // the first sign of trouble is a table of untranslated English codes —
+      // exactly the failure this app exists to prevent. Confirm a big drop;
+      // the normal case (a refresh that grows) is never interrupted.
+      const was = count(net, 'sectors');
+      const now = Object.keys(parsed.sectors).length;
+      if (was && now < was * 0.6) {
+        const ok = confirm(T('db.shrink', {
+          label: label(net), was: fmt(was), now: fmt(now),
+          pct: Math.round((1 - now / was) * 100),
+        }));
+        if (!ok) {
+          if (card) card.classList.remove('busy');
+          toast(T('toast.importCancelled'));
+          return;
+        }
       }
 
       const payload = {
