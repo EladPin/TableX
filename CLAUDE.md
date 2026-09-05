@@ -30,7 +30,7 @@ is the whole job this app removes:
 
 - **Planet speaks English codes; the deck must speak Hebrew site names.** A point analysis says
   `LNN4610Da`. The slide has to say `גג בית העם  דישון`, sector `Da`, 1800 MHz, 20 MHz. That
-  mapping lives in a **14,252-sector** Planet network export. Looking up three cells per point,
+  mapping lives in a **16,510-sector** Planet network export. Looking up three cells per point,
   across seven points, is where the time and the mistakes go.
 - **It is 20+ minutes per table, by hand, if you are good.** Reading the points out of Planet,
   translating the names, building the table in PowerPoint, and getting the RTL layout and the
@@ -124,11 +124,12 @@ TableX/
   index.html                  whole UI: nav, hero, paste card, DB grid, table view
   css/main.css                the Mintlify system, tokens at the top
   js/app.js                   the entire application, one IIFE
+  js/dbparse.js               the workbook contract — runs as a Web Worker
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/xlsx.full.min.js         SheetJS — vendored, reads an uploaded workbook
   js/pptxgen.bundle.js        PptxGenJS 3.12.0 — vendored, writes the deck
   fonts/                      self-hosted Inter (latin) + Heebo (hebrew), 9 woff2
-  data/partner.json           SHIPPED — 2,899 sites / 14,252 sectors, 673 KB
+  data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors, 767 KB
   data/idf.json               empty stub, awaiting data
   data/cellcom.json           empty stub, awaiting data
   data/pelephone.json         empty stub, awaiting data
@@ -159,7 +160,7 @@ because that step cost a click on every single use and the whole product is spee
 |------|-------|-------|
 | `idf` | IDF | **empty** — awaiting our own network export |
 | `cellcom` | Cellcom | **empty** — added 2026-09-04 |
-| `partner` | Partner | **shipped**, 2,899 sites / 14,252 sectors |
+| `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors |
 | `pelephone` | Pelephone | **empty** — data does not exist yet |
 
 `ours` was renamed to `idf` on 2026-09-04 — the key, the file (`data/ours.json` →
@@ -284,6 +285,32 @@ interrupted.
 **If the POST fails** (someone opened the page without the server), the parsed DB is still used
 for that session and the toast says plainly that it will not persist. Silent in-memory-only
 success would be worse than the error.
+
+### The parse runs in a Worker, and why
+
+Parsing an 8 MB Planet group export is **4–6 s of straight-line CPU**. On the main thread that is
+long enough for Chrome to raise **"הדף אינו מגיב" / "page unresponsive"** — alarming in a browser,
+unacceptable once TableX is packaged as an exe. So `js/dbparse.js` runs as a Web Worker and
+`app.js` only awaits it. Verified in headless Chrome: a 20 ms heartbeat on the main thread ticked
+163 times *during* a full Partner import, where a blocking parse would have ticked ~0.
+
+Three things here are load-bearing:
+
+- **`dbparse.js` is loaded BOTH ways** — as a `new Worker('js/dbparse.js')` and as a plain
+  `<script>` in `index.html`. As a script it only defines `self.TableXParse`; the `onmessage`
+  wiring is behind an `importScripts` check. That is what gives a main-thread fallback when a
+  Worker cannot start **without a second copy of the parser that could drift**. `app.js` itself no
+  longer references `XLSX` at all — the only reason `xlsx.full.min.js` still loads on the main
+  thread is that fallback, which is cheap enough against the loader's own minimum to leave alone.
+- **The buffer is structured-cloned, not transferred.** A transfer detaches it in the page, and
+  the inline fallback would then have nothing left to parse.
+- **Two passes, and the second is the point.** Pass 1 reads with `sheetRows`, so every sheet
+  yields its header row for almost nothing; pass 2 re-reads with `sheets: [...]` and fully parses
+  **only** the one or two that matched. Reading all seven sheets of the Partner export costs
+  ~6.5 s and most of the memory; the two we use cost ~3 s. Pass 1 must therefore choose sheets
+  from **headers alone** — which is why it hands pass 2 *every* plausible site sheet and lets
+  `bestNameCol` pick the winner from full rows, exactly as `build_db.py` does. Narrowing that to
+  one candidate in pass 1 would silently diverge from the Python parser.
 
 ---
 
@@ -436,7 +463,7 @@ Behaviour worth preserving:
 - **Removing a site's last sector drops the site too.** A site with no sectors is unreachable by
   any lookup, so leaving its name behind would be an orphan record that only grows the file.
   Verified both ways on 2026-09-04.
-- **`ED_ROW_CAP = 150`.** Partner has 2,899 sites; rendering them all janks the modal. Search
+- **`ED_ROW_CAP = 150`.** Partner has 3,129 sites; rendering them all janks the modal. Search
   narrows, the cap holds, and a footer line says how many of how many are shown.
 - Save posts to the **same `api/db/<network>` route** the xlsx import uses, then refreshes the
   cards and the nav chip in place.
@@ -527,7 +554,7 @@ the raw key.
   language after a switch.
 - When you touch the table shape, **touch all three renderers**: HTML (`renderTable`), PPTX
   (`btnPptx`), and the print CSS.
-- When you touch the workbook contract, **touch both parsers**: `parseWorkbook` in `app.js` and
+- When you touch the workbook contract, **touch both parsers**: `js/dbparse.js` and
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
   in `server.ps1`, `LABELS` in `tools/build_db.py`, and a `data/<net>.json` stub.

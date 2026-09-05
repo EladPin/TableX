@@ -94,6 +94,8 @@
     'toast.badData': 'לא זוהו נתונים תקינים. ודא שהעמודות מופרדות ב-Tab ושיש 7 עמודות בכל שורה.',
     'toast.dbsLoading': 'מסדי הנתונים עדיין נטענים — רגע אחד',
     'toast.reading': 'קורא את {f}…',
+    'toast.dbScan': 'סורק את גיליונות הקובץ…',
+    'toast.dbBuild': 'בונה את מסד הנתונים…',
     'toast.badSheet': 'לא זוהה מבנה מוכר בקובץ. דרוש ייצוא קבוצה מ-Planet ' +
                       '(גיליון Sites עם Site ID ועמודת שם, וגיליון Sectors עם ' +
                       'Sector ID · Site ID · Band Name), או גיליון יחיד עם: ' +
@@ -209,6 +211,8 @@
     'toast.badData': 'No valid data found. Check that columns are Tab-separated and every line has 7 columns.',
     'toast.dbsLoading': 'Databases are still loading — one moment',
     'toast.reading': 'Reading {f}…',
+    'toast.dbScan': 'Scanning the workbook sheets…',
+    'toast.dbBuild': 'Building the database…',
     'toast.badSheet': 'No recognised layout in this file. It needs either a Planet ' +
                       'group export (a Sites sheet with Site ID and a name column, plus ' +
                       'a Sectors sheet with Sector ID · Site ID · Band Name), or a single ' +

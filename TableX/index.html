@@ -364,6 +364,9 @@
 
 <script src="js/i18n.js"></script>
 <script src="js/xlsx.full.min.js"></script>
+<!-- Also loaded as a Worker by app.js; as a plain script it only exposes
+     TableXParse, the main-thread fallback if a Worker cannot start. -->
+<script src="js/dbparse.js"></script>
 <script src="js/pptxgen.bundle.js"></script>
 <script src="js/app.js"></script>
 </body>
