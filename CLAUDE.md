@@ -369,48 +369,90 @@ number means the first is discarded.
 
 ---
 
-### Cell code shapes differ per operator
+### What the other three exports actually look like
 
-Every code TableX resolves today is a **Partner** code (`LNN4610Da`). Cellcom and Pelephone name
-cells differently, and a point analysis run on 2026-09-05 shows what the paste will actually
-contain once those databases exist. **Nothing parses these yet** — the slots are empty, and
-guessing at a format that cannot be checked against a real group export is exactly how a wrong
-site name reaches a commander.
+Captured from Planet on 2026-09-05: the Site Editor for a Cellcom site, plus the `Sites` and
+`Sectors` sheets of the Cellcom, Pelephone and IDF group exports. **No workbook has been supplied
+for these three — this is read off photographs of a screen.** Treat the column positions as strong
+evidence and any parsing rule derived from them as unverified until a real file exists.
 
-**Pelephone** — `P634172_634172_1945583_1800`, four underscore-separated fields:
+| | Site ID | Sector ID | Hebrew name? | Band Name |
+|---|---|---|---|---|
+| **Partner** | `MN4610A` | `LNN4610Da` | yes, in `Description` | `1800_20` — MHz_BW ✓ |
+| **Cellcom** | `14196` | `3634249_270` — ECI_azimuth | yes, in `Description` | `2850_20` — **EARFCN**_BW |
+| **Pelephone** | `P935739` | `935739_22` | no — Latin (`EINAV`, `HERMESH`) | `P3M_2600LTE.MIMO 3250_20` |
+| **IDF** | `IDF_Amitay` | **`1` / `2` / `3`** | no — `Description` mostly empty | `P3M_750LTE.MIMO 9260_10` |
 
-| Field | Example | Meaning |
-|-------|---------|---------|
-| 1 | `P634172` | site name (`P` = Pelephone) |
-| 2 | `634172` | the same site number, without the prefix |
-| 3 | `1945583` | the sector |
-| 4 | `1800` | frequency (MHz) |
+Partner is the only one of the four that imports cleanly. Three separate blockers stand in the way
+of the others, and each now has a guard so the failure is loud instead of silent.
 
-**Cellcom** — `75_3422485_13369`, three fields. Fields 2 and 3 are **confirmed arithmetically**:
-LTE defines the E-UTRAN Cell Identifier as `ECI = eNodeB ID × 256 + local Cell ID`, and all three
-sampled rows fit exactly.
+**1. IDF's `Sector ID` is not a key.** It numbers sectors `1` / `2` / `3` *per site*, so the same
+value repeats across every site in the network. Keying on it collapses a few hundred sectors into
+about four, and the import would report success. Both parsers now **refuse outright** when any
+sector code repeats, naming the count and an example. The correct key for IDF is presumably
+`Site ID` + `Sector ID`, but which composite Planet's point analysis actually reports is unknown,
+so nothing is joined speculatively.
+
+**2. `Band Name` carries an EARFCN for everyone except Partner.** Partner writes `1800_20` and
+means 1800 MHz — verified across 14,008 sectors. Cellcom writes `2850_20` in the same column and
+means EARFCN 2850, which is band 7 at a **2600** MHz label; the Site Editor confirms it, since that
+sector's only ticked band group is `Cellcom_2600`. Checked against 3GPP 36.101 for the three
+carriers on Cellcom site 14196:
 
 ```
-75_3422485_13369    ->  13369 × 256 + 21 = 3422485
-80_3338518_13041    ->  13041 × 256 + 22 = 3338518
-230_3391511_13248   ->  13248 × 256 + 23 = 3391511
+9360_10  -> EARFCN 9360 = band 28,  773.0 MHz   operator label "700"
+1400_20  -> EARFCN 1400 = band 3 , 1825.0 MHz   operator label "1800"
+2850_20  -> EARFCN 2850 = band 7 , 2630.0 MHz   operator label "2600"
 ```
 
-So field 2 is the **ECI — the cell**, field 3 is the **eNodeB ID — the site**, and the local cell
-ids fall out as 21 / 22 / 23, which look like a sector index. That is not a guess; a coincidence
-would not hold across three independent rows.
+Nothing **structural** separates `1800`-the-frequency from `2850`-the-EARFCN — both are
+`<int>_<int>`. So the only safe discriminator is whether the number is a frequency an operator
+would actually print on a slide, and that is what `BAND_LABELS` is: a derived frequency outside it
+becomes `null` and is counted, never guessed. Left unguarded the old rule produced **3 MHz /
+2600 MHz bandwidth** for a Pelephone row and **2850 MHz** for a Cellcom one. A blank frequency in
+front of a commander is recoverable; a confident wrong one is not.
 
-**Field 1 (`75`, `80`, `230`) is NOT settled.** Azimuth and PCI both fit every sample — azimuths
-run 0–360, PCIs 0–503 — and three rows cannot separate them. Settle it in Planet rather than by
-inference: open the Cellcom sector table and compare the value against the `PCI` and `Azimuth`
-columns for cell `3422485`. If it turns out to be PCI, Interfex already keys its
-`partner_cells.json` for PCI resolution and is the place to look for prior art.
+The import then *asks* rather than refusing (`db.unknownBand`), because the site names may still be
+worth having even with the frequency column blank. Refusing is reserved for data loss.
 
-**Why this matters for the lookup:** `lookup()` keys on whatever the group export's `Sector ID`
-column carries. Whether that column holds the whole composite string or only one of its fields is
-unknown until a Cellcom or Pelephone group export exists. If it holds only part, the pasted code
-will need normalising to the DB's key before lookup — and that normaliser is the one piece of this
-that must NOT be written speculatively. Get the export first.
+**3. Pelephone and IDF have no Hebrew site names in the export.** Pelephone's `Description` holds
+Latin transliterations (`EINAV`, `HERMESH`, `KDUMIM`); IDF's is empty for most rows, with the
+identity carried by the Site ID (`IDF_Har_Dov`). This is a **product** problem, not a parsing one:
+the entire reason TableX exists is turning an English code into a Hebrew site name for the deck. An
+unnamed site falls back to its Site ID in `lookup()`, so a row renders readably rather than blank —
+but it renders in Latin. Filling `Description` in Planet, or naming sites through the site editor,
+is the fix; the importer cannot invent Hebrew that is not in the file.
+
+### The Cellcom point-analysis code, settled
+
+An earlier reading of `75_3422485_13369` left the leading field ambiguous between azimuth and PCI.
+The Site Editor settles it: Cellcom's sector name is `<ECI>_<azimuth>`, and site 14196's nine
+sectors are `3634197_70`, `3634198_160`, `3634199_270`, `3634207_70` … whose trailing values are
+exactly the azimuths of the three antennas mounted there (70°, 160°, 270°). **The leading field is
+the azimuth.**
+
+The ECI arithmetic holds throughout — `ECI = eNodeB ID × 256 + local Cell ID`:
+
+```
+site 14196 * 256 = 3634176
+  3634197..199 -> cells 21,22,23   carrier 9360_10
+  3634207..209 -> cells 31,32,33   carrier 1400_20
+  3634247..249 -> cells 71,72,73   carrier 2850_20
+```
+
+So a Cellcom point analysis reports the azimuth, the ECI and the site id — the same three values
+the `Sectors` sheet holds as `Sector ID` (`ECI_azimuth`) and `Site ID`. **The field ORDER in the
+paste is still unconfirmed**, because both samples were photographed from an RTL-rendered table,
+where a run of underscore-separated numbers is displayed in reverse. Settle that with an actual
+paste into a text file, never another photograph — the byte order is only unambiguous in text.
+
+### What is still needed
+
+1. The real `.xlsx` for Cellcom, Pelephone and IDF group exports. Screenshots established the
+   shape; they cannot establish encodings, empty-vs-whitespace, or row counts.
+2. A **pasted** (not photographed) Cellcom and Pelephone point analysis, so the composite code's
+   field order and separator are known exactly.
+3. A decision on how IDF sites get Hebrew names, since the export does not carry them.
 
 ---
 
@@ -596,9 +638,12 @@ the raw key.
 ## Known gaps
 
 - **`idf`, `cellcom` and `pelephone` are empty.** The slots, both write paths and every UI state
-  work; they just have no data yet. The intended route is now `export group` in Planet on
-  `IDF_Share` / `Cellcom_Share` / `Pelephone_Share` and load the workbook straight into the card;
-  the site editor and `tools/build_db.py` remain for single rows and for offline builds.
+  work, and `export group` in Planet on `IDF_Share` / `Cellcom_Share` / `Pelephone_Share` is the
+  intended route — but as of 2026-09-05 **none of the three would import correctly even with the
+  file in hand.** IDF's sector codes are not unique, Cellcom's and Pelephone's Band Name is an
+  EARFCN, and neither Pelephone nor IDF carries a Hebrew site name at all. See "What the other
+  three exports actually look like"; the guards make each of those fail loudly rather than write
+  a bad database, but the underlying work is not done.
 - **PPTX is one slide with no pagination.** ~7 points (21 rows) fits; past ~15 rows the table
   runs off the bottom. `slide.addTable` supports `autoPage`; not enabled.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized

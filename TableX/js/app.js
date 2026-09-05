@@ -333,6 +333,33 @@
         return;
       }
 
+      // A repeated Sector ID is not a key — the second row overwrites the
+      // first, so the import would report success while most of the network
+      // quietly vanished. That is data loss, not a blank field, so it is a
+      // hard refusal rather than a prompt.
+      if (parsed.dupes) {
+        if (card) card.classList.remove('busy');
+        toast(T('toast.dupSectors', { n: fmt(parsed.dupes),
+                                      total: fmt(parsed.rows),
+                                      id: parsed.dupeExample }), true);
+        return;
+      }
+
+      // Band Name that does not resolve to a real band label (an EARFCN, say)
+      // leaves frequency blank rather than printing a wrong number. Say so and
+      // let the user decide — the site names may still be worth having.
+      if (parsed.unknownBand) {
+        const go = await ask(T('db.unknownBand', {
+          n: fmt(parsed.unknownBand), total: fmt(parsed.rows),
+          ex: parsed.bandExample || '—',
+        }), { ok: 'db.update', danger: true });
+        if (!go) {
+          if (card) card.classList.remove('busy');
+          toast(T('toast.importCancelled'));
+          return;
+        }
+      }
+
       // An import REPLACES the database, it does not merge. A group export
       // filtered to one region would otherwise quietly shrink a live DB, and
       // the first sign of trouble is a table of untranslated English codes —

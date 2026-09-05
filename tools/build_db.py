@@ -81,6 +81,17 @@ NAME_COLS = ['description', 'site name', 'site name 2']
 
 TRAILING_ALPHA = re.compile(r'([A-Za-z]+)$')
 
+# Operator band LABELS, in MHz. Band Name is only trusted to carry a centre
+# frequency when it yields one of these. Partner writes "1800_20" and means
+# 1800 MHz; Cellcom writes "2850_20" for the same column and means EARFCN 2850
+# (band 7, a 2600 MHz label), and Pelephone writes "P3M_2600LTE.MIMO 3250_20".
+# Nothing structural separates 1800-the-frequency from 2850-the-EARFCN, so the
+# only safe discriminator is whether the number is a frequency an operator
+# would print on a slide. Anything else becomes None and is counted -- a wrong
+# frequency in front of a commander is worse than a blank one.
+BAND_LABELS = frozenset([450, 700, 750, 800, 850, 900, 1800, 1900,
+                         2100, 2300, 2600, 3500, 3600])
+
 
 def col_index(ref):
     """'BC12' -> 54. Cell refs are the only reliable column position: xlsx
@@ -256,17 +267,33 @@ def build_multi(sheets):
 
     c_name, c_hdr, c_rows = sec_sheet
     sectors, skipped = {}, 0
+    rows = dupes = unknown_band = 0
+    dupe_example = band_example = None
     for row in c_rows:
         sec_id = cell(row, c_hdr, 'sector id')
         site_id = cell(row, c_hdr, 'site id')
         if not sec_id or not site_id:
             skipped += 1
             continue
+        rows += 1
+        # A repeated Sector ID is not a key -- the second row overwrites the
+        # first. IDF's export numbers sectors 1/2/3 PER SITE, so importing it
+        # blind would collapse a whole network into a handful of rows.
+        if sec_id in sectors:
+            dupes += 1
+            if dupe_example is None:
+                dupe_example = sec_id
         sector = cell(row, c_hdr, 'sector')
         if not sector:
             m = TRAILING_ALPHA.search(sec_id)
             sector = m.group(1) if m else None
-        freq, bw = parse_band(cell(row, c_hdr, 'band name'))
+        band_name = cell(row, c_hdr, 'band name')
+        freq, bw = parse_band(band_name)
+        if freq is not None and freq not in BAND_LABELS:
+            freq = None                               # EARFCN or worse
+            unknown_band += 1
+            if band_example is None:
+                band_example = band_name
         if 'frequency (mhz)' in c_hdr:                # explicit beats derived
             freq = num(cell(row, c_hdr, 'frequency (mhz)')) or freq
         if 'bandwidth (mhz)' in c_hdr:
@@ -289,6 +316,15 @@ def build_multi(sheets):
         desc += '\n  dropped %d site(s) with no sectors' % len(dropped)
     if skipped:
         desc += '\n  skipped %d sector row(s) with no sector id / site id' % skipped
+    if unknown_band:
+        desc += ('\n  WARNING: %d/%d rows have an unrecognised Band Name (e.g. %r) '
+                 '-- their frequency is left blank rather than guessed'
+                 % (unknown_band, rows, band_example))
+    if dupes:
+        sys.exit('REFUSING: %d of %d rows repeat a sector code already seen '
+                 '(e.g. %r).\nThe Sector ID column is not a unique key, so this '
+                 'import would silently drop rows.\nExport with a sector code '
+                 'unique across the whole network.' % (dupes, rows, dupe_example))
     return sites, sectors, desc
 
 
@@ -298,12 +334,19 @@ def build_flat(sheets):
         if not all(w in hdr for w in WANT):
             continue
         sites, sectors, skipped = {}, {}, 0
+        n_rows = dupes = 0
+        dupe_example = None
         for row in rows:
             sec_id = cell(row, hdr, 'sector id')
             site_id = cell(row, hdr, 'site id')
             if not sec_id or not site_id:
                 skipped += 1
                 continue
+            n_rows += 1
+            if sec_id in sectors:
+                dupes += 1
+                if dupe_example is None:
+                    dupe_example = sec_id
             nm = cell(row, hdr, 'site name')
             if site_id not in sites or (nm and not sites[site_id]):
                 sites[site_id] = nm
@@ -313,6 +356,11 @@ def build_flat(sheets):
         desc = 'flat sheet: %r' % name
         if skipped:
             desc += '\n  skipped %d row(s) with no sector id / site id' % skipped
+        if dupes:
+            sys.exit('REFUSING: %d of %d rows repeat a sector code already seen '
+                     '(e.g. %r).\nThe Sector ID column is not a unique key, so '
+                     'this import would silently drop rows.'
+                     % (dupes, n_rows, dupe_example))
         return sites, sectors, desc
     return None
 

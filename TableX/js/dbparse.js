@@ -44,6 +44,20 @@
 
   const TRAILING_ALPHA = /([A-Za-z]+)$/;
 
+  // Operator band LABELS, in MHz. Band Name is only trusted to carry a centre
+  // frequency when it yields one of these.
+  //
+  // Partner writes "1800_20" and means 1800 MHz — verified against 14,008
+  // sectors. Cellcom writes "2850_20" for the SAME kind of column and means
+  // EARFCN 2850, which is band 7 at a 2600 MHz label; Pelephone writes
+  // "P3M_2600LTE.MIMO 3250_20". Nothing in the STRUCTURE separates 1800-the-
+  // frequency from 2850-the-EARFCN, so the only safe discriminator is whether
+  // the number is a frequency an operator would actually print on a slide.
+  // Anything else yields null and is counted, never a guess: a wrong frequency
+  // in front of a commander is worse than a blank one.
+  const BAND_LABELS = new Set([450, 700, 750, 800, 850, 900, 1800, 1900,
+                               2100, 2300, 2600, 3500, 3600]);
+
   const norm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
 
   const cellAt = (row, hdr, k) => {
@@ -124,17 +138,23 @@
     for (const sh of sheets) {
       if (!WANT.every(w => w in sh.hdr)) continue;
       const sites = Object.create(null), sectors = Object.create(null);
+      let rows = 0, dupes = 0, dupeExample = null;
       for (const row of sh.rows) {
         const secId = cellAt(row, sh.hdr, 'sector id');
         const siteId = cellAt(row, sh.hdr, 'site id');
         if (!secId || !siteId) continue;
+        rows++;
+        if (secId in sectors) { dupes++; if (!dupeExample) dupeExample = secId; }
         const nm = cellAt(row, sh.hdr, 'site name');
         if (!(siteId in sites) || (nm && !sites[siteId])) sites[siteId] = nm;
         sectors[secId] = [siteId, cellAt(row, sh.hdr, 'sector') || null,
                           num(cellAt(row, sh.hdr, 'frequency (mhz)')),
                           num(cellAt(row, sh.hdr, 'bandwidth (mhz)'))];
       }
-      return { layout: 'flat', sheet: sh.name, sites, sectors };
+      // The flat path reads explicit Frequency (MHz) / Bandwidth (MHz)
+      // columns, so there is no band derivation here to distrust.
+      return { layout: 'flat', sheet: sh.name, sites, sectors,
+               rows, dupes, dupeExample, unknownBand: 0, bandExample: null };
     }
     return null;
   }
@@ -155,17 +175,30 @@
     }
 
     const hdr = secSheet.hdr, sectors = Object.create(null);
+    let rows = 0, dupes = 0, dupeExample = null;
+    let unknownBand = 0, bandExample = null;
     for (const row of secSheet.rows) {
       const secId = cellAt(row, hdr, 'sector id');
       const siteId = cellAt(row, hdr, 'site id');
       if (!secId || !siteId) continue;
+      rows++;
+      // A Sector ID that repeats is not a key — the second row overwrites the
+      // first. IDF's export numbers sectors 1/2/3 PER SITE, so importing it
+      // blind would collapse a whole network into a handful of rows.
+      if (secId in sectors) { dupes++; if (!dupeExample) dupeExample = secId; }
       let sector = cellAt(row, hdr, 'sector');
       if (!sector) {                               // LEA0402Da → Da
         const m = TRAILING_ALPHA.exec(secId);
         sector = m ? m[1] : '';
       }
-      let band = parseBand(cellAt(row, hdr, 'band name'));
+      const bandName = cellAt(row, hdr, 'band name');
+      let band = parseBand(bandName);
       let freq = band[0], bw = band[1];
+      if (freq != null && !BAND_LABELS.has(freq)) {
+        freq = null;                               // EARFCN or worse — see above
+        unknownBand++;
+        if (!bandExample) bandExample = bandName;
+      }
       if ('frequency (mhz)' in hdr) {              // explicit beats derived
         freq = num(cellAt(row, hdr, 'frequency (mhz)')) || freq;
       }
@@ -185,7 +218,7 @@
     for (const k in sites) if (!(k in used)) delete sites[k];
 
     return { layout: 'multi', sheet: siteSheet.name + ' + ' + secSheet.name,
-             sites, sectors };
+             sites, sectors, rows, dupes, dupeExample, unknownBand, bandExample };
   }
 
   /* ── entry point ─────────────────────────────────────────────────── */

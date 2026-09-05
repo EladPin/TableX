@@ -71,6 +71,11 @@
     'db.clearConfirm': 'לנקות את מסד הנתונים {label}?\n\n' +
                        'יימחקו מהשרת — סקטורים: {n}, אתרים: {s}.\n\n' +
                        'עותק שחזור אחד (‎.bak) נשמר בצד השרת, אך העדכון הבא ידרוס אותו.',
+    'db.unknownBand': 'ב-{n} מתוך {total} סקטורים עמודת Band Name אינה מכילה תדר מוכר ' +
+                      '(למשל "{ex}") — ככל הנראה EARFCN ולא תדר ב-MHz.\n\n' +
+                      'התדר ורוחב הפס של הסקטורים האלה יישארו ריקים (־) במקום להציג ערך שגוי. ' +
+                      'שמות האתרים ייובאו כרגיל.\n\n' +
+                      'לייבא בכל זאת?',
     'db.shrink': 'ייבוא מחליף את מסד הנתונים — הוא אינו ממזג.\n\n' +
                  '{label}: {was} סקטורים ← {now} סקטורים (ירידה של {pct}%).\n\n' +
                  'ייתכן שהקובץ מכיל רק חלק מהרשת. לייבא בכל זאת?',
@@ -105,6 +110,9 @@
                       'Sector ID · Site ID · Band Name), או גיליון יחיד עם: ' +
                       'Sector ID · Site ID · Site Name · Sector · Frequency (MHz) · Bandwidth (MHz)',
     'toast.importCancelled': 'הייבוא בוטל — מסד הנתונים לא שונה',
+    'toast.dupSectors': 'הייבוא נעצר: {n} מתוך {total} השורות חוזרות על קוד סקטור קיים ' +
+                        '(למשל "{id}"). עמודת Sector ID אינה מזהה ייחודי, וייבוא היה מוחק שורות ' +
+                        'בשקט. יש לייצא עם קוד סקטור ייחודי לכל הרשת.',
     'toast.dbCleared': 'מסד הנתונים {label} נוקה — {n} סקטורים הוסרו',
     'toast.clearFail': 'הניקוי נכשל ({e}) — מסד הנתונים לא שונה',
     'toast.dbSaved': 'עודכן {label} — {n} סקטורים נשמרו בשרת',
@@ -198,6 +206,11 @@
                        'Deleted on the server — sectors: {n}, sites: {s}.\n\n' +
                        'One rollback copy (.bak) is kept server-side, but the next ' +
                        'update overwrites it.',
+    'db.unknownBand': 'In {n} of {total} sectors the Band Name column does not resolve to a ' +
+                      'known frequency (e.g. "{ex}") — most likely an EARFCN rather than MHz.\n\n' +
+                      'Those sectors keep a blank frequency and bandwidth (–) instead of showing ' +
+                      'a wrong value. Site names import normally.\n\n' +
+                      'Import anyway?',
     'db.shrink': 'An import replaces the database — it does not merge.\n\n' +
                  '{label}: {was} sectors → {now} sectors (down {pct}%).\n\n' +
                  'This file may cover only part of the network. Import anyway?',
@@ -233,6 +246,10 @@
                       'sheet carrying: Sector ID · Site ID · Site Name · Sector · ' +
                       'Frequency (MHz) · Bandwidth (MHz)',
     'toast.importCancelled': 'Import cancelled — the database is unchanged',
+    'toast.dupSectors': 'Import stopped: {n} of {total} rows repeat a sector code already seen ' +
+                        '(e.g. "{id}"). The Sector ID column is not a unique key, so importing ' +
+                        'would silently drop rows. Export with a sector code unique across the ' +
+                        'whole network.',
     'toast.dbCleared': 'Cleared {label} — {n} sectors removed',
     'toast.clearFail': 'Clear failed ({e}) — the database is unchanged',
     'toast.dbSaved': 'Updated {label} — {n} sectors saved on the server',
