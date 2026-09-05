@@ -81,16 +81,28 @@ NAME_COLS = ['description', 'site name', 'site name 2']
 
 TRAILING_ALPHA = re.compile(r'([A-Za-z]+)$')
 
-# Operator band LABELS, in MHz. Band Name is only trusted to carry a centre
-# frequency when it yields one of these. Partner writes "1800_20" and means
-# 1800 MHz; Cellcom writes "2850_20" for the same column and means EARFCN 2850
-# (band 7, a 2600 MHz label), and Pelephone writes "P3M_2600LTE.MIMO 3250_20".
-# Nothing structural separates 1800-the-frequency from 2850-the-EARFCN, so the
-# only safe discriminator is whether the number is a frequency an operator
-# would print on a slide. Anything else becomes None and is counted -- a wrong
-# frequency in front of a commander is worse than a blank one.
+# Band Name says the frequency THREE different ways, one per operator:
+#
+#   Partner    "1800_20"                   the band label, in MHz
+#   Pelephone  "P3M_2600LTE.MIMO 3250_20"  label, then EARFCN, then width
+#   Cellcom    "2850_20"                   EARFCN only -- band 7, a 2600 label
+#
+# Nothing structural separates 1800-the-frequency from 2850-the-EARFCN; both are
+# <int>_<int>. So: take an operator band LABEL if the string carries one, else
+# convert an EARFCN to its band's label using the 3GPP 36.101 downlink ranges.
+# That second path is anchored to a published standard rather than to any
+# operator's file, which matters because the Cellcom and Pelephone workbooks
+# live on an isolated network and can never be checked here.
 BAND_LABELS = frozenset([450, 700, 750, 800, 850, 900, 1800, 1900,
                          2100, 2300, 2600, 3500, 3600])
+
+# (first DL EARFCN, last, the label an operator prints)
+EARFCN_BANDS = [(0, 599, 2100), (1200, 1949, 1800), (2400, 2649, 850),
+                (2750, 3449, 2600), (3450, 3799, 900), (6150, 6449, 800),
+                (9210, 9659, 700), (37750, 38249, 2600), (38650, 39649, 2300)]
+
+# Legal LTE channel widths in MHz (1 stands in for the 1.4 MHz carrier).
+LTE_BW = frozenset([1, 3, 5, 10, 15, 20])
 
 
 def col_index(ref):
@@ -226,10 +238,33 @@ def best_name_col(hdr, rows):
 
 
 def parse_band(s):
-    """'1800_20' -> (1800, 20).  '700_5_9435' -> (700, 5).  '' -> (None, None)"""
-    nums = re.findall(r'\d+', s or '')
-    return (int(nums[0]) if nums else None,
-            int(nums[1]) if len(nums) > 1 else None)
+    """'1800_20' -> (1800, 20)   '700_5_9435' -> (700, 5)   '2850_20' -> (2600, 20)
+    'P3M_2600LTE.MIMO 3250_20' -> (2600, 20)   '' -> (None, None)"""
+    nums = [int(n) for n in re.findall(r'\d+', s or '')]
+
+    freq = None
+    for n in nums:
+        if n in BAND_LABELS:
+            freq = n
+            break
+    if freq is None:
+        for n in nums:
+            for lo, hi, label in EARFCN_BANDS:
+                if lo <= n <= hi:
+                    freq = label
+                    break
+            if freq is not None:
+                break
+
+    # The LAST legal channel width, not the first: "P3M_..." leads with a 3 that
+    # is part of the operator's prefix, while Partner's "700_5_9435" carries its
+    # width in the middle and a carrier number at the end.
+    bw = None
+    for n in nums:
+        if n in LTE_BW:
+            bw = n
+
+    return freq, bw
 
 
 def build_multi(sheets):
@@ -289,8 +324,9 @@ def build_multi(sheets):
             sector = m.group(1) if m else None
         band_name = cell(row, c_hdr, 'band name')
         freq, bw = parse_band(band_name)
-        if freq is not None and freq not in BAND_LABELS:
-            freq = None                               # EARFCN or worse
+        # Present but resolving to neither a label nor an EARFCN is a shape
+        # nobody here has seen. Leave it blank and count it.
+        if freq is None and band_name:
             unknown_band += 1
             if band_example is None:
                 band_example = band_name

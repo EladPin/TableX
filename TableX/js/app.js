@@ -192,6 +192,13 @@
     })(t0);
   }
 
+  // Distinct frequencies in a parsed database, ascending, as "700, 1800, 2600".
+  const bandList = sectors => {
+    const seen = new Set();
+    for (const k in sectors) if (sectors[k][2] != null) seen.add(sectors[k][2]);
+    return [...seen].sort((a, b) => a - b).join(', ') || '—';
+  };
+
   /* ── in-app confirm ──────────────────────────────────────────────── */
   // window.confirm() renders as "האתר localhost:8094 אומר" — the browser's
   // voice, not the app's, and in the packaged exe it becomes Electron's chrome
@@ -398,8 +405,13 @@
         DB[net] = indexDb(payload);
         renderDbCards();
         updateChip();
+        // The bands are the cheapest possible check that the import read the
+        // workbook correctly, and the only one available on a machine whose
+        // files can never be sent out: "700, 1800, 2600" is obviously right,
+        // "1400, 2850, 9360" is obviously an EARFCN column read as MHz.
         toast(T('toast.dbSaved', { label: label(net),
-                                  n: fmt(Object.keys(parsed.sectors).length) }));
+                                   n: fmt(Object.keys(parsed.sectors).length),
+                                   f: bandList(parsed.sectors) }));
       } catch (ex) {
         // The parse worked; only the write failed. Use it for this session so
         // the work isn't lost, and say plainly that it will not persist.

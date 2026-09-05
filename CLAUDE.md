@@ -372,9 +372,14 @@ number means the first is discarded.
 ### What the other three exports actually look like
 
 Captured from Planet on 2026-09-05: the Site Editor for a Cellcom site, plus the `Sites` and
-`Sectors` sheets of the Cellcom, Pelephone and IDF group exports. **No workbook has been supplied
-for these three — this is read off photographs of a screen.** Treat the column positions as strong
-evidence and any parsing rule derived from them as unverified until a real file exists.
+`Sectors` sheets of the Cellcom, Pelephone and IDF group exports.
+
+**These workbooks are read off photographs of a screen, and that is permanent.** Planet runs on TS
+— software goes *in* through הלבנת תוכנה and nothing comes *out* but phone photos, the same
+constraint Interfex works under. So there is no future session where the real file gets checked;
+column positions here are strong evidence that will never be upgraded to certainty. Build
+accordingly: rules grounded in published standards rather than in a sample, and a way to verify the
+result from inside TS by reading one line off the screen.
 
 | | Site ID | Sector ID | Hebrew name? | Band Name |
 |---|---|---|---|---|
@@ -393,27 +398,7 @@ sector code repeats, naming the count and an example. The correct key for IDF is
 `Site ID` + `Sector ID`, but which composite Planet's point analysis actually reports is unknown,
 so nothing is joined speculatively.
 
-**2. `Band Name` carries an EARFCN for everyone except Partner.** Partner writes `1800_20` and
-means 1800 MHz — verified across 14,008 sectors. Cellcom writes `2850_20` in the same column and
-means EARFCN 2850, which is band 7 at a **2600** MHz label; the Site Editor confirms it, since that
-sector's only ticked band group is `Cellcom_2600`. Checked against 3GPP 36.101 for the three
-carriers on Cellcom site 14196:
-
-```
-9360_10  -> EARFCN 9360 = band 28,  773.0 MHz   operator label "700"
-1400_20  -> EARFCN 1400 = band 3 , 1825.0 MHz   operator label "1800"
-2850_20  -> EARFCN 2850 = band 7 , 2630.0 MHz   operator label "2600"
-```
-
-Nothing **structural** separates `1800`-the-frequency from `2850`-the-EARFCN — both are
-`<int>_<int>`. So the only safe discriminator is whether the number is a frequency an operator
-would actually print on a slide, and that is what `BAND_LABELS` is: a derived frequency outside it
-becomes `null` and is counted, never guessed. Left unguarded the old rule produced **3 MHz /
-2600 MHz bandwidth** for a Pelephone row and **2850 MHz** for a Cellcom one. A blank frequency in
-front of a commander is recoverable; a confident wrong one is not.
-
-The import then *asks* rather than refusing (`db.unknownBand`), because the site names may still be
-worth having even with the frequency column blank. Refusing is reserved for data loss.
+**2. `Band Name` carries an EARFCN for everyone except Partner.** Solved — see "Band Name is three different formats" below.
 
 **3. Pelephone and IDF have no Hebrew site names in the export.** Pelephone's `Description` holds
 Latin transliterations (`EINAV`, `HERMESH`, `KDUMIM`); IDF's is empty for most rows, with the
@@ -422,6 +407,49 @@ the entire reason TableX exists is turning an English code into a Hebrew site na
 unnamed site falls back to its Site ID in `lookup()`, so a row renders readably rather than blank —
 but it renders in Latin. Filling `Description` in Planet, or naming sites through the site editor,
 is the fix; the importer cannot invent Hebrew that is not in the file.
+
+### Band Name is three different formats, and none of them can be checked here
+
+**The Cellcom and Pelephone workbooks live on TS and can never be sent out.** Same constraint as
+Interfex: software goes *in* through הלבנת תוכנה, nothing comes *out* but photographs of a screen.
+So "wait for the file and verify" is not a plan for those two — it is a permanent block. Anything
+TableX does with their data has to be right by construction, and checkable *inside* TS by a soldier
+reading one line off the screen.
+
+The three formats, captured 2026-09-05:
+
+```
+Partner    1800_20                    band label, in MHz
+Pelephone  P3M_2600LTE.MIMO 3250_20   label, then EARFCN, then width
+Cellcom    2850_20                    EARFCN only — band 7, which is a 2600 label
+```
+
+Nothing **structural** separates `1800`-the-frequency from `2850`-the-EARFCN: both are
+`<int>_<int>`. So `parseBand()` resolves it in two passes:
+
+1. **An operator band label if the string carries one** — Partner's `1800`, Pelephone's `2600`.
+2. **Otherwise an EARFCN**, converted to its band's label through the 3GPP 36.101 downlink ranges
+   in `EARFCN_BANDS` — Cellcom's `2850` → band 7 → `2600`.
+
+The second pass is anchored to a **published standard rather than to anyone's file**, which is
+exactly what makes it usable for data nobody here can inspect. Neither pass resolving leaves the
+frequency `null`, counted, and surfaced — the import asks before writing a database with blank
+frequencies. A blank frequency in front of a commander is recoverable; a confident wrong one is not.
+
+Bandwidth is **the LAST legal channel width** in the string, not the first: Pelephone's `P3M_`
+prefix leads with a `3` that is not a bandwidth, while Partner's `700_5_9435` carries its width in
+the middle and a carrier number at the end. Both fall out correctly from "last of 1/3/5/10/15/20".
+
+Verified against every sample there is — the eleven Band Names observed across all three operators
+all resolve correctly, **and Partner's 16,510 sectors come out byte-identical to the committed
+`partner.json`**, so the rule that reads the other two costs the verified one nothing.
+
+**How to check it inside TS without sending anything out:** the success toast names the distinct
+bands it derived — `עודכן Cellcom — N סקטורים נשמרו בשרת · תדרים: 700, 1800, 2600`. That line is
+the whole verification. `700, 1800, 2600` is obviously right; `1400, 2850, 9360` is obviously an
+EARFCN column read as MHz. Photograph the toast, and the parse is either confirmed or diagnosed.
+Do not remove `{f}` from `toast.dbSaved` — on a machine whose files never leave, it is the only
+check available.
 
 ### The Cellcom point-analysis code, settled
 
@@ -448,11 +476,15 @@ paste into a text file, never another photograph — the byte order is only unam
 
 ### What is still needed
 
-1. The real `.xlsx` for Cellcom, Pelephone and IDF group exports. Screenshots established the
-   shape; they cannot establish encodings, empty-vs-whitespace, or row counts.
+1. ~~The real `.xlsx` files.~~ **Not obtainable — they live on TS and cannot leave it.** Anything
+   TableX does with Cellcom or Pelephone data has to be right by construction and checkable from
+   inside, which is what the band-distribution line in the success toast is for.
 2. A **pasted** (not photographed) Cellcom and Pelephone point analysis, so the composite code's
-   field order and separator are known exactly.
-3. A decision on how IDF sites get Hebrew names, since the export does not carry them.
+   field order and separator are known exactly. This one *is* obtainable — retyped by hand onto a
+   normal computer, a few rows at a time. It is the last unknown blocking the lookup.
+3. IDF is **not** coming from a Planet group export. An ENM CLI dump is the intended source
+   instead, which sidesteps both the duplicate-sector-code problem and the missing Hebrew names.
+   Format still to come; do not build the Planet-side IDF path in the meantime.
 
 ---
 

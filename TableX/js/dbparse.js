@@ -44,19 +44,34 @@
 
   const TRAILING_ALPHA = /([A-Za-z]+)$/;
 
-  // Operator band LABELS, in MHz. Band Name is only trusted to carry a centre
-  // frequency when it yields one of these.
+  // Band Name says the frequency THREE different ways, one per operator:
   //
-  // Partner writes "1800_20" and means 1800 MHz — verified against 14,008
-  // sectors. Cellcom writes "2850_20" for the SAME kind of column and means
-  // EARFCN 2850, which is band 7 at a 2600 MHz label; Pelephone writes
-  // "P3M_2600LTE.MIMO 3250_20". Nothing in the STRUCTURE separates 1800-the-
-  // frequency from 2850-the-EARFCN, so the only safe discriminator is whether
-  // the number is a frequency an operator would actually print on a slide.
-  // Anything else yields null and is counted, never a guess: a wrong frequency
-  // in front of a commander is worse than a blank one.
+  //   Partner    "1800_20"                   the band label, in MHz
+  //   Pelephone  "P3M_2600LTE.MIMO 3250_20"  label, then EARFCN, then width
+  //   Cellcom    "2850_20"                   EARFCN only — band 7, a 2600 label
+  //
+  // Nothing structural separates 1800-the-frequency from 2850-the-EARFCN; both
+  // are <int>_<int>. So: take an operator band LABEL if the string carries one,
+  // else convert an EARFCN to its band's label using the 3GPP 36.101 downlink
+  // ranges. That second path is anchored to a published standard rather than to
+  // any operator's file, which matters because the Cellcom and Pelephone
+  // workbooks live on an isolated network and can never be checked here.
+  // Neither path resolving yields null, counted and surfaced — a blank
+  // frequency in front of a commander is recoverable, a confident wrong one is
+  // not.
   const BAND_LABELS = new Set([450, 700, 750, 800, 850, 900, 1800, 1900,
                                2100, 2300, 2600, 3500, 3600]);
+
+  // [first DL EARFCN, last, the label an operator prints] — the bands in use
+  // here: 1, 3, 5, 7, 8, 20, 28 and the two TDD ones.
+  const EARFCN_BANDS = [
+    [0, 599, 2100], [1200, 1949, 1800], [2400, 2649, 850], [2750, 3449, 2600],
+    [3450, 3799, 900], [6150, 6449, 800], [9210, 9659, 700],
+    [37750, 38249, 2600], [38650, 39649, 2300],
+  ];
+
+  // Legal LTE channel widths in MHz (1 stands in for the 1.4 MHz carrier).
+  const LTE_BW = new Set([1, 3, 5, 10, 15, 20]);
 
   const norm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
 
@@ -128,10 +143,29 @@
     return best;
   }
 
-  // '1800_20' → [1800, 20].  '700_5_9435' → [700, 5].  '' → [null, null]
+  // '1800_20' → [1800, 20]   '700_5_9435' → [700, 5]   '2850_20' → [2600, 20]
+  // 'P3M_2600LTE.MIMO 3250_20' → [2600, 20]            '' → [null, null]
   function parseBand(s) {
-    const nums = String(s == null ? '' : s).match(/\d+/g) || [];
-    return [nums.length ? +nums[0] : null, nums.length > 1 ? +nums[1] : null];
+    const nums = (String(s == null ? '' : s).match(/\d+/g) || []).map(Number);
+
+    let freq = null;
+    for (const n of nums) if (BAND_LABELS.has(n)) { freq = n; break; }
+    if (freq === null) {
+      for (const n of nums) {
+        for (const b of EARFCN_BANDS) {
+          if (n >= b[0] && n <= b[1]) { freq = b[2]; break; }
+        }
+        if (freq !== null) break;
+      }
+    }
+
+    // The LAST legal channel width, not the first: "P3M_…" leads with a 3 that
+    // is part of the operator's prefix, while Partner's "700_5_9435" carries
+    // its width in the middle and a carrier number at the end.
+    let bw = null;
+    for (const n of nums) if (LTE_BW.has(n)) bw = n;
+
+    return [freq, bw];
   }
 
   function buildFlat(sheets) {
@@ -194,8 +228,9 @@
       const bandName = cellAt(row, hdr, 'band name');
       let band = parseBand(bandName);
       let freq = band[0], bw = band[1];
-      if (freq != null && !BAND_LABELS.has(freq)) {
-        freq = null;                               // EARFCN or worse — see above
+      // A Band Name that is present but resolves to neither a label nor an
+      // EARFCN is a shape nobody here has seen. Leave it blank and count it.
+      if (freq === null && bandName) {
         unknownBand++;
         if (!bandExample) bandExample = bandName;
       }
