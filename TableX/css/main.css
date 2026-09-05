@@ -634,6 +634,12 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
    .btn-ghost — same specificity, so source order is what wins the colour. */
 .btn-danger { color: var(--err); }
 
+/* Destructive confirm. --err and --paper BOTH swap with the theme, so this is
+   dark red on white in light and light red on near-black in dark — legible in
+   each without a second hardcoded colour. */
+.btn-primary.danger { background: var(--err); color: var(--paper); }
+.btn-primary.danger:hover { background: var(--err); filter: brightness(1.12); }
+
 .btn-outline {
   border: 1px solid var(--cloud);
   color: var(--black);
@@ -793,6 +799,38 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   box-shadow: var(--sh-float);
   overflow: hidden;
   animation: abIn 0.26s var(--ease);
+}
+
+/* Confirm dialog — reuses .ed-overlay for the backdrop, so there is one
+   scrim treatment in the app rather than two that drift apart. */
+.ask-modal {
+  width: min(440px, 100%);
+  background: var(--paper);
+  border: 1px solid var(--mist);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-float);
+  padding: 24px;
+  animation: abIn 0.26s var(--ease);
+}
+.ask-title {
+  font-size: 19px;
+  line-height: 1.4;
+  letter-spacing: -0.16px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.ask-body {
+  margin-top: 10px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.ask-body p + p { margin-top: 8px; }
+.ask-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 22px;
 }
 
 .ed-head {

@@ -192,6 +192,43 @@
     })(t0);
   }
 
+  /* ── in-app confirm ──────────────────────────────────────────────── */
+  // window.confirm() renders as "האתר localhost:8094 אומר" — the browser's
+  // voice, not the app's, and in the packaged exe it becomes Electron's chrome
+  // instead of TableX's. Every prompt goes through this instead.
+  //
+  // Takes the SAME multi-paragraph strings window.confirm() took: the first
+  // paragraph becomes the dialog's question, the rest its body. Returns a
+  // Promise<boolean>, so callers must await it.
+  let askDone = null;
+  function ask(text, opts) {
+    const o = opts || {};
+    const paras = String(text).split(/\n{2,}/);
+    $('askTitle').textContent = paras.shift();
+    $('askBody').innerHTML = paras.map(p => '<p>' + esc(p) + '</p>').join('');
+    $('askBody').hidden = !paras.length;
+    $('askYes').textContent = T(o.ok || 'ask.ok');
+    $('askYes').classList.toggle('danger', !!o.danger);
+    $('askNo').textContent = T('ask.cancel');
+    $('askOverlay').classList.remove('hidden');
+    // Focus lands on Cancel, not the confirm: a stray Enter on a destructive
+    // prompt must not be the thing that empties a database.
+    setTimeout(() => $('askNo').focus(), 40);
+    return new Promise(res => { askDone = res; });
+  }
+
+  function closeAsk(answer) {
+    if (!askDone) return;
+    const done = askDone;
+    askDone = null;
+    $('askOverlay').classList.add('hidden');
+    done(answer);
+  }
+
+  $('askYes').onclick = () => closeAsk(true);
+  $('askNo').onclick = () => closeAsk(false);
+  $('askOverlay').onclick = e => { if (e.target === $('askOverlay')) closeAsk(false); };
+
   /* ── DB clear ────────────────────────────────────────────────────── */
   // Writes an empty database through the SAME api/db/<network> route the xlsx
   // import uses, so the server keeps its one .bak. That rollback copy is the
@@ -201,9 +238,10 @@
   async function clearDb(net) {
     const sectors = count(net, 'sectors'), sites = count(net, 'sites');
     if (!sectors && !sites) return;                 // already empty, nothing to do
-    if (!confirm(T('db.clearConfirm', {
+    const ok = await ask(T('db.clearConfirm', {
       label: label(net), n: fmt(sectors), s: fmt(sites),
-    }))) return;
+    }), { ok: 'db.clear', danger: true });
+    if (!ok) return;
 
     const card = $('dbCard-' + net);
     if (card) card.classList.add('busy');
@@ -303,10 +341,10 @@
       const was = count(net, 'sectors');
       const now = Object.keys(parsed.sectors).length;
       if (was && now < was * 0.6) {
-        const ok = confirm(T('db.shrink', {
+        const ok = await ask(T('db.shrink', {
           label: label(net), was: fmt(was), now: fmt(now),
           pct: Math.round((1 - now / was) * 100),
-        }));
+        }), { ok: 'db.update', danger: true });
         if (!ok) {
           if (card) card.classList.remove('busy');
           toast(T('toast.importCancelled'));
@@ -705,8 +743,9 @@
     setTimeout(() => $('edSearch').focus(), 60);
   }
 
-  function closeEditor(force) {
-    if (!force && ed && ed.dirty && !confirm(T('ed.discard'))) return;
+  async function closeEditor(force) {
+    if (!force && ed && ed.dirty &&
+        !(await ask(T('ed.discard'), { ok: 'ed.discardOk', danger: true }))) return;
     $('dbEditor').classList.add('hidden');
     ed = null;
   }
@@ -944,7 +983,11 @@
   });
   addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    if (!setPop.classList.contains('hidden')) toggleSettings(false);
+    // The confirm sits on top of everything, so it answers Escape first —
+    // otherwise Escape would close the editor out from under its own
+    // "discard unsaved changes?" prompt.
+    if (askDone) closeAsk(false);
+    else if (!setPop.classList.contains('hidden')) toggleSettings(false);
     else if (!$('dbEditor').classList.contains('hidden')) closeEditor();
   });
 

@@ -69,7 +69,7 @@
     'db.update': 'עדכן',
     'db.clear': 'נקה',
     'db.clearConfirm': 'לנקות את מסד הנתונים {label}?\n\n' +
-                       '{n} סקטורים ו-{s} אתרים יימחקו מהשרת.\n\n' +
+                       'יימחקו מהשרת — סקטורים: {n}, אתרים: {s}.\n\n' +
                        'עותק שחזור אחד (‎.bak) נשמר בצד השרת, אך העדכון הבא ידרוס אותו.',
     'db.shrink': 'ייבוא מחליף את מסד הנתונים — הוא אינו ממזג.\n\n' +
                  '{label}: {was} סקטורים ← {now} סקטורים (ירידה של {pct}%).\n\n' +
@@ -143,6 +143,9 @@
     'ed.saved': 'נשמר — {sites} אתרים, {sectors} סקטורים',
     'ed.saveFail': 'השמירה נכשלה: {e}',
     'ed.discard': 'יש שינויים לא שמורים. לסגור בכל זאת?',
+    'ed.discardOk': 'סגור בלי לשמור',
+    'ask.ok': 'אישור',
+    'ask.cancel': 'ביטול',
     'loader.status': 'טוען מסדי נתונים',
     'loader.done': '{n} סקטורים נטענו',
   };
@@ -192,7 +195,7 @@
     'db.update': 'Update',
     'db.clear': 'Clear',
     'db.clearConfirm': 'Clear the {label} database?\n\n' +
-                       '{n} sectors and {s} sites will be deleted on the server.\n\n' +
+                       'Deleted on the server — sectors: {n}, sites: {s}.\n\n' +
                        'One rollback copy (.bak) is kept server-side, but the next ' +
                        'update overwrites it.',
     'db.shrink': 'An import replaces the database — it does not merge.\n\n' +
@@ -268,6 +271,9 @@
     'ed.saved': 'Saved — {sites} sites, {sectors} sectors',
     'ed.saveFail': 'Save failed: {e}',
     'ed.discard': 'You have unsaved changes. Close anyway?',
+    'ed.discardOk': 'Close without saving',
+    'ask.ok': 'Confirm',
+    'ask.cancel': 'Cancel',
     'loader.status': 'Loading databases',
     'loader.done': '{n} sectors loaded',
   };

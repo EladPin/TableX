@@ -369,6 +369,51 @@ number means the first is discarded.
 
 ---
 
+### Cell code shapes differ per operator
+
+Every code TableX resolves today is a **Partner** code (`LNN4610Da`). Cellcom and Pelephone name
+cells differently, and a point analysis run on 2026-09-05 shows what the paste will actually
+contain once those databases exist. **Nothing parses these yet** — the slots are empty, and
+guessing at a format that cannot be checked against a real group export is exactly how a wrong
+site name reaches a commander.
+
+**Pelephone** — `P634172_634172_1945583_1800`, four underscore-separated fields:
+
+| Field | Example | Meaning |
+|-------|---------|---------|
+| 1 | `P634172` | site name (`P` = Pelephone) |
+| 2 | `634172` | the same site number, without the prefix |
+| 3 | `1945583` | the sector |
+| 4 | `1800` | frequency (MHz) |
+
+**Cellcom** — `75_3422485_13369`, three fields. Fields 2 and 3 are **confirmed arithmetically**:
+LTE defines the E-UTRAN Cell Identifier as `ECI = eNodeB ID × 256 + local Cell ID`, and all three
+sampled rows fit exactly.
+
+```
+75_3422485_13369    ->  13369 × 256 + 21 = 3422485
+80_3338518_13041    ->  13041 × 256 + 22 = 3338518
+230_3391511_13248   ->  13248 × 256 + 23 = 3391511
+```
+
+So field 2 is the **ECI — the cell**, field 3 is the **eNodeB ID — the site**, and the local cell
+ids fall out as 21 / 22 / 23, which look like a sector index. That is not a guess; a coincidence
+would not hold across three independent rows.
+
+**Field 1 (`75`, `80`, `230`) is NOT settled.** Azimuth and PCI both fit every sample — azimuths
+run 0–360, PCIs 0–503 — and three rows cannot separate them. Settle it in Planet rather than by
+inference: open the Cellcom sector table and compare the value against the `PCI` and `Azimuth`
+columns for cell `3422485`. If it turns out to be PCI, Interfex already keys its
+`partner_cells.json` for PCI resolution and is the place to look for prior art.
+
+**Why this matters for the lookup:** `lookup()` keys on whatever the group export's `Sector ID`
+column carries. Whether that column holds the whole composite string or only one of its fields is
+unknown until a Cellcom or Pelephone group export exists. If it holds only part, the pasted code
+will need normalising to the DB's key before lookup — and that normaliser is the one piece of this
+that must NOT be written speculatively. Get the export first.
+
+---
+
 ## Output
 
 **Table** (`renderTable`): points ascending, rows by rank, `נק' N` as a `rowspan` over the

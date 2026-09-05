@@ -353,9 +353,24 @@
     <blockquote class="ab-quote" data-i18n="about.quote"></blockquote>
 
     <div class="ab-foot">
-      <span class="ab-stat"><strong>14,252</strong> <span data-i18n="about.stat1"></span></span>
+      <span class="ab-stat"><strong>16,510</strong> <span data-i18n="about.stat1"></span></span>
       <span class="ab-stat"><strong>~20</strong> <span data-i18n="about.stat2"></span></span>
       <span class="ab-stat"><strong data-i18n="about.stat3n"></strong> <span data-i18n="about.stat3"></span></span>
+    </div>
+  </div>
+</div>
+
+<!-- ══ CONFIRM ══ in-app replacement for window.confirm(), which renders as
+     "localhost:8094 says" — the browser's voice, not the app's, and in the
+     packaged exe it would be Electron's chrome instead of TableX's ══ -->
+<div class="ed-overlay hidden" id="askOverlay">
+  <div class="ask-modal" role="alertdialog" aria-modal="true"
+       aria-labelledby="askTitle" aria-describedby="askBody">
+    <h2 class="ask-title" id="askTitle"></h2>
+    <div class="ask-body" id="askBody"></div>
+    <div class="ask-actions">
+      <button class="btn btn-outline btn-sm" id="askNo"></button>
+      <button class="btn btn-primary btn-sm" id="askYes"></button>
     </div>
   </div>
 </div>
