@@ -159,6 +159,8 @@
               ${empty ? T('db.load') : T('db.update')}
             </button>
             <button class="btn btn-ghost btn-sm" data-edit="${net}">${T('ed.open')}</button>
+            ${empty ? '' : `<button class="btn btn-ghost btn-sm btn-danger"
+                                    data-clear="${net}">${T('db.clear')}</button>`}
           </div>
         </div>`;
     }).join('');
@@ -167,6 +169,8 @@
       .forEach(b => b.onclick = () => pickFile(b.dataset.update));
     $('dbGrid').querySelectorAll('[data-edit]')
       .forEach(b => b.onclick = () => openEditor(b.dataset.edit));
+    $('dbGrid').querySelectorAll('[data-clear]')
+      .forEach(b => b.onclick = () => clearDb(b.dataset.clear));
 
     // count up, once the cards have settled in
     $('dbGrid').querySelectorAll('.db-count[data-to]').forEach(el => {
@@ -186,6 +190,44 @@
       if (small) el.appendChild(small);
       if (p < 1) requestAnimationFrame(step);
     })(t0);
+  }
+
+  /* ── DB clear ────────────────────────────────────────────────────── */
+  // Writes an empty database through the SAME api/db/<network> route the xlsx
+  // import uses, so the server keeps its one .bak. That rollback copy is the
+  // only copy — data/*.bak is gitignored and the source workbooks are not in
+  // the repo — so it is worth saying so in the confirm rather than assuming
+  // whoever clicks this knows.
+  async function clearDb(net) {
+    const sectors = count(net, 'sectors'), sites = count(net, 'sites');
+    if (!sectors && !sites) return;                 // already empty, nothing to do
+    if (!confirm(T('db.clearConfirm', {
+      label: label(net), n: fmt(sectors), s: fmt(sites),
+    }))) return;
+
+    const card = $('dbCard-' + net);
+    if (card) card.classList.add('busy');
+    const payload = { network: net, label: label(net), source: null, built: null,
+                      sites: {}, sectors: {} };
+    try {
+      const res = await fetch('api/db/' + net, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text() || res.status);
+      DB[net] = indexDb(payload);
+      renderDbCards();
+      updateChip();
+      toast(T('toast.dbCleared', { label: label(net), n: fmt(sectors) }));
+    } catch (ex) {
+      // Deliberately NOT the import's "use it for this session anyway": a
+      // failed import still leaves the user their work, but a failed clear
+      // leaves the file on disk intact. Emptying the card would be a lie that
+      // un-tells itself on the next refresh.
+      if (card) card.classList.remove('busy');
+      toast(T('toast.clearFail', { e: ex.message }), true);
+    }
   }
 
   /* ── DB update: xlsx → parsed → POSTed to the server ─────────────── */

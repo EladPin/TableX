@@ -286,6 +286,28 @@ interrupted.
 for that session and the toast says plainly that it will not persist. Silent in-memory-only
 success would be worse than the error.
 
+### Clearing a database
+
+`נקה` on a loaded card empties that network. It POSTs an empty database to the **same
+`api/db/<network>` route** the import uses, so the server takes its one `.bak` on the way past —
+and the confirm says so out loud, because `data/*.bak` is gitignored and the source workbooks are
+no longer in the repo, which makes that rollback copy the only one.
+
+Three deliberate details:
+
+- **The button only renders on a loaded card.** There is nothing to clear on an empty one, and a
+  button that is present but inert reads as broken.
+- **A failed clear is NOT applied in memory** — deliberately the opposite of a failed import. An
+  import that cannot reach the server still leaves the user their parsed work, so it is kept for
+  the session with a warning. A clear that cannot reach the server has changed nothing on disk,
+  so emptying the card would be a lie that un-tells itself on the next refresh.
+- **It writes the same stub shape the empty slots ship with**, so a cleared network is
+  byte-identical to one that was never filled. Verified by seeding `idf`, clearing it through the
+  UI, and diffing the file against the committed stub — no diff.
+
+When testing this, clear a **stub** network, never `partner`; seed `idf` with a few rows first if
+you need a loaded card. Same rule the write route already carries, for the same reason.
+
 ### The parse runs in a Worker, and why
 
 Parsing an 8 MB Planet group export is **4–6 s of straight-line CPU**. On the main thread that is

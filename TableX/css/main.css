@@ -628,6 +628,12 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .btn-ghost { color: var(--black); }
 .btn-ghost:hover { background: var(--mist); }
 
+/* Clearing a database is the one destructive action on a card. It stays a
+   ghost button so it never competes with Update, and carries the error token
+   rather than a hardcoded red so it swaps correctly in dark. Must stay AFTER
+   .btn-ghost — same specificity, so source order is what wins the colour. */
+.btn-danger { color: var(--err); }
+
 .btn-outline {
   border: 1px solid var(--cloud);
   color: var(--black);
@@ -730,7 +736,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
      fit, so a long source filename still wraps. */
   overflow-wrap: anywhere;
 }
-.db-actions { display: flex; gap: 8px; }
+.db-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* ═══ FOOTER ════════════════════════════════════════════════════════ */
 .foot {

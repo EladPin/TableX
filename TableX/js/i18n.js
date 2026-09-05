@@ -67,6 +67,10 @@
     'db.built': 'עודכן',
     'db.load': 'טען קובץ',
     'db.update': 'עדכן',
+    'db.clear': 'נקה',
+    'db.clearConfirm': 'לנקות את מסד הנתונים {label}?\n\n' +
+                       '{n} סקטורים ו-{s} אתרים יימחקו מהשרת.\n\n' +
+                       'עותק שחזור אחד (‎.bak) נשמר בצד השרת, אך העדכון הבא ידרוס אותו.',
     'db.shrink': 'ייבוא מחליף את מסד הנתונים — הוא אינו ממזג.\n\n' +
                  '{label}: {was} סקטורים ← {now} סקטורים (ירידה של {pct}%).\n\n' +
                  'ייתכן שהקובץ מכיל רק חלק מהרשת. לייבא בכל זאת?',
@@ -101,6 +105,8 @@
                       'Sector ID · Site ID · Band Name), או גיליון יחיד עם: ' +
                       'Sector ID · Site ID · Site Name · Sector · Frequency (MHz) · Bandwidth (MHz)',
     'toast.importCancelled': 'הייבוא בוטל — מסד הנתונים לא שונה',
+    'toast.dbCleared': 'מסד הנתונים {label} נוקה — {n} סקטורים הוסרו',
+    'toast.clearFail': 'הניקוי נכשל ({e}) — מסד הנתונים לא שונה',
     'toast.dbSaved': 'עודכן {label} — {n} סקטורים נשמרו בשרת',
     'toast.dbSession': 'נטען לשימוש בהפעלה זו בלבד — השמירה לשרת נכשלה ({e}). הפעל דרך start.bat כדי לשמור לצמיתות.',
     'toast.pptxMissing': 'ספריית PPTX לא נטענה — js/pptxgen.bundle.js חסר.',
@@ -184,6 +190,11 @@
     'db.built': 'Updated',
     'db.load': 'Load file',
     'db.update': 'Update',
+    'db.clear': 'Clear',
+    'db.clearConfirm': 'Clear the {label} database?\n\n' +
+                       '{n} sectors and {s} sites will be deleted on the server.\n\n' +
+                       'One rollback copy (.bak) is kept server-side, but the next ' +
+                       'update overwrites it.',
     'db.shrink': 'An import replaces the database — it does not merge.\n\n' +
                  '{label}: {was} sectors → {now} sectors (down {pct}%).\n\n' +
                  'This file may cover only part of the network. Import anyway?',
@@ -219,6 +230,8 @@
                       'sheet carrying: Sector ID · Site ID · Site Name · Sector · ' +
                       'Frequency (MHz) · Bandwidth (MHz)',
     'toast.importCancelled': 'Import cancelled — the database is unchanged',
+    'toast.dbCleared': 'Cleared {label} — {n} sectors removed',
+    'toast.clearFail': 'Clear failed ({e}) — the database is unchanged',
     'toast.dbSaved': 'Updated {label} — {n} sectors saved on the server',
     'toast.dbSession': 'Loaded for this session only — the server write failed ({e}). Run via start.bat to persist it.',
     'toast.pptxMissing': 'PPTX library not loaded — js/pptxgen.bundle.js is missing.',
