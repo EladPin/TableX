@@ -134,6 +134,37 @@
                    partner: 'Partner', pelephone: 'Pelephone' };
   const label = net => LABELS[net] || net;
 
+  // Placeholder examples for the site editor's add-sector form, per network.
+  // Until now every network showed Partner's shapes, which teaches the wrong
+  // format to anyone adding a Cellcom or Pelephone site by hand.
+  //
+  // These are sample DATA, not UI copy — the same in both languages, like the
+  // paste box's example rows — so they live here beside LABELS rather than in
+  // i18n.js. Cellcom's and Pelephone's come from screen captures, since their
+  // workbooks live on TS and cannot leave it; treat them as illustrative.
+  // IDF is deliberately blank: it is coming from an ENM CLI dump rather than a
+  // Planet group export, and inventing an example would teach a format that
+  // turns out not to be the one.
+  const EXAMPLES = {
+    partner:   { secId: 'LNN4610Da',   siteId: 'MN4610A', name: 'גג בית העם  דישון',
+                 sector: 'Da',  freq: '1800', bw: '20' },
+    cellcom:   { secId: '3634249_270', siteId: '14196',   name: '',
+                 sector: '270', freq: '2600', bw: '20' },
+    pelephone: { secId: '935739_22',   siteId: 'P935739', name: 'EINAV',
+                 sector: '22',  freq: '750',  bw: '10' },
+    idf:       { secId: '', siteId: '', name: '', sector: '', freq: '', bw: '' },
+  };
+
+  function applyExamples(net) {
+    const ex = EXAMPLES[net] || EXAMPLES.idf;
+    $('edSectorId').placeholder = ex.secId;
+    $('edSiteId').placeholder = ex.siteId;
+    $('edSiteName').placeholder = ex.name;
+    $('edSector').placeholder = ex.sector;
+    $('edFreq').placeholder = ex.freq;
+    $('edBw').placeholder = ex.bw;
+  }
+
   function renderDbCards() {
     $('dbGrid').innerHTML = NETWORKS.map((net, i) => {
       const db = DB[net], empty = isEmpty(net);
@@ -775,6 +806,7 @@
       q: '',
     };
     $('edNet').textContent = label(net);
+    applyExamples(net);
     $('edSearch').value = '';
     $('edAdd').classList.add('hidden');
     $('dbEditor').classList.remove('hidden');

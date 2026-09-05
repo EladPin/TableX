@@ -79,7 +79,22 @@ WANT = ['sector id', 'site id', 'site name', 'sector',
 # Layout A: candidate site-name columns, best-populated wins (see module docs).
 NAME_COLS = ['description', 'site name', 'site name 2']
 
+# Which part of a sector id names the sector within its site:
+#   LEA0402Da    -> Da    trailing letters            (Partner)
+#   3634249_270  -> 270   after the last underscore   (Cellcom -- the azimuth)
+#   935739_22    -> 22    after the last underscore   (Pelephone)
+# Partner never reaches the second rule, since its ids always end in letters, so
+# the path verified across 14,008 sectors is untouched.
 TRAILING_ALPHA = re.compile(r'([A-Za-z]+)$')
+AFTER_UNDERSCORE = re.compile(r'_([^_]+)$')
+
+
+def sector_of(sec_id):
+    m = TRAILING_ALPHA.search(sec_id)
+    if m:
+        return m.group(1)
+    m = AFTER_UNDERSCORE.search(sec_id)
+    return m.group(1) if m else ''
 
 # Band Name says the frequency THREE different ways, one per operator:
 #
@@ -318,10 +333,7 @@ def build_multi(sheets):
             dupes += 1
             if dupe_example is None:
                 dupe_example = sec_id
-        sector = cell(row, c_hdr, 'sector')
-        if not sector:
-            m = TRAILING_ALPHA.search(sec_id)
-            sector = m.group(1) if m else None
+        sector = cell(row, c_hdr, 'sector') or sector_of(sec_id)
         band_name = cell(row, c_hdr, 'band name')
         freq, bw = parse_band(band_name)
         # Present but resolving to neither a label nor an EARFCN is a shape

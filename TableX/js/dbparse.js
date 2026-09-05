@@ -42,7 +42,21 @@
   // keying on the column called "Site Name" builds a database of blank names.
   const NAME_COLS = ['description', 'site name', 'site name 2'];
 
+  // Which part of a sector id names the sector within its site:
+  //   LEA0402Da    → Da    trailing letters            (Partner)
+  //   3634249_270  → 270   after the last underscore   (Cellcom — the azimuth)
+  //   935739_22    → 22    after the last underscore   (Pelephone)
+  // Partner never reaches the second rule, since its ids always end in letters,
+  // so the path verified across 14,008 sectors is untouched.
   const TRAILING_ALPHA = /([A-Za-z]+)$/;
+  const AFTER_UNDERSCORE = /_([^_]+)$/;
+
+  function sectorOf(secId) {
+    const a = TRAILING_ALPHA.exec(secId);
+    if (a) return a[1];
+    const u = AFTER_UNDERSCORE.exec(secId);
+    return u ? u[1] : '';
+  }
 
   // Band Name says the frequency THREE different ways, one per operator:
   //
@@ -220,11 +234,7 @@
       // first. IDF's export numbers sectors 1/2/3 PER SITE, so importing it
       // blind would collapse a whole network into a handful of rows.
       if (secId in sectors) { dupes++; if (!dupeExample) dupeExample = secId; }
-      let sector = cellAt(row, hdr, 'sector');
-      if (!sector) {                               // LEA0402Da → Da
-        const m = TRAILING_ALPHA.exec(secId);
-        sector = m ? m[1] : '';
-      }
+      const sector = cellAt(row, hdr, 'sector') || sectorOf(secId);
       const bandName = cellAt(row, hdr, 'band name');
       let band = parseBand(bandName);
       let freq = band[0], bw = band[1];

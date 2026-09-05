@@ -243,7 +243,10 @@ sector ids the two sources share (2026-09-05):
   `Description`. The parser therefore picks the **best-populated** of `Description` /
   `Site Name` / `Site Name 2` rather than the first one present — keying on the column merely
   *called* "Site Name" builds a database of 3,129 blank names.
-- **The sector is the trailing letters of the Sector ID** (`LEA0402Da` → `Da`).
+- **The sector is the trailing letters of the Sector ID** (`LEA0402Da` → `Da`), falling back to
+  the segment after the last underscore when the id ends in digits — `3634249_270` → `270` for
+  Cellcom (its azimuth), `935739_22` → `22` for Pelephone. Partner never reaches that fallback,
+  since its ids always end in letters, so the path below is untouched by it.
   14,008 / 14,008 exact.
 - **Frequency and bandwidth come from `Band Name`** (`1800_20` → 1800 MHz / 20 MHz;
   `700_5_9435` → 700 / 5). **No EARFCN conversion is needed** — Planet already reports MHz here.
@@ -596,6 +599,16 @@ our own sites change by roughly **one site a month**. Re-importing a whole workb
 is exactly the friction this app was built to remove, so single rows can be edited in place. The
 xlsx import stays for the bulk refresh; the two paths write the same file.
 
+**The add-sector form's examples are per network** (`EXAMPLES` in `app.js`, applied by
+`applyExamples()` when the editor opens). Every network used to show Partner's shapes —
+`LNN4610Da` / `MN4610A` / `Da` — which taught the wrong format to anyone adding a Cellcom or
+Pelephone site by hand, since those look like `3634249_270` / `14196` / `270` and
+`935739_22` / `P935739` / `22`. They are sample **data**, identical in both languages like the
+paste box's example rows, so they live beside `LABELS` rather than in `i18n.js`; moving them there
+also got the one piece of inline Hebrew out of `index.html`. **IDF's are deliberately empty** — it
+is coming from an ENM CLI dump rather than a Planet group export, and a made-up example would
+teach a format that turns out not to be the one.
+
 Behaviour worth preserving:
 
 - **Edits are staged on a deep copy and written only on Save.** A per-change POST would mean a
@@ -608,6 +621,29 @@ Behaviour worth preserving:
   narrows, the cap holds, and a footer line says how many of how many are shown.
 - Save posts to the **same `api/db/<network>` route** the xlsx import uses, then refreshes the
   cards and the nav chip in place.
+
+## Prompts are in-app, never `window.confirm()`
+
+`confirm()` renders as **"האתר localhost:8094 אומר"** — the browser's voice, not the app's — and in
+the packaged exe it becomes Electron's chrome instead of TableX's. Every prompt goes through
+`ask(text, opts)` in `app.js`: an `alertdialog` reusing `.ed-overlay` for the backdrop, so there is
+one scrim treatment in the app rather than two that drift.
+
+It takes the **same multi-paragraph strings** `confirm()` took — first paragraph becomes the
+question, the rest the body — and returns a `Promise<boolean>`, which is why `closeEditor` is
+async. Four details worth keeping:
+
+- **Focus lands on Cancel.** A stray Enter on a destructive prompt must not be what empties a
+  database.
+- **The confirm button is labelled for the action** (`נקה`, `עדכן`), not a generic OK, via
+  `opts.ok`. `opts.danger` styles it.
+- **Escape is answered by the dialog before the editor**, or Escape closes the editor out from
+  under its own "discard unsaved changes?" prompt.
+- **`.btn-primary.danger` uses `--err` on `--paper`.** Both swap with the theme, so it is dark red
+  on white in light and light red on near-black in dark, with no second hardcoded colour.
+
+Four prompts use it: `db.clearConfirm`, `db.shrink`, `db.unknownBand` and `ed.discard`. Adding a
+fifth means a string in **both** dictionaries, as always.
 
 ## Settings: theme and language
 
@@ -698,6 +734,8 @@ the raw key.
   language after a switch.
 - When you touch the table shape, **touch all three renderers**: HTML (`renderTable`), PPTX
   (`btnPptx`), and the print CSS.
+- **Never `window.confirm()` / `alert()`** — use `ask()`, so a prompt speaks in the app's voice
+  rather than the browser's (or Electron's).
 - When you touch the workbook contract, **touch both parsers**: `js/dbparse.js` and
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
