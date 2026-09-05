@@ -68,6 +68,12 @@ site names matched byte-for-byte, zero mismatches**, which is the verification t
 survives the xlsx→JSON conversion. If either dataset is refreshed, the other is probably stale;
 re-run that comparison rather than trusting one blindly.
 
+**Interfex's copy is now the stale side.** TableX's `partner.json` was rebuilt on 2026-09-05 from
+the `Partner_May_26_V3` group export (2,899 → 3,129 sites, 14,252 → 16,510 sectors, 558 site
+names changed), so the 2026-09-04 cross-check no longer describes two matching datasets.
+`partner_cells.json` still predates that refresh. Rebuild it from the same workbook before
+relying on the comparison again.
+
 Shared house style: **no internet on the target machines**, so everything is vendored and
 nothing loads from a CDN; Hebrew RTL UI; a PowerShell static server started by a `start.bat`;
 no build step for the app itself.
