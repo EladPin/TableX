@@ -112,6 +112,7 @@
 
     <nav class="nav-links">
       <button class="nav-link" data-goto="home" data-i18n="nav.input"></button>
+      <button class="nav-link" data-goto="lookup" data-i18n="nav.lookup"></button>
       <button class="nav-link" data-goto="db" data-i18n="nav.db"></button>
     </nav>
 
@@ -144,6 +145,13 @@
             <div class="seg" id="segLang">
               <button class="seg-btn" data-set-lang="he" dir="rtl">עברית</button>
               <button class="seg-btn" data-set-lang="en" dir="ltr">English</button>
+            </div>
+          </div>
+          <div class="set-group">
+            <p class="set-label" data-i18n="set.scene"></p>
+            <div class="seg" id="segScene">
+              <button class="seg-btn" data-set-scene="1" data-i18n="set.sceneOn"></button>
+              <button class="seg-btn" data-set-scene="0" data-i18n="set.sceneOff"></button>
             </div>
           </div>
           <p class="set-note" data-i18n="set.note"></p>
@@ -224,6 +232,31 @@
   </footer>
 </main>
 
+<!-- ══ LOOKUP ══ the databases as a reference tool, not only as a step in
+     generating a table. Searches all four at once, because a code read off
+     Planet does not say which operator it belongs to. ══ -->
+<main class="view hidden" id="viewLookup">
+  <section class="section lk-top">
+    <div class="section-head">
+      <p class="eyebrow"><span class="dot"></span><span data-i18n="lk.eyebrow"></span></p>
+      <h2 class="section-title" data-i18n="lk.title"></h2>
+      <p class="section-sub" data-i18n="lk.sub"></p>
+    </div>
+
+    <div class="lk-bar">
+      <svg class="lk-ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+        <circle cx="8" cy="8" r="5.2" stroke="currentColor" stroke-width="1.6"/>
+        <path d="M11.8 11.8 16 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      </svg>
+      <input class="lk-search" id="lkSearch" type="search" autocomplete="off"
+             spellcheck="false" dir="auto" data-i18n-placeholder="lk.search"/>
+    </div>
+
+    <div id="lkDirect"><!-- rendered by app.js --></div>
+    <div class="lk-list" id="lkList"><!-- rendered by app.js --></div>
+  </section>
+</main>
+
 <!-- ══ TABLE ══ -->
 <main class="view hidden" id="viewTable">
   <div class="toolbar">
@@ -236,7 +269,9 @@
         <span data-i18n="tbl.back"></span>
       </button>
       <span class="toolbar-meta" id="tableMeta"></span>
+      <span class="toolbar-edit hidden" id="editNote"></span>
       <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm hidden" id="btnRevert" data-i18n="tbl.revert"></button>
       <button class="btn btn-ghost btn-sm" id="btnPrint" data-i18n="tbl.print"></button>
       <button class="btn btn-primary btn-sm" id="btnPptx" data-i18n="tbl.pptx"></button>
     </div>
@@ -383,6 +418,7 @@
      TableXParse, the main-thread fallback if a Worker cannot start. -->
 <script src="js/dbparse.js"></script>
 <script src="js/pptxgen.bundle.js"></script>
+<script src="js/scene.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

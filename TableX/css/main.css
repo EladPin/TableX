@@ -457,12 +457,17 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 /* ═══ HERO ══════════════════════════════════════════════════════════
-   The only colored surface. Everything below reverts to white. */
+   The only colored surface. Everything below reverts to white.
+
+   The bottom 184px are the pixel landscape (js/scene.js) — the spec's
+   "hand-illustrated hero" slot, which TableX had left as a bare
+   gradient. padding-bottom carries it: 84px of it is ground that was
+   already inside the old 132px, the rest is sky the hero grew for. */
 .hero {
   position: relative;
   overflow: hidden;
   background: linear-gradient(160deg, var(--hero-top) 0%, var(--hero-bot) 100%);
-  padding: 88px 32px 132px;
+  padding: 88px 32px 216px;
   text-align: center;
 }
 .hero-glow {
@@ -473,7 +478,128 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
               rgba(12, 140, 94, 0.55), transparent 68%);
   pointer-events: none;
 }
-.hero-inner { position: relative; max-width: 760px; margin: 0 auto; }
+/* above the scene — positioned siblings paint in DOM order otherwise */
+.hero-inner { position: relative; z-index: 2; max-width: 760px; margin: 0 auto; }
+
+/* ═══ SCENE — the hero's pixel landscape ════════════════════════════
+   Drawn by js/scene.js; read its header for the grid and the layout
+   trick. Colour lives HERE and reaches the rects through classes, never
+   a fill="" attribute, so a theme switch stays a pure token swap and
+   the scene needs no re-render.
+
+   The ramp is atmospheric: the most DISTANT range is the lightest (it sits
+   in the horizon haze) and every nearer layer steps darker, down to a
+   near-black foreground. Four ranges rather than three — the extra one is
+   what turns a stack of bands into distance. Each crest carries a 1px lit
+   rim, which is what separates layers whose values are close.
+
+   The hero band is dark in both themes, so one palette serves both; the
+   dark block below only deepens it to match the darker gradient. */
+#scene {
+  --sc-dist:   #147056;
+  --sc-far:    #0d5340;
+  --sc-mid:    #073527;
+  --sc-near:   #041c13;
+  --sc-ground: #04150e;
+  --sc-rim:    #1c8a68;   /* the horizon line, at the card's top edge */
+  --sc-rim1:   #2fa77e;   /* distant crest — brightest, deepest in the haze */
+  --sc-rim2:   #1a7a5d;
+  --sc-rim3:   #0e5039;
+  --sc-solid:  #020e08;   /* trees, rooftops: the darkest thing in the scene */
+  --sc-mast:   #3d9074;
+  --sc-hi:     #5cbf95;
+  --sc-brace:  #266a52;
+  --sc-wire:   #2f7259;   /* must clear the FAR ridge it crosses, or the
+                             guyed mast reads as a bare lamppost */
+  --sc-mint:   #4ade9f;
+  --sc-lamp:   #a8ffd8;
+  --sc-win:    #63dfab;
+  --sc-pin:    #cbfae2;
+  --sc-star:   #8fe6c2;
+
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 184px;
+  z-index: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  pointer-events: none;
+  transition: opacity 0.4s var(--ease);
+}
+#scene.off { opacity: 0; }
+#scene svg { display: block; }
+
+/* Hidden scene, no landscape to make room for — the hero returns to the
+   height it had before it grew one. :has() keeps that in CSS rather than
+   giving JS a second say in how tall the hero is. */
+.hero { transition: padding-bottom 0.4s var(--ease); }
+.hero:has(#scene.off) { padding-bottom: 132px; }
+
+:root[data-theme="dark"] #scene {
+  --sc-dist:   #0f5a45;
+  --sc-far:    #0a4132;
+  --sc-mid:    #05291d;
+  --sc-near:   #03150e;
+  --sc-ground: #030f0a;
+  --sc-rim:    #157056;
+  --sc-rim1:   #248a67;
+  --sc-rim2:   #146149;
+  --sc-rim3:   #0a3f2d;
+  --sc-solid:  #020a06;
+  --sc-mast:   #327a61;
+  --sc-hi:     #4ea37e;
+  --sc-brace:  #1f5744;
+  --sc-wire:   #163c2d;
+}
+
+/* Soft horizon glow. Deliberately NOT pixels: a dithered gradient would
+   cost ~1,400 rects for what one radial does better, and the hero
+   already carries a radial in .hero-glow, so it is in the system. */
+.sc-haze {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 88px;
+  height: 116px;
+  background: radial-gradient(ellipse 64% 100% at 50% 100%,
+              rgba(74, 222, 159, 0.26), rgba(74, 222, 159, 0.08) 44%, transparent 76%);
+}
+
+#scene .sc-dist   { fill: var(--sc-dist); }
+#scene .sc-far    { fill: var(--sc-far); }
+#scene .sc-rim1   { fill: var(--sc-rim1); }
+#scene .sc-mid    { fill: var(--sc-mid); }
+#scene .sc-near   { fill: var(--sc-near); }
+#scene .sc-ground { fill: var(--sc-ground); }
+#scene .sc-rim    { fill: var(--sc-rim); }
+#scene .sc-rim2   { fill: var(--sc-rim2); }
+#scene .sc-rim3   { fill: var(--sc-rim3); }
+#scene .sc-solid  { fill: var(--sc-solid); }
+#scene .sc-mast   { fill: var(--sc-mast); }
+#scene .sc-hi     { fill: var(--sc-hi); }
+#scene .sc-brace  { fill: var(--sc-brace); }
+#scene .sc-wire   { fill: var(--sc-wire); }
+#scene .sc-mint   { fill: var(--sc-mint); }
+#scene .sc-lamp   { fill: var(--sc-lamp); }
+#scene .sc-win    { fill: var(--sc-win); }
+#scene .sc-pin    { fill: var(--sc-pin); }
+#scene .sc-starc  { fill: var(--sc-star); }
+#scene .sc-face   { fill: #ffffff; }
+#scene .sc-shadow { fill: #000000; opacity: 0.2; }
+
+/* Coverage arcs answer only the site the ghost is standing at. Opacity
+   is set by the tick as an ATTRIBUTE, so it must not also be declared
+   here — a CSS property would win and freeze the pulse. */
+/* Every site shows a resting fan — the network is always there — and the
+   one the ghost is standing at comes up to full and pulses. */
+.sc-site { opacity: 0.3; transition: opacity 0.55s var(--ease); }
+.sc-site.on { opacity: 1; }
+.sc-arc, .sc-star, .sc-lamp { transition: opacity 0.28s linear; }
+
+@media (prefers-reduced-motion: reduce) {
+  .sc-site { transition: none; }
+  .sc-arc, .sc-star, .sc-lamp { transition: none; }
+}
 
 .hero-title {
   font-size: 57px;
@@ -1044,6 +1170,81 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   color: var(--muted);
 }
 
+/* ═══ LOOKUP VIEW ═══════════════════════════════════════════════════
+   Deliberately built on the site editor's row classes rather than a
+   parallel set: the two show the same shape of thing, and one visual
+   language for "a site and its sectors" is worth more than bespoke
+   styling here. Only what differs is defined below. */
+/* Narrower than a full .section: a site row is a short line, and at 1200px
+   it strands most of its width as empty space. */
+.lk-top { padding-top: 48px; }
+.lk-top .section-head, .lk-bar, .lk-direct, .lk-list { max-width: 900px; }
+
+.lk-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--cloud);
+  border-radius: var(--r-input);
+  background: var(--paper);
+  padding: 0 14px;
+  margin-bottom: 20px;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.lk-bar:focus-within {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 3px var(--mint-wash);
+}
+.lk-ico { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.lk-search {
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: none;
+  font: inherit;
+  font-size: 16px;
+  color: var(--black);
+  padding: 14px 0;
+}
+.lk-search::-webkit-search-cancel-button { cursor: pointer; }
+
+/* the answer, when the query resolves through the generator's own lookup */
+.lk-direct {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  border: 1px solid var(--mint-line);
+  border-radius: var(--r-card);
+  background: var(--mint-wash);
+  font-size: 13px;
+  color: var(--muted);
+}
+.lk-direct.approx { border-color: var(--cloud); background: var(--mist); }
+.lk-dtag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--mint);
+  border: 1px solid var(--mint-line);
+  border-radius: 3px;
+  padding: 2px 6px;
+}
+.lk-direct.approx .lk-dtag { color: var(--muted); border-color: var(--cloud); }
+.lk-dname { font-size: 16px; font-weight: 600; color: var(--ink); }
+
+.lk-list { min-height: 200px; }
+.lk-site .ed-site-row { cursor: pointer; }
+.lk-sector { cursor: copy; }
+.lk-sector.hit { background: var(--mint-wash); }
+.lk-sector.hit .mono { color: var(--mint); font-weight: 600; }
+/* copy targets read as clickable without becoming buttons */
+.lk-site [data-copy] { cursor: copy; border-radius: 3px; }
+.lk-site [data-copy]:hover { background: var(--mint-wash); color: var(--mint); }
+
 .ed-foot {
   display: flex;
   align-items: center;
@@ -1280,12 +1481,51 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .row-a td:not(.nk-cell) { background: #f0eeff; }
 .row-b td:not(.nk-cell) { background: #faf9ff; }
 
-/* staggered row reveal on generate */
+/* staggered row reveal on generate — suppressed on every later render, or
+   the whole table would flicker after each cell edit */
 .data-table tbody tr {
   animation: rowIn 0.32s var(--ease) both;
   animation-delay: calc(var(--i, 0) * 26ms);
 }
+.data-table.no-anim tbody tr { animation: none; }
 @keyframes rowIn { from { opacity: 0; transform: translateY(4px); } }
+
+/* ── editable cells ───────────────────────────────────────────────────
+   The document keeps its own purple palette (DESIGN.md deviation 3), so
+   the affordances here are drawn from it and not from the app's mint. */
+.td-ed { cursor: text; }
+.td-ed:hover { box-shadow: inset 0 0 0 1px #b9b1e8; }
+.td-ed:focus-visible { outline: 2px solid #6b5fb5; outline-offset: -2px; }
+
+/* A hand-typed value is marked in the APP only — the same rule .tag
+   follows. The toolbar count is what carries it into the room. */
+.td-edited { position: relative; }
+.td-edited::after {
+  content: '';
+  position: absolute;
+  top: 4px; inset-inline-end: 4px;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: #6b5fb5;
+}
+.td-input {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  background: #fff;
+  border: 1px solid #6b5fb5;
+  border-radius: 3px;
+  padding: 2px 4px;
+}
+.td-input:focus { outline: none; box-shadow: 0 0 0 2px rgba(107, 95, 181, 0.22); }
+
+.toolbar-edit {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mint);
+  white-space: nowrap;
+}
 
 /* app-only annotations — never exported, never printed */
 .tag {
@@ -1329,6 +1569,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 /* ═══ RESPONSIVE ════════════════════════════════════════════════════ */
 @media (max-width: 900px) {
   .db-grid { grid-template-columns: 1fr; }
+  /* No landscape here: the band needs ~184px of hero it cannot have on a
+     short viewport, and display:none zeroes clientWidth, which makes
+     scene.js stand down and kill its timer on its own. */
+  #scene { display: none; }
   .hero { padding: 64px 24px 120px; }
   .hero-title { font-size: 40px; letter-spacing: -0.4px; }
   .section-title { font-size: 32px; }
@@ -1340,7 +1584,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 
 /* ═══ PRINT — only the document survives ════════════════════════════ */
 @media print {
-  .nav, .toolbar, .foot, .notice, #viewHome, .toast { display: none !important; }
+  .nav, .toolbar, .foot, .notice, #viewHome, #viewLookup, .toast { display: none !important; }
   body { background: #fff; }
   .doc-wrap { background: #fff; padding: 0; min-height: 0; }
   .doc-shell { max-width: none; }

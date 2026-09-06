@@ -22,6 +22,8 @@
   const DB = Object.create(null);
 
   let lastRows = null;   // [{ pt, rows: [...] }]
+  let origRows = null;   // deep copy taken at generate, for Revert
+  let tableAnim = true;  // stagger the row reveal on arrival, not on every edit
   let lastMiss = [];     // codes that resolved to nothing
   let dbsReady = false;  // gate: generating before the DBs land yields a table
                          // of untranslated English codes, which is the exact
@@ -716,21 +718,37 @@
         }
         // Stagger is capped: past row 18 they all arrive together, so a long
         // table never makes the user wait for a decorative animation.
+        // Editable cell. The address travels in data-e so a commit can find
+        // its row again after the table is rebuilt; `td-edited` marks a
+        // hand-typed value and, like every .tag, is app-only.
+        const ec = (f, v, extra) =>
+          `<td class="${extra || ''} td-ed${r.edited && r.edited[f] ? ' td-edited' : ''}"` +
+          ` data-e="${nk}:${ri}:${f}" tabindex="0">${esc(v)}`;
+
         h += `<tr class="${cls}" style="--i:${Math.min(i++, 18)}">`;
         if (ri === 0) h += `<td class="nk-cell" rowspan="${rows.length}">נק' ${nk}</td>`;
         h += `
           <td>${r.rank}</td>
-          <td class="td-site">${esc(r.site)}${tag}</td>
-          <td>${esc(r.sector)}</td>
-          <td>${esc(r.freq)}</td>
-          <td>${esc(r.bw)}</td>
-          <td>${esc(r.power)}</td>
+          ${ec('site', r.site, 'td-site')}${tag}</td>
+          ${ec('sector', r.sector)}</td>
+          ${ec('freq', r.freq)}</td>
+          ${ec('bw', r.bw)}</td>
+          ${ec('power', r.power)}</td>
         </tr>`;
       });
     });
 
+    // The stagger belongs to the arrival of a NEW table. Re-running it on
+    // every cell commit would make the whole table flicker on each edit.
+    if (!tableAnim) h = h.replace('class="data-table"', 'class="data-table no-anim"');
     $('docPage').innerHTML = h + `</tbody></table>`;
+    tableAnim = false;
     $('tableMeta').textContent = T('tbl.meta', { p: keys.length, r: i });
+
+    const ne = editCount();
+    $('editNote').textContent = ne ? T('tbl.edited', { n: ne }) : '';
+    $('editNote').classList.toggle('hidden', !ne);
+    $('btnRevert').classList.toggle('hidden', !ne);
 
     // the warning that stops an untranslated code reaching a commander
     const notice = $('missNotice');
@@ -744,13 +762,253 @@
     }
   }
 
+  /* ── editing the generated table ─────────────────────────────────────
+     The last mile. A lookup that comes back slightly wrong, or a name that
+     needs adjusting for the deck, used to mean fixing it in PowerPoint —
+     which is exactly the 20 minutes this app exists to remove. Cells are
+     edited in place and every renderer reads `lastRows`, so the HTML table,
+     the PPTX and the print view all follow with no second code path.
+
+     An edited cell is marked in the app and NOT in the export, which is the
+     same rule `סקטור משוער` already follows: the deliverable stays seven
+     clean columns. The toolbar therefore always states the count out loud,
+     and Revert puts everything back — a hand-typed value must never be
+     invisible to the person about to send the slide. */
+  let editing = null;   // { nk, ri, field, td }
+
+  function editCount() {
+    let n = 0;
+    for (const k in (lastRows || {})) {
+      for (const r of lastRows[k]) if (r.edited) n += Object.keys(r.edited).length;
+    }
+    return n;
+  }
+
+  function openCell(td) {
+    if (editing) commitCell();
+    const [nk, ri, field] = td.dataset.e.split(':');
+    const row = lastRows[nk][+ri];
+    const inp = document.createElement('input');
+    inp.className = 'td-input';
+    inp.value = row[field] == null ? '' : String(row[field]);
+    inp.dir = field === 'site' ? 'rtl' : 'ltr';
+    editing = { nk, ri: +ri, field, td };
+    td.textContent = '';
+    td.appendChild(inp);
+    inp.focus();
+    inp.select();
+    inp.onkeydown = e => {
+      if (e.key === 'Enter')      { e.preventDefault(); commitCell(1); }
+      else if (e.key === 'Tab')   { e.preventDefault(); commitCell(e.shiftKey ? -1 : 1); }
+      else if (e.key === 'Escape') { e.preventDefault(); editing = null; renderTable(lastRows); }
+    };
+    // Clearing `editing` first is what stops the blur that renderTable's
+    // own teardown fires from re-entering this and committing twice.
+    inp.onblur = () => commitCell();
+  }
+
+  function commitCell(step) {
+    if (!editing) return;
+    const e = editing;
+    editing = null;
+    const inp = e.td.querySelector('input');
+    if (inp) {
+      const v = inp.value.trim();
+      const row = lastRows[e.nk][e.ri];
+      const was = row[e.field] == null ? '' : String(row[e.field]);
+      if (was !== v) {
+        row[e.field] = v;
+        const orig = origRows && origRows[e.nk] && origRows[e.nk][e.ri];
+        const back = orig && String(orig[e.field] == null ? '' : orig[e.field]) === v;
+        if (!row.edited) row.edited = {};
+        if (back) delete row.edited[e.field]; else row.edited[e.field] = true;
+        if (!Object.keys(row.edited).length) delete row.edited;
+      }
+    }
+    renderTable(lastRows);
+    if (!step) return;
+    // The DOM was just rebuilt, so the neighbour is found by address.
+    const cells = [...$('docPage').querySelectorAll('[data-e]')];
+    const i = cells.findIndex(c => c.dataset.e === `${e.nk}:${e.ri}:${e.field}`);
+    if (cells[i + step]) openCell(cells[i + step]);
+  }
+
   /* ── views ───────────────────────────────────────────────────────── */
   function show(which) {
-    const table = which === 'table';
-    $('viewHome').classList.toggle('hidden', table);
+    const table = which === 'table', lk = which === 'lookup';
+    $('viewHome').classList.toggle('hidden', table || lk);
+    $('viewLookup').classList.toggle('hidden', !lk);
     $('viewTable').classList.toggle('hidden', !table);
+    // The nav hides for the TABLE view only — that one is the deliverable
+    // and carries its own toolbar. Lookup is a place you leave again, so it
+    // keeps the nav.
     $('nav').classList.toggle('hidden', table);
+    document.querySelectorAll('.nav-link[data-goto]').forEach(b =>
+      b.classList.toggle('active', b.dataset.goto === (lk ? 'lookup' : 'home')));
     window.scrollTo({ top: 0, behavior: 'auto' });
+    if (lk) { renderLookup(); setTimeout(() => $('lkSearch').focus(), 60); }
+  }
+
+  /* ── lookup view ─────────────────────────────────────────────────────
+     The databases are the app's real asset — tens of thousands of sectors
+     carrying Hebrew site names that exist in usable form nowhere else on
+     these machines. Until now they were reachable only in service of
+     generating a table, or through the site editor's search, which is a
+     modal about EDITING one network.
+
+     This searches all four at once, deliberately: a code read off Planet
+     does not say which operator it belongs to, which is the same reason
+     lookup() walks every network rather than taking a selector. */
+  const LK_ROW_CAP = 60;     // sites rendered
+  const LK_SCAN_CAP = 400;   // sites collected before the scan gives up
+  const lkOpen = new Set();  // "net:siteId" expanded by hand
+
+  const lkMsg = s => '<p class="ed-msg">' + esc(s) + '</p>';
+
+  // exact code first, then prefix, then anything — so typing a full sector
+  // id puts its site at the top instead of alphabetically among its peers
+  function lkRank(h, q) {
+    if (h.id.toLowerCase() === q || h.secs.some(s => s.toLowerCase() === q)) return 0;
+    if (h.id.toLowerCase().startsWith(q) ||
+        h.secs.some(s => s.toLowerCase().startsWith(q))) return 1;
+    return 2;
+  }
+
+  // dir="ltr" on every spec: "1800 MHz" is an LTR string, and inside the
+  // RTL document bidi reorders it to read "MHz 1800".
+  function lkSpecs(net, id, v) {
+    return '<span class="ed-spec" dir="ltr">' + esc(sectorLabel(net, id, v)) + '</span>' +
+           '<span class="ed-spec" dir="ltr">' + esc(freqText(v[2], net)) + '</span>' +
+           '<span class="ed-spec" dir="ltr">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>';
+  }
+
+  function renderLookup() {
+    const raw = $('lkSearch').value.trim(), q = raw.toLowerCase();
+    const list = $('lkList'), direct = $('lkDirect');
+    const live = NETWORKS.filter(n => !isEmpty(n));
+    direct.innerHTML = '';
+
+    if (!live.length) { list.innerHTML = lkMsg(T('lk.empty')); return; }
+    if (!raw) {
+      list.innerHTML = lkMsg(T('lk.hint', {
+        s: fmt(live.reduce((s, n) => s + count(n, 'sectors'), 0)), n: live.length }));
+      return;
+    }
+    if (raw.length < 2) { list.innerHTML = lkMsg(T('lk.short')); return; }
+
+    // A code pasted straight out of Point Inspect resolves through the very
+    // function the generator uses, so the answer here IS the answer there —
+    // including Pelephone's read-it-off-the-code path and Cellcom's ECI.
+    const hit = lookupPlanet(raw);
+    if (hit) {
+      direct.innerHTML =
+        '<div class="lk-direct' + (hit.exact === false ? ' approx' : '') + '">' +
+          '<span class="lk-dtag">' + esc(T(hit.exact === false ? 'lk.approx' : 'lk.direct')) + '</span>' +
+          '<span class="lk-dname">' + esc(hit.site) + '</span>' +
+          '<span class="ed-code" dir="ltr">' + esc(hit.siteId) + '</span>' +
+          '<span class="ed-spec" dir="ltr">' + esc(hit.sector) + '</span>' +
+          '<span class="ed-spec" dir="ltr">' + esc(freqText(hit.freq, hit.net)) + '</span>' +
+          '<span class="ed-spec" dir="ltr">' + esc(hit.bw) + ' MHz</span>' +
+          '<span class="grow"></span>' +
+          '<span class="tag tag-net">' + esc(netTag(hit.net)) + '</span>' +
+        '</div>';
+    }
+
+    const hits = [];
+    let capped = false;
+    scan:
+    for (const net of NETWORKS) {
+      const db = DB[net]; if (!db) continue;
+      for (const id in db.sites) {
+        const name = String(db.sites[id] || '');
+        const secs = db.siteSectorsAll[id] || [];
+        if (id.toLowerCase().includes(q) || name.toLowerCase().includes(q) ||
+            secs.some(s => s.toLowerCase().includes(q))) {
+          hits.push({ net, id, name, secs });
+          // Stop scanning rather than sort thousands: localeCompare('he')
+          // over every Partner site on a two-letter query is what would
+          // make this feel slow.
+          if (hits.length >= LK_SCAN_CAP) { capped = true; break scan; }
+        }
+      }
+    }
+
+    if (!hits.length) {
+      // "Not found" reads as a broken search when the network the code
+      // belongs to simply ships empty — cellcom and pelephone do, because
+      // their workbooks never leave TS. Name them rather than let someone
+      // conclude the lookup is wrong.
+      const dark = NETWORKS.filter(n => isEmpty(n)).map(label);
+      list.innerHTML = lkMsg(T('lk.noHits', { q: raw })) +
+        (dark.length ? lkMsg(T('lk.noHitsEmpty', { list: dark.join(', ') })) : '');
+      return;
+    }
+
+    hits.sort((a, b) => {
+      const ra = lkRank(a, q), rb = lkRank(b, q);
+      return ra !== rb ? ra - rb
+        : String(a.name || a.id).localeCompare(String(b.name || b.id), 'he');
+    });
+
+    const auto = hits.length <= 5;   // few enough to just show the answer
+    list.innerHTML = hits.slice(0, LK_ROW_CAP).map((h, i) => {
+      const key = h.net + ':' + h.id;
+      const open = auto || lkOpen.has(key);
+      const db = DB[h.net];
+      const rows = !open ? '' :
+        '<div class="ed-sectors">' + h.secs.slice().sort().map((id, j) => {
+          const v = db.sectors[id];
+          return '<div class="ed-sector lk-sector' +
+            (id.toLowerCase().includes(q) ? ' hit' : '') +
+            '" data-copy="' + esc(id) + '" style="animation-delay:' + (j * 20) + 'ms">' +
+            '<span class="mono" dir="ltr">' + esc(id) + '</span>' + lkSpecs(h.net, id, v) +
+          '</div>';
+        }).join('') + '</div>';
+      return '<div class="ed-site lk-site ' + (open ? 'open' : '') + '" style="--i:' + i + '">' +
+        '<div class="ed-site-row" data-lk-toggle="' + esc(key) + '">' +
+          '<span class="ed-caret">▶</span>' +
+          '<span class="ed-name" data-copy="' + esc(h.name || h.id) + '">' +
+            esc(h.name || h.id) + '</span>' +
+          '<span class="ed-code" dir="ltr" data-copy="' + esc(h.id) + '">' + esc(h.id) + '</span>' +
+          '<span class="tag tag-net">' + esc(netTag(h.net)) + '</span>' +
+          '<span class="ed-badge">' + h.secs.length + '</span>' +
+        '</div>' + rows +
+      '</div>';
+    }).join('') +
+      (hits.length > LK_ROW_CAP || capped
+        ? '<p class="ed-more">' + esc(T('lk.showing',
+            { n: Math.min(LK_ROW_CAP, hits.length), total: fmt(hits.length) + (capped ? '+' : '') })) + '</p>'
+        : '');
+
+    list.querySelectorAll('[data-lk-toggle]').forEach(el => el.onclick = e => {
+      if (e.target.closest('[data-copy]')) return;   // copying is not toggling
+      const k = el.dataset.lkToggle;
+      if (lkOpen.has(k)) lkOpen.delete(k); else lkOpen.add(k);
+      renderLookup();
+    });
+  }
+
+  // Electron and http://localhost are both secure contexts, so the async
+  // clipboard is normally there; the execCommand path is for a plain http://
+  // origin, where it is simply absent.
+  async function copyText(v) {
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(v);
+        ok = true;
+      }
+    } catch (e) { ok = false; }
+    if (!ok) {
+      const ta = document.createElement('textarea');
+      ta.value = v;
+      ta.style.cssText = 'position:fixed;top:-1000px;opacity:0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+      ta.remove();
+    }
+    toast(ok ? T('lk.copied', { v }) : T('lk.copyFail'), !ok);
   }
 
   /* ── wiring ──────────────────────────────────────────────────────── */
@@ -795,8 +1053,31 @@
       return;
     }
     lastRows = groups;
+    origRows = JSON.parse(JSON.stringify(groups));   // what Revert goes back to
+    tableAnim = true;
     renderTable(groups);
     show('table');
+  };
+
+  // Click or keyboard-focus a cell to edit it; delegated, because the table
+  // is rebuilt on every commit.
+  $('docPage').addEventListener('click', e => {
+    const td = e.target.closest('[data-e]');
+    if (td && !td.querySelector('input')) openCell(td);
+  });
+  $('docPage').addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || e.target.tagName === 'INPUT') return;
+    const td = e.target.closest('[data-e]');
+    if (td) { e.preventDefault(); openCell(td); }
+  });
+
+  $('btnRevert').onclick = async () => {
+    const n = editCount();
+    if (!n || !origRows) return;
+    if (!(await ask(T('tbl.revertConfirm', { n }), { ok: 'tbl.revertOk', danger: true }))) return;
+    lastRows = JSON.parse(JSON.stringify(origRows));
+    renderTable(lastRows);
+    toast(T('tbl.reverted'));
   };
 
   $('btnBack').onclick = () => show('home');
@@ -804,8 +1085,15 @@
   $('brandHome').onclick = e => { e.preventDefault(); show('home'); };
 
   document.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => {
+    if (b.dataset.goto === 'lookup') return show('lookup');
     show('home');
     if (b.dataset.goto === 'db') $('sectionDb').scrollIntoView({ behavior: 'smooth' });
+  });
+
+  $('lkSearch').addEventListener('input', renderLookup);
+  $('viewLookup').addEventListener('click', e => {
+    const c = e.target.closest('[data-copy]');
+    if (c) copyText(c.dataset.copy);
   });
 
   $('dbChip').onclick = () => { show('home'); $('sectionDb').scrollIntoView({ behavior: 'smooth' }); };
@@ -948,9 +1236,12 @@
   // "IDF comes from an ENM CLI dump". Labelling 9335 as "MHz" in the editor was
   // simply wrong. Both are unit symbols, identical in Hebrew and English, so
   // they stay inline here the way ' MHz' always has rather than going to i18n.
-  function freqText(v) {
+  // `net` is optional and defaults to the editor's open network, so the
+  // editor's own calls are unchanged; the lookup view passes it explicitly
+  // because it shows all four networks in one list.
+  function freqText(v, net) {
     if (v == null) return '-';
-    return ed && ed.net === 'idf' ? 'EARFCN ' + v : v + ' MHz';
+    return (net || (ed && ed.net)) === 'idf' ? 'EARFCN ' + v : v + ' MHz';
   }
 
   // siteId -> [sectorId, ...]. Rebuilt per render; cheap next to the DOM work.
@@ -996,9 +1287,9 @@
             const v = ed.sectors[sec];
             return '<div class="ed-sector" style="animation-delay:' + (j * 20) + 'ms">' +
               '<span class="mono" dir="ltr">' + esc(sec) + '</span>' +
-              '<span class="ed-spec">' + esc(v[1] || '-') + '</span>' +
-              '<span class="ed-spec">' + esc(freqText(v[2])) + '</span>' +
-              '<span class="ed-spec">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>' +
+              '<span class="ed-spec" dir="ltr">' + esc(v[1] || '-') + '</span>' +
+              '<span class="ed-spec" dir="ltr">' + esc(freqText(v[2])) + '</span>' +
+              '<span class="ed-spec" dir="ltr">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>' +
               '<span class="grow"></span>' +
               '<button class="ed-rm" data-rm-sector="' + esc(sec) + '" title="' +
                 esc(T('ed.rmSector')) + '">\u2212</button>' +
@@ -1167,6 +1458,8 @@
       b.classList.toggle('on', b.dataset.setTheme === theme));
     setPop.querySelectorAll('[data-set-lang]').forEach(b =>
       b.classList.toggle('on', b.dataset.setLang === I18N.lang));
+    setPop.querySelectorAll('[data-set-scene]').forEach(b =>
+      b.classList.toggle('on', (b.dataset.setScene === '1') === SCENE.enabled));
   }
 
   function setTheme(next) {
@@ -1185,6 +1478,7 @@
     updateHint();
     if (lastRows) renderTable(lastRows);
     if (ed) renderEditor();
+    if (!$('viewLookup').classList.contains('hidden')) renderLookup();
     markActive();
   }
 
@@ -1197,6 +1491,8 @@
     b.onclick = () => setTheme(b.dataset.setTheme));
   setPop.querySelectorAll('[data-set-lang]').forEach(b =>
     b.onclick = () => { I18N.set(b.dataset.setLang); relocalize(); });
+  setPop.querySelectorAll('[data-set-scene]').forEach(b =>
+    b.onclick = () => { SCENE.setEnabled(b.dataset.setScene === '1'); markActive(); });
 
   function toggleSettings(open) {
     const show = open === undefined ? setPop.classList.contains('hidden') : open;
@@ -1217,6 +1513,9 @@
     else if (!$('dbEditor').classList.contains('hidden')) closeEditor();
   });
 
+  // Before markActive(), which reads SCENE.enabled — init() is where the
+  // stored preference is read back off localStorage.
+  SCENE.init();
   I18N.apply();
   renderFacts();
   markActive();

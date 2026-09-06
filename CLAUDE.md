@@ -193,9 +193,10 @@ tools/
   build_fonts.py              downloads + subsets Inter/Heebo into TableX/fonts/
   build_icon.py               the ghost -> .ico / .png / .svg + the nav snippet
 TableX/
-  index.html                  whole UI: nav, hero, paste card, DB grid, table view
+  index.html                  whole UI: nav, hero, paste card, DB grid, lookup, table view
   css/main.css                the Mintlify system, tokens at the top
   js/app.js                   the entire application, one IIFE
+  js/scene.js                 the hero's pixel landscape + the ghost that walks it
   js/dbparse.js               the workbook contract — runs as a Web Worker
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/xlsx.full.min.js         SheetJS — vendored, reads an uploaded workbook
@@ -724,6 +725,23 @@ point's rows, group background alternating by **group** index so each point read
 **Network / approximation chips are app-only.** They are `.tag` spans, `display:none` in print,
 and the PPTX builder never reads them — so the deliverable stays seven clean columns.
 
+**Cells are editable in place.** Click (or focus and press Enter on) any of the five value cells
+and it becomes an input; Enter or Tab commits and moves on, Escape cancels, blur commits. This is
+the last mile: a lookup that comes back slightly wrong used to mean fixing it in PowerPoint, which
+is exactly the 20 minutes the app removes. Details that are load-bearing:
+
+- **Every renderer reads `lastRows`**, so an edit reaches the HTML table, the PPTX and the print
+  view with no second code path. The cell's address travels in `data-e="<point>:<row>:<field>"`
+  because the table is rebuilt on every commit and the DOM node is gone by then.
+- **`origRows` is a deep copy taken at generate**, and `שחזר` restores it through `ask()`. Editing
+  a value *back* to its original clears the mark rather than counting a second edit.
+- **An edited value is marked in the app and NOT in the export** — the same rule the chips follow.
+  That is deliberate but it is also the one place a hand-typed number could pass as a Planet
+  prediction, so the toolbar states the count out loud in mint whenever it is above zero. **Do not
+  remove that counter**; it is what keeps the edit honest.
+- **The row-reveal stagger is suppressed after the first render** (`tableAnim` → `.no-anim`), or
+  the whole table re-animates on every keystroke's commit.
+
 **PPTX** (`btnPptx`): PptxGenJS, `LAYOUT_WIDE`, **one slide**, fixed `colW`. Two traps:
 
 - **Column order is reversed by hand.** PowerPoint tables have no RTL column order —
@@ -814,6 +832,97 @@ stays on the ground.
 
 ---
 
+## The hero scene
+
+`js/scene.js` draws a **pixel landscape of cell sites at night** across the bottom 184px of the
+hero — hills, lattice towers, a rooftop site, an analysis-point pin, coverage arcs, and the
+**ghost mark itself** drifting between them. Technique lifted from UbiPlus's header lobby
+(`D:\projects\UbiPlus`, `js/lobby.js`): inline SVG rects on one integer grid, no assets, nothing
+from a CDN. The *subject* is not: a living room says nothing about this app, so it became the
+thing TableX is actually about.
+
+**It is in the hero because that is where the spec puts illustration** — the Mintlify reference
+hero IS a hand-illustrated landscape with the product floating in front of it, and TableX's hero
+was a bare gradient. DESIGN.md deviation 4 has been rewritten accordingly. It does **not** licence
+illustration anywhere below the hero.
+
+**The layout trick, and the one number that binds it.** `.bridge` pulls the paste card 84px up
+into the hero. The horizon is placed at exactly that 84px, so **the card's top edge IS the ground
+line**: every prop stands *above* it and is therefore fully visible at any width, and only bare
+ground is ever hidden behind the card. That is what lets the scene span the full width instead of
+packing into the side margins the way UbiPlus's furniture does — and it is why the card looks
+planted in the landscape rather than laid over it. **If the `-84px` in `.bridge` ever changes,
+`GROUND_PX` in `scene.js` has to change with it.**
+
+Things worth not re-breaking:
+
+- **Colour lives in `main.css`, reached through CLASSES, never a `fill=""` attribute.** A theme
+  switch then costs nothing — no re-render, no MutationObserver (UbiPlus needs one; this does
+  not). The hero band is dark in *both* themes, same reason `--hero-fg` is not overridden, so one
+  palette serves both with a small dark nudge.
+- **Opacity that the tick animates is set as an ATTRIBUTE, and must not also be declared in CSS**
+  — a CSS property wins over a presentation attribute and would silently freeze the pulse. That
+  applies to `.sc-arc`, `.sc-star` and `.sc-lamp`; `.sc-site`'s base opacity is CSS because the
+  tick only toggles a class there.
+- **The ghost is the mark, cell for cell** — the same 14×14 grid as the nav SVG, the `.ico` and
+  the loader, with the loader's two skirt phases read off its CSS grid areas. It is not a
+  lookalike, and it must not become one: if `build_icon.py` changes the mark, `GH` changes too.
+- **Crest wavelengths are 220–870px on purpose.** The first attempt used ~0.02 rad/cell, whose
+  period is wider than the viewport, and every ridge came out a dead-flat slab. Each crest also
+  carries a ~70px ripple term, without which `round()` holds one row for fifty columns and the lit
+  rim reads as a ruled line rather than a ridge.
+- **Four ranges, not three.** Three read as stacked bands; the fourth is what turns them into
+  distance. Value carries it — the most distant is lightest (it sits in the horizon haze) and each
+  nearer layer steps darker, down to a near-black foreground.
+- **The horizon glow is a CSS radial, not pixels.** A dithered pixel gradient costs ~1,400 rects
+  for what one gradient does better, and `.hero-glow` already puts a radial in the system.
+- **The tick parks itself** off-screen (IntersectionObserver), in a background tab
+  (`visibilitychange`), under `prefers-reduced-motion`, and when the scene is switched off. Under
+  reduced motion `_render()` pins one still frame with a site lit, or the coverage arcs — the
+  point of the picture — would simply be missing.
+- **Hidden below 900px** in CSS. `display:none` zeroes `clientWidth`, which makes `scene.js` stand
+  down and kill its own timer with no JS branch for it. `.hero:has(#scene.off)` likewise returns
+  the hero to its old 132px padding when the scene is switched off, so JS gets no second say in
+  how tall the hero is.
+
+---
+
+## Lookup — the databases as a reference, not only as a step
+
+`חיפוש אתר` in the nav opens a third view (`viewLookup`) that searches **all four databases at
+once**: type a sector code, a site id or a Hebrew name and get the site, its sectors, and each
+sector's frequency and bandwidth.
+
+**Why it exists.** The databases are the app's real asset — tens of thousands of sectors carrying
+Hebrew site names that exist in usable form nowhere else on these machines. Until now they were
+reachable only *in service of* generating a table, or through the site editor's search, which is a
+modal about **editing one network**. "What is `LNN4610Da`?" is a question the team answers many
+times a day, and the answer was a Planet session.
+
+- **All four networks at once, deliberately.** A code read off Planet does not say which operator
+  it belongs to — the same reason `lookup()` walks every network instead of taking a selector.
+- **The direct-hit card runs `lookupPlanet()`**, the *same* function the generator uses. So a code
+  pasted straight out of Point Inspect resolves here exactly as it will in the table — including
+  Pelephone's read-it-off-the-code path and Cellcom's ECI — and an approximate match is labelled
+  `התאמה לפי אתר` rather than presented as exact. If the two ever disagree, that is a bug in one
+  of them, not two opinions.
+- **`freqText(v, net)` takes the network now.** It used to read `ed.net`, the site editor's open
+  network, which is meaningless in a list showing all four; the argument defaults to the old
+  behaviour so the editor's calls are unchanged. IDF still prints `EARFCN 9335` and everyone else
+  MHz, here as everywhere.
+- **Two caps, for different reasons.** `LK_SCAN_CAP = 400` stops *collecting*, because
+  `localeCompare('he')` over every Partner site on a two-letter query is what would make this feel
+  slow; `LK_ROW_CAP = 60` stops *rendering*. A capped result says so.
+- **It reuses the site editor's row classes** rather than a parallel set. Both show the same shape
+  of thing — a site and its sectors — and one visual language for that is worth more than bespoke
+  styling.
+- **A miss names the empty databases.** `cellcom` and `pelephone` ship empty, so out of the box a
+  Cellcom code finds nothing — and a bare "not found" reads as a broken search rather than a
+  missing database. The no-hits message lists whichever networks are empty on that machine.
+- Site names, site ids and sector codes are click-to-copy (`data-copy`, delegated).
+
+---
+
 ## Site editor — per-site add/remove
 
 `Edit sites` on any database card opens an editor for that network: search, expand a site to see
@@ -884,9 +993,9 @@ async. Four details worth keeping:
 Four prompts use it: `db.clearConfirm`, `db.shrink`, `db.unknownBand` and `ed.discard`. Adding a
 fifth means a string in **both** dictionaries, as always.
 
-## Settings: theme and language
+## Settings: theme, language and the hero scene
 
-A gear in the nav opens a popover with two segmented controls. Both persist in
+A gear in the nav opens a popover with three segmented controls. Theme and language persist in
 `localStorage` (`tablex_theme`, `tablex_lang`) and are applied by an **inline script in
 `<head>`**, before any stylesheet paints — that is what prevents a white flash for a dark-mode
 user and an RTL→LTR jump for an English one. That script only touches `<html>` attributes;
@@ -903,6 +1012,10 @@ change what ships would be a genuine hazard, and someone could mail an English t
 realising. In English the chrome flips to LTR and the document stays a white RTL Hebrew sheet
 inside it — like a PDF viewer. If an English *deliverable* is ever wanted it needs its own
 explicit setting, separate from this one. The settings popover says so in `set.note`.
+
+**The scene** is the third control (`tablex_scene`, key read in `SCENE.init()`, not in the
+head script — it is decoration, so a flash of it is not a defect worth a third inline read).
+See "The hero scene" below.
 
 `js/i18n.js` holds both dictionaries. Markup uses `data-i18n` (textContent),
 `data-i18n-html` (innerHTML, only for strings carrying markup), `data-i18n-placeholder` and
@@ -962,6 +1075,12 @@ the raw key.
   runs off the bottom. `slide.addTable` supports `autoPage`; not enabled.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized
   data; on Partner you must search to reach a specific site.
+- **The lookup stops scanning at 400 matching sites** (`LK_SCAN_CAP`), so a very broad query
+  reports `400+` rather than a true total. Narrowing the query is the answer; sorting every
+  Partner site on a two-letter query is not worth the wait.
+- **A hand-edited cell is marked in the app but not in the PPTX.** Consistent with `סקטור משוער`
+  and with the chips, and the toolbar always shows the count — but it does mean an exported slide
+  cannot distinguish a Planet-derived value from a typed one.
 - **No tests, no build, no lint.** Verification is: `start.bat`, "טען דוגמה", generate, and
   check the table, the PPTX and the print view.
 
@@ -982,6 +1101,8 @@ the raw key.
   (`btnPptx`), and the print CSS.
 - **Never `window.confirm()` / `alert()`** — use `ask()`, so a prompt speaks in the app's voice
   rather than the browser's (or Electron's).
+- **Illustration stays in the hero and the loader.** If you touch the hero scene, keep colour in
+  `main.css` and animated opacity in attributes — see "The hero scene".
 - When you touch the workbook contract, **touch both parsers**: `js/dbparse.js` and
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`

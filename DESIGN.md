@@ -31,13 +31,27 @@ Five deliberate deviations, all forced by the app's context:
    **app around** the document, not the document itself. Do not "fix" the table
    to match the UI; see CLAUDE.md.
 
-4. **The loader has one illustration.** The spec says "do not use illustration
-   style outside the hero". The loading screen breaks that on purpose: a pixel
-   ghost in mint on white, for the 2.5 s before the app appears. It is the
-   single character moment in the product and it is *transient* — the app it
-   uncovers stays austere. Do not take it as licence to add illustration to the
-   working UI; the whole reason this redesign happened is that the old UI read
-   as childish.
+4. **Illustration lives in exactly two places: the hero, and the loader.**
+   The spec says "do not use illustration style outside the hero".
+
+   **The hero is not a deviation — it is the spec.** The reference hero *is*
+   a hand-illustrated landscape with the product floating in front of it, and
+   TableX's hero was a bare gradient until 2026-09-06. It now carries a 184px
+   pixel landscape of cell sites at night (`TableX/js/scene.js`), drawn in
+   nothing but the hero's own teal ramp and one mint, with the paste card
+   planted on its horizon line. Subject matter is the point: hilltop lattice
+   towers, a rooftop site, an analysis-point pin and the coverage arcs that
+   answer it — the app's own data, not decoration borrowed from elsewhere.
+
+   **The loader is the deviation**: a pixel ghost in mint on white, for the
+   2.5 s before the app appears. It is *transient* — the app it uncovers stays
+   austere.
+
+   Both are bounded. Do not take either as licence to illustrate the working
+   UI below the hero; the whole reason this redesign happened is that the old
+   UI read as childish. The scene has a settings switch (**תפאורה / Hero
+   scene**) so anyone who disagrees can turn it off, and turning it off
+   returns the hero to exactly the height it had before.
 
 5. **There is a dark theme.** The spec is explicit: "Do not set page background
    to anything other than white — no off-white canvas, no dark mode surfaces in
