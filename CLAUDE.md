@@ -53,7 +53,7 @@ So: run the point analysis, paste, click, and the slide is ready.
 
 TableX is the small one. Read these when a convention here needs justifying:
 
-- **`d:\projects\interfex`** — Interfex, LTE interference analyzer. The big one; its `CLAUDE.md`
+- **`c:\projects\interfex`** — Interfex, LTE interference analyzer. The big one; its `CLAUDE.md`
   is the deepest source of team/network context (OSP and CELLTS machines, ENM, DOGMA, the
   Planet 7.10 drive-test colour legend, the Electron build). It also has the conventions TableX
   copies: `tools/*.py` stdlib-only converters, self-hosted `fonts/`, a `DESIGN.md` holding a
@@ -109,6 +109,77 @@ beside it are not reachable over HTTP).
 — the machines this runs on have no internet.
 
 ---
+
+## Packaging as an exe (Electron)
+
+The TS machines have no Node.js, so TableX ships as a portable Electron folder. The shell does
+nothing but spawn `server.ps1 -NoLaunch -Port 8094` and point a `BrowserWindow` at
+`http://localhost:8094/` — the same thing `start.bat` does, wrapped in a window. Same pattern as
+Interfex (`c:\projects\interfex`), whose CLAUDE.md has the original recipe.
+
+**The scaffolding is NOT committed** — `.gitignore` already excludes `main.js`, `package.json`,
+`package-lock.json`, `node_modules/` and `dist/`. Recreate it from this section when a build is
+needed, then delete it again, keeping only the zip.
+
+```powershell
+# PowerShell's ExecutionPolicy blocks npm directly — go through bypass:
+powershell -ExecutionPolicy Bypass -Command "npm install"
+powershell -ExecutionPolicy Bypass -Command "npm run build"
+Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
+```
+
+Last build 2026-09-06 at commit `fd7ae0d`: electron 33.4.11 + electron-builder 26.15.3, target
+`dir`, completed cleanly with no winCodeSign symlink error. **`dist\TableX.zip`, 110.7 MB.** The
+app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`.
+
+`package.json` — the settings that matter:
+
+```json
+{ "main": "main.js", "build": { "asar": false, "win": { "target": "dir", "icon": "icon.ico" },
+  "files": ["main.js","package.json","server.ps1","icon.ico","TableX/**"] } }
+```
+
+`asar: false` and `target: "dir"` are both deliberate: `dir` avoids the winCodeSign symlink failure
+that `--win portable` hits, and an unpacked app means `server.ps1` can read `TableX/` off disk.
+`server.ps1` resolves its web root from `$PSScriptRoot`, so it needs no change when packaged.
+
+**`main.js` must keep the `serverReady` guard and `res.resume()`.** Straight from Interfex, same
+root cause: not draining the poll response leaves the socket open; when the server later closes it
+the error handler fires, the poller retries, finds the server up, and opens a SECOND window — the
+app then grows a new window every few minutes.
+
+```js
+let serverReady = false;
+function waitForServer(cb, tries = 0) {
+  if (serverReady) return;
+  http.get(URL, res => {
+    res.resume();                        // drain so the socket closes cleanly
+    if (!serverReady) { serverReady = true; cb(); }
+  }).on('error', () => {
+    if (!serverReady && tries < 40) setTimeout(() => waitForServer(cb, tries + 1), 400);
+  });
+}
+```
+
+The server child is killed with `taskkill /pid <pid> /f /t` on `window-all-closed` and
+`before-quit`. Verified 2026-09-06: closing the window leaves zero `TableX` processes and releases
+port 8094.
+
+### The trap that wastes an afternoon: `ELECTRON_RUN_AS_NODE`
+
+**VS Code and Claude Code set `ELECTRON_RUN_AS_NODE=1` in their integrated terminals.** With it
+set, `TableX.exe` runs `main.js` as plain Node, `require('electron')` resolves to the npm package
+(which exports a path string, not the module), `app` is `undefined`, and the exe **exits instantly
+with no window, no error dialog and nothing on stderr**. It looks exactly like a broken build.
+
+The exe is fine — the terminal is not. Test from a normal `cmd`/PowerShell window, or clear it:
+
+```powershell
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+```
+
+Diagnose it by running `.\node_modules\.bin\electron.cmd .`, which prints the real
+`Cannot read properties of undefined (reading 'whenReady')` that the packaged exe swallows.
 
 ## Repo layout
 
