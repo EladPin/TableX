@@ -463,6 +463,17 @@
   };
 
   /* ── lookup — sector first, then site, across every loaded network ── */
+  // What the סקטור column shows, per network. Cellcom's Sector ID is
+  // <ECI>_<azimuth>, and the ECI is what names the cell in Planet's Site Editor
+  // — site 13207's sectors read 3381013_90, 3381023_90, 3381063_90, all on
+  // azimuth 90 and told apart only by the ECI. Printing the azimuth there put
+  // "90" on three different cells. The ECI is read back off the sector key
+  // rather than restored in the database, so no Cellcom re-import is needed.
+  function sectorLabel(net, key, sec) {
+    if (net === 'cellcom' && key && key.indexOf('_') > 0) return key.split('_')[0];
+    return (sec && sec[1]) || '-';
+  }
+
   function lookup(code, mhz) {
     if (!code) return null;
     for (const net of NETWORKS) {
@@ -470,7 +481,8 @@
       const sec = db.sectors[code];
       if (sec) {
         return { net, site: db.sites[sec[0]] || sec[0], siteId: sec[0],
-                 sector: sec[1] || '-', freq: sec[2] == null ? '-' : sec[2],
+                 sector: sectorLabel(net, code, sec),
+                 freq: sec[2] == null ? '-' : sec[2],
                  bw: sec[3] == null ? '-' : sec[3], exact: true };
       }
     }
@@ -487,7 +499,8 @@
           const bws = new Set(hits.map(id => db.sectors[id][3]));
           return { net, site: db.sites[code] || code, siteId: code,
                    // one sector on the carrier means it can only be that one
-                   sector: hits.length === 1 ? (db.sectors[hits[0]][1] || '-') : '-',
+                   sector: hits.length === 1
+                     ? sectorLabel(net, hits[0], db.sectors[hits[0]]) : '-',
                    freq: mhz,
                    // agree -> certain; disagree or none -> say so, never pick
                    bw: bws.size === 1 ? [...bws][0] : '-',
@@ -496,7 +509,7 @@
         const secId = db.siteSectors[code];
         const sec = secId ? db.sectors[secId] : null;
         return { net, site: db.sites[code] || code, siteId: code,
-                 sector: sec && sec[1] ? sec[1] : '-',
+                 sector: sectorLabel(net, secId, sec),
                  freq: sec && sec[2] != null ? sec[2] : '-',
                  bw: sec && sec[3] != null ? sec[3] : '-', exact: false };
       }

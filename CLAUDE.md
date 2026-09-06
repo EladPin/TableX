@@ -281,6 +281,21 @@ to 12 sectors here and the Hebrew name is by far the longest field. That halves 
 This is why the DB is keyed per sector: Planet's point analysis reports a cell, and keying per
 site made sector/freq/BW an arbitrary pick. The site path survives only as a graceful fallback.
 
+### Cellcom's סקטור column is the ECI, not the azimuth
+
+Cellcom's Sector ID is `<ECI>_<azimuth>`, and **the ECI is what names the cell in Planet's Site
+Editor**. Site 13207 carries `3381013_90`, `3381023_90` and `3381063_90` — three different cells,
+three different carriers (700/5, 1800/20, 2600/20), all on azimuth **90**. Printing the azimuth put
+the same `90` on all three and made them impossible to tell apart on the slide.
+
+`sectorLabel()` therefore reads the leading field off the sector KEY for Cellcom, and returns the
+stored sector for every other network (Partner `Ia`, IDF `1`). It is read back off the key rather
+than restored into the database, so **no Cellcom re-import is needed** — which matters, because
+that database is rebuilt from a group export inside TS and cannot be regenerated out here.
+
+`build_db.py` and `dbparse.js` still store the azimuth in the sector slot; this is a display rule,
+not a change to the workbook contract, so the two parsers stay untouched.
+
 ### Pelephone prints its own code, and looks up only the bandwidth
 
 `P630012_630012_1911236_9260` is `<SiteID>_<siteNum>_<cell>_<EARFCN>`. **There is no azimuth
