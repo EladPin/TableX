@@ -118,6 +118,7 @@ server.ps1                    static server + the one DB write route, port 8094
 DESIGN.md                     Mintlify style spec — the design system of record
 tools/
   build_db.py                 Planet .xlsx → data/<network>.json (stdlib only)
+  build_idf.py                ENM CLI dump + name list → data/idf.json (stdlib only)
   build_fonts.py              downloads + subsets Inter/Heebo into TableX/fonts/
   build_icon.py               the ghost -> .ico / .png / .svg + the nav snippet
 TableX/
@@ -130,7 +131,7 @@ TableX/
   js/pptxgen.bundle.js        PptxGenJS 3.12.0 — vendored, writes the deck
   fonts/                      self-hosted Inter (latin) + Heebo (hebrew), 9 woff2
   data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors, 767 KB
-  data/idf.json               empty stub, awaiting data
+  data/idf.json               SHIPPED — 331 sites / 792 sectors, from the ENM dump
   data/cellcom.json           empty stub, awaiting data
   data/pelephone.json         empty stub, awaiting data
   favicon.ico                 browser tab (MUST stay under TableX/ to be served)
@@ -158,7 +159,7 @@ because that step cost a click on every single use and the whole product is spee
 
 | Slot | Label | State |
 |------|-------|-------|
-| `idf` | IDF | **empty** — awaiting our own network export |
+| `idf` | IDF | **shipped**, 331 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
 | `cellcom` | Cellcom | **empty** — added 2026-09-04 |
 | `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors |
 | `pelephone` | Pelephone | **empty** — data does not exist yet |
@@ -196,7 +197,7 @@ to 12 sectors here and the Hebrew name is by far the longest field. That halves 
 
 ### Lookup: sector first, then site
 
-`lookup(code)` walks every loaded network, **sectors first, then sites**:
+`lookup(code, mhz)` walks every loaded network, **sectors first, then sites**:
 
 1. **Sector-id hit** (`LNN4610Da`) → exact. Sector, frequency and bandwidth are the real values
    for the cell Planet named. Row is tagged with its network.
@@ -208,6 +209,34 @@ to 12 sectors here and the Hebrew name is by far the longest field. That halves 
 
 This is why the DB is keyed per sector: Planet's point analysis reports a cell, and keying per
 site made sector/freq/BW an arbitrary pick. The site path survives only as a graceful fallback.
+
+### Pelephone prints its own code, and looks up only the bandwidth
+
+`P630012_630012_1911236_9260` is `<SiteID>_<siteNum>_<cell>_<EARFCN>`. **There is no azimuth
+anywhere in it**, so Pelephone can never reach step 1 — there is nothing to look a sector up by.
+It used to land on step 2 and report whichever sector was indexed first, which made a 700 MHz cell
+print 2600 MHz. Wrong, and invisibly so, because `סקטור משוער` is stripped from the PPTX.
+
+Settled 2026-09-06: **print what the code carries and guess nothing.**
+
+| column | source | |
+|--------|--------|---|
+| שם אתר משרת | the DB, by Site ID | Latin (`EINAV`) — accepted, Pelephone has no Hebrew names |
+| סקטור | **the code**, field 3 | `1911236`, the cell id — not an azimuth like the other three |
+| תדר מרכזי | **the code**, field 4 | the raw EARFCN `9260`, same as IDF prints |
+| רוחב פס | the DB | the only field the code lacks — see below |
+
+Nothing in those three is estimated, so **the row is not tagged `סקטור משוער`.**
+
+**Bandwidth is the one lookup.** `lookupPlanet()` converts the EARFCN to MHz *internally* and
+passes it to `lookup(code, mhz)`, which filters the site's sectors to that carrier and reads the
+width off them: unanimous → that width; disagreeing, or no sector on that carrier → **`-`**. Never
+a pick. A wrong width on a commander's slide is worse than a visibly missing one.
+
+`mhzOf()` reads `EARFCN_BANDS` **through `self.TableXBands`, exported by `dbparse.js`** — not a
+copy. A second table in `app.js` would drift from the one the importer uses, which is the failure
+this codebase has already had once with `NET_TAG`. `planetCarrier()` returns null for every other
+operator's code shape, so nothing but Pelephone takes this path.
 
 **Networks are auto-detected** — there is no "which operator is this" selector. `NETWORKS` order is the resolution order, so IDF wins if a code somehow appears in two databases. A point served
 by a mix of operators resolves correctly, and each row shows its network as a small chip.
@@ -289,6 +318,49 @@ interrupted.
 for that session and the toast says plainly that it will not persist. Silent in-memory-only
 success would be worse than the error.
 
+### IDF comes from an ENM CLI dump, not a workbook
+
+IDF is the one network the xlsx import cannot serve: its Planet export numbers sectors 1/2/3 per
+site, so the sector code is not a key. `tools/build_idf.py` reads an ENM CLI dump instead:
+
+```
+python tools/build_idf.py D:/IDF_DB_FOR_CLAUDE/IDF_DB.txt                           D:/IDF_DB_FOR_CLAUDE/NAMES_TO_FILL_FILLED.txt
+```
+
+The dump writes its header block vertically, one field per line, then tab-separated rows. Four
+things it settles, and one it cannot:
+
+- **Keyed by `EUtranCellFDDId`**, because that is exactly what Planet reports — `IDF_Halif_11_SL_1`
+  is `IDF_` + the cell id. All 792 cells round-trip through `lookupPlanet()` as Planet codes.
+- **IDF prints the raw EARFCN in the תדר מרכזי column, not MHz** — `9335`, not `700`. Requested
+  2026-09-06: the team reads ENM, and the EARFCN is the number they recognise. **Every other
+  network still prints MHz**, so a point served by both shows `1800` and `9335` in the same column
+  with nothing marking the unit change. That is a known and accepted property, not an oversight.
+  **Bandwidth** comes from `dlChannelBandwidth` (kHz → MHz) and is in MHz for every network.
+- **The band label is still derived, purely to verify the dump.** `build_idf.py` prints both lines:
+  the EARFCNs it stored and the bands they imply. `700, 900, 2600` is obviously right;
+  `1400, 2850, 9360` would mean an EARFCN column had been read as MHz. Same check the import toast
+  performs for the workbook path, and the reason `EARFCN_BANDS` still lives in this tool. The dump
+  also verifies itself: every cell named `*_900` carries EARFCN 3525, which 3GPP band 8 puts at
+  exactly 900 MHz.
+- **The sector is the TRAILING number of the cell id**, after stripping a `_900` band suffix. Not
+  the leading one: 88 cells are not prefixed by their own NodeId, and reading forwards turns
+  `G_004_2` into sector `004` and `MMSL_1005_1` into `1005`. That bug shipped once and was caught
+  by a distribution check — every sector should be a single digit 1-9.
+- **51 cell ids repeat across nodes** (`G_006` / `G_006_SL` / `G_006_T`) and 12 of those disagree
+  on frequency or bandwidth. Planet reports only the cell id, so one row has to win: an ENABLED
+  cell first, then the node the cell is actually named after. Deterministic, and the tool says how
+  many it had to resolve that way.
+
+**The Hebrew names cannot come from the dump** — it has none, and DOGMA only names 12 sites. They
+are written by hand into a name list the tool reads, which takes two row types: a `SITE` row naming
+one site, or a `FAMILY` row naming a whole numbered family with `{N}` for the number
+(`MMSL_Takti_{N}` → `בארי {N}`, leading zeros dropped, so `T_014` is `תק"ש 14`). `_SL` and `_T`
+are variants of one physical site and share its name. **Unescape Excel's CSV quoting when reading
+that file** — it writes `מצפ"ש` as `"מצפ""ש"`, and the doubled quote would otherwise reach the slide.
+
+**An IDF refresh does not go through the `עדכן` button** — that path is xlsx-only. Re-run the tool.
+
 ### Clearing a database
 
 `נקה` on a loaded card empties that network. It POSTs an empty database to the **same
@@ -341,34 +413,68 @@ Three things here are load-bearing:
 
 ## Input format
 
-Two formats, auto-detected on **column 0**: *not* a number → Planet paste, a number → legacy.
-Lines with fewer than 7 tab-separated columns are silently skipped.
+Two formats, auto-detected on **the shape of the row**: three numeric levels in columns 1-3 with
+a non-numeric code in column 4 -> Planet point inspect, anything else -> legacy. Detection used to
+key on column 0 alone, which cannot work any more: point inspect puts the point number there, so
+both formats now start with a number. Lines with fewer than 7 tab-separated columns are skipped.
 
-**Planet point analysis**, pasted via an RTL Excel sheet, so it reads right-to-left and the
-parser un-reverses it with the `[2, 1, 0]` index map:
+**Planet Point Inspect** — pasted straight out of Planet's point inspect tool:
 
 ```
-site_3rd    site_2nd    site_1st    pwr_3rd  pwr_2nd  pwr_1st  point
-LIN0625Da   LNE4295Da   LNN4610Da   93       89       85       1
+point  RSRP1     RSRP2     RSRP3     BS1                BS2               BS3
+1      -72.4245  -78.8269  -84.1238  NC4050C_LNC4050Ia  13207_3381063_90  IDF_Halif_11_SL_1
 ```
 
-- **Column 2 is the strongest**, and becomes rank 1 in the output.
-- **Exactly 3 servers per point.** This is the format the report expects, not a limitation —
-  the parser is hardwired to 3 and ignores anything past column 7 on purpose. Changing it
-  changes the deliverable, so don't generalize it speculatively.
-- Levels are typed as **positive** magnitudes and rendered negative. **Decimals are kept**:
-  `85` → `-85`, `84.3` → `-84.3`, `84.30` → `-84.3`, `84.333` → `-84.33`. A non-numeric level
-  → `-`. One `level()` helper formats the column for both input formats — at most 2 decimals,
-  trailing zeros trimmed, and no `-0`. It replaced a `toFixed(0)` that silently rounded a
-  pasted `84.3` down to `84` (a real value change in a commander-facing table, reported
-  2026-09-04) and a `toFixed(2)` on the legacy path that forced `84.30` in the same column.
-  The PPTX builder stringifies `r.power` as-is, so it inherits this automatically.
-- A typical job is ~7 points ⇒ 21 rows ⇒ one slide.
+This **replaced** the old RTL-Excel paste (`site site site pwr pwr pwr point`, columns reversed,
+levels positive) on 2026-09-06. That format is gone; the layout above is what Planet actually
+emits, confirmed against a real point inspect.
 
-**Legacy format** (already-resolved rows, no lookup, level to 2 decimals) is still parsed:
+- **BS1/BS2/BS3 order is kept exactly as Planet emits it** — rank 1 is BS1, *not* the strongest.
+  In a normal single-network point inspect Planet already emits strongest-first, so the two
+  agree; where they disagree, Planet wins. Decided 2026-09-06. Do not add a sort.
+- **Levels arrive already negative** and print as-is — `level(raw, false)`. The old path negated
+  positive magnitudes; negating these would flip the sign of every value in the table.
+- **`-9999` is Planet's "no server"**, in the level column and the BS column alike
+  (`-9999.000000`). That slot renders `-` across the whole row and is deliberately NOT collected
+  into the unresolved-code banner — it is an empty slot, not a code we failed to resolve.
+- **Exactly 3 servers per point.** This is the format the report expects, not a limitation — the
+  parser is hardwired to 3 and ignores anything past column 7 on purpose. Changing it changes the
+  deliverable, so don't generalize it speculatively.
+- **Decimals are kept**: `-84.3` -> `-84.3`, `-84.30` -> `-84.3`, `-84.333` -> `-84.33`. A
+  non-numeric level -> `-`. One `level()` helper formats the column for both input formats — at
+  most 2 decimals, trailing zeros trimmed, and no `-0`. It replaced a `toFixed(0)` that silently
+  rounded a pasted `84.3` down to `84` (a real value change in a commander-facing table, reported
+  2026-09-04) and a `toFixed(2)` on the legacy path that forced `84.30` in the same column. The
+  PPTX builder stringifies `r.power` as-is, so it inherits this automatically.
+- A typical job is ~7 points => 21 rows => one slide.
+
+### The code shape differs per operator
+
+Point inspect reports `<SiteID>_<cell>`, and the tail differs per network. `planetKey()` in
+`app.js` normalises each to the key its database is actually keyed by, then `lookupPlanet()` tries
+the derived key first and the raw code second (so a bare sector id typed by hand still resolves).
+All four were verified on 2026-09-06 against one real point inspect:
+
+| Network | Point-inspect code | Key used | Verified |
+|---------|--------------------|----------|----------|
+| Partner   | `NC4050C_LNC4050Ia`           | `LNC4050Ia` — text after the first `_` | 5/5 against `partner.json` |
+| Cellcom   | `13207_3381063_90`            | `3381063_90` — `<ECI>_<azimuth>`       | 4/4, ECI arithmetic |
+| IDF       | `IDF_Halif_11_SL_1`           | `Halif_11_SL_1` — the `EUtranCellFDDId`| 2/2 against the ENM dump |
+| Pelephone | `P630012_630012_1911236_9260` | `P630012` — **site only**              | shape only, DB is empty |
+
+**Pelephone's code carries no sector at all.** The trailing field is the EARFCN, so the frequency
+is exact, but nothing in the code identifies which of the site's sectors was served. It therefore
+resolves through the site path and is tagged `סקטור משוער`, which is the honest answer rather than
+an arbitrary sector presented as fact.
+
+**Never read a code off Planet's own grid — only off a paste.** Planet renders the table RTL, so
+`13207_3381063_90` is *displayed* as `90_3381063_13207`. Both are the same bytes in a different
+direction, and the reversed reading is what produced the wrong conclusion recorded below.
+
+**Legacy format** (already-resolved rows, no lookup) is still parsed:
 `נקודה | מס"ד | שם אתר | סקטור | תדר | רוחב פס | עוצמה`. Note the two paths differ: legacy
-**appends** to a point's group, Planet **replaces** it — two Planet lines with the same point
-number means the first is discarded.
+**appends** to a point's group, point inspect **replaces** it — two point-inspect lines with the
+same point number means the first is discarded.
 
 ---
 
@@ -459,8 +565,8 @@ check available.
 An earlier reading of `75_3422485_13369` left the leading field ambiguous between azimuth and PCI.
 The Site Editor settles it: Cellcom's sector name is `<ECI>_<azimuth>`, and site 14196's nine
 sectors are `3634197_70`, `3634198_160`, `3634199_270`, `3634207_70` … whose trailing values are
-exactly the azimuths of the three antennas mounted there (70°, 160°, 270°). **The leading field is
-the azimuth.**
+exactly the azimuths of the three antennas mounted there (70°, 160°, 270°). **The azimuth
+TRAILS; the leading field is the site id.**
 
 The ECI arithmetic holds throughout — `ECI = eNodeB ID × 256 + local Cell ID`:
 
@@ -471,23 +577,32 @@ site 14196 * 256 = 3634176
   3634247..249 -> cells 71,72,73   carrier 2850_20
 ```
 
-So a Cellcom point analysis reports the azimuth, the ECI and the site id — the same three values
-the `Sectors` sheet holds as `Sector ID` (`ECI_azimuth`) and `Site ID`. **The field ORDER in the
-paste is still unconfirmed**, because both samples were photographed from an RTL-rendered table,
-where a run of underscore-separated numbers is displayed in reverse. Settle that with an actual
-paste into a text file, never another photograph — the byte order is only unambiguous in text.
+So a Cellcom point analysis reports the site id, the ECI and the azimuth — the same three values
+the `Sectors` sheet holds as `Site ID` and `Sector ID` (`ECI_azimuth`).
+
+**The field order is now settled: `<SiteID>_<ECI>_<azimuth>`.** A real point inspect pasted into
+Notepad on 2026-09-06 reads `13207_3381063_90`, and `ECI - SiteID*256` lands in 0..255 on every
+sample (cells 71, 73, 21, 73). An earlier reading of this doc concluded the *leading* field was
+the azimuth — that was `75_3422485_13369` read off an RTL-rendered grid, which un-reverses to
+`13369_3422485_75`. Same bytes, opposite direction. The lookup key is the code minus its leading
+site id, which is exactly the `Sector ID` on the sectors sheet.
 
 ### What is still needed
 
 1. ~~The real `.xlsx` files.~~ **Not obtainable — they live on TS and cannot leave it.** Anything
    TableX does with Cellcom or Pelephone data has to be right by construction and checkable from
    inside, which is what the band-distribution line in the success toast is for.
-2. A **pasted** (not photographed) Cellcom and Pelephone point analysis, so the composite code's
-   field order and separator are known exactly. This one *is* obtainable — retyped by hand onto a
-   normal computer, a few rows at a time. It is the last unknown blocking the lookup.
-3. IDF is **not** coming from a Planet group export. An ENM CLI dump is the intended source
-   instead, which sidesteps both the duplicate-sector-code problem and the missing Hebrew names.
-   Format still to come; do not build the Planet-side IDF path in the meantime.
+2. ~~A **pasted** Cellcom and Pelephone point analysis.~~ **Done 2026-09-06** — see the code-shape
+   table under "Input format". All four operators' point-inspect codes are settled and
+   `planetKey()` resolves them. What remains is the *databases*, not the format: Cellcom and
+   Pelephone are still empty, so their codes resolve to nothing today.
+3. IDF is **not** coming from a Planet group export — an ENM CLI dump is the source, and it
+   arrived on 2026-09-06 (`D:/IDF_DB_FOR_CLAUDE/IDF_DB.txt`, 849 rows / 343 nodes / 792 cells).
+   It carries site, sector, `dlChannelBandwidth` (kHz) and `earfcndl`, keyed by
+   **NodeId + EUtranCellFDDId** — the cell id alone repeats across 51 ids. Still missing: the
+   **Hebrew site names**, being written by hand into `D:/IDF_DB_FOR_CLAUDE/NAMES_TO_FILL.csv`
+   (14 family patterns covering 205 sites, plus 105 singletons). Until those land, an IDF row
+   renders its Latin node id.
 
 ---
 
@@ -592,7 +707,14 @@ stays on the ground.
 ## Site editor — per-site add/remove
 
 `Edit sites` on any database card opens an editor for that network: search, expand a site to see
-its sectors, `+` to add one, `-` to remove a sector or a whole site.
+its sectors, `+` on a site row to add a sector to it, `-` to remove a sector or a whole site.
+
+**The per-site `+` fills the add form in rather than opening a second one.** Until 2026-09-06 the
+only way in was the toolbar's "add site", which meant retyping a site's code and name to give it
+one more sector — and a typo there silently forks one site into two, which no error would catch.
+The `+` prefills the site id and name and puts the cursor on the sector code. For the same reason
+**the site id and name survive a submit** (only the sector fields clear), so sectors 2 and 3 go in
+straight after sector 1.
 
 **Why it exists:** Partner and Pelephone are refreshed from a Planet export every few months, but
 our own sites change by roughly **one site a month**. Re-importing a whole workbook to add one row
@@ -605,9 +727,16 @@ xlsx import stays for the bulk refresh; the two paths write the same file.
 Pelephone site by hand, since those look like `3634249_270` / `14196` / `270` and
 `935739_22` / `P935739` / `22`. They are sample **data**, identical in both languages like the
 paste box's example rows, so they live beside `LABELS` rather than in `i18n.js`; moving them there
-also got the one piece of inline Hebrew out of `index.html`. **IDF's are deliberately empty** — it
-is coming from an ENM CLI dump rather than a Planet group export, and a made-up example would
-teach a format that turns out not to be the one.
+also got the one piece of inline Hebrew out of `index.html`. **IDF's were deliberately empty while
+its format was unknown**; the ENM dump landed on 2026-09-06 and they are now a real row from it
+(`Halif_11_SL_1` / `Halif_11_SL` / `1` / `9335` / `5`).
+
+**The frequency field is labelled without a unit, on purpose.** `ed.freq` is plain תדר /
+"Frequency" because IDF's value is an EARFCN and everyone else's is MHz — a fixed `(MHz)` in the
+label is simply wrong for one of the four networks. The per-network placeholder carries the
+concrete example instead (`9335` against `1800`), which disambiguates it better than a unit would.
+The sector list applies the same rule through `freqText()`: `EARFCN 9335` for IDF, `1800 MHz` for
+everyone else. Bandwidth is MHz for every network and keeps its unit.
 
 Behaviour worth preserving:
 
@@ -705,13 +834,20 @@ the raw key.
 
 ## Known gaps
 
-- **`idf`, `cellcom` and `pelephone` are empty.** The slots, both write paths and every UI state
-  work, and `export group` in Planet on `IDF_Share` / `Cellcom_Share` / `Pelephone_Share` is the
-  intended route — but as of 2026-09-05 **none of the three would import correctly even with the
-  file in hand.** IDF's sector codes are not unique, Cellcom's and Pelephone's Band Name is an
-  EARFCN, and neither Pelephone nor IDF carries a Hebrew site name at all. See "What the other
-  three exports actually look like"; the guards make each of those fail loudly rather than write
-  a bad database, but the underlying work is not done.
+- **`cellcom` and `pelephone` are empty**, so their point-inspect codes resolve to nothing even
+  though the codes themselves are now understood. The *format* work is done (see the code-shape
+  table under "Input format"); they still need a Planet group export, and the Band Name / EARFCN
+  guards described above apply to it when it arrives.
+- **95 of IDF's 331 sites still render their Latin node id**, because 10 numbered families have no
+  Hebrew pattern yet — `MMSL_{N}` (21 sites), `Relay_{N}` (14), `Beeri_Pakar_{N}` (13),
+  `Petel_{N}` (10), `G_{N}`, `MiniSite_{N}`, `MMSL_Pakar_{N}`, `M_Zefoni_{N}`, `Mehola_{N}`,
+  `Ofek_{N}`. Ten lines in the name list would cover 83 of them. A Latin name is the deliberate
+  fallback rather than a guess, but it is still Latin on a Hebrew slide.
+- **IDF's frequency column is an EARFCN, every other network's is MHz.** A mixed point prints
+  `1800` and `9335` side by side under תדר מרכזי. Requested 2026-09-06 and accepted with that
+  consequence understood; it is the one place in the deliverable where a column carries two units.
+  This also retired the earlier band-28-prints-700-not-750 question — IDF no longer prints a band
+  label at all, so the disagreement with Planet's `750` label is moot.
 - **PPTX is one slide with no pagination.** ~7 points (21 rows) fits; past ~15 rows the table
   runs off the bottom. `slide.addTable` supports `autoPage`; not enabled.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized

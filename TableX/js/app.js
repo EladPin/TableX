@@ -44,11 +44,16 @@
   function indexDb(db) {
     // siteId → first sector id seen, for the approximate fallback
     const bySite = Object.create(null);
+    // siteId → EVERY sector id, so a carrier hint can narrow the fallback
+    // instead of settling for whichever sector happened to be first.
+    const allBySite = Object.create(null);
     for (const secId in db.sectors) {
       const siteId = db.sectors[secId][0];
       if (!(siteId in bySite)) bySite[siteId] = secId;
+      (allBySite[siteId] || (allBySite[siteId] = [])).push(secId);
     }
     db.siteSectors = bySite;
+    db.siteSectorsAll = allBySite;
     return db;
   }
 
@@ -142,17 +147,18 @@
   // paste box's example rows — so they live here beside LABELS rather than in
   // i18n.js. Cellcom's and Pelephone's come from screen captures, since their
   // workbooks live on TS and cannot leave it; treat them as illustrative.
-  // IDF is deliberately blank: it is coming from an ENM CLI dump rather than a
-  // Planet group export, and inventing an example would teach a format that
-  // turns out not to be the one.
+  // IDF's were blank while its format was unknown; the ENM dump landed on
+  // 2026-09-06 and they are now real rows from it. Note IDF's `freq` is an
+  // EARFCN, not MHz — which is exactly why these placeholders matter here.
   const EXAMPLES = {
-    partner:   { secId: 'LNN4610Da',   siteId: 'MN4610A', name: 'גג בית העם  דישון',
+    partner:   { secId: 'LNN4610Da',    siteId: 'MN4610A',    name: 'גג בית העם  דישון',
                  sector: 'Da',  freq: '1800', bw: '20' },
-    cellcom:   { secId: '3634249_270', siteId: '14196',   name: '',
+    cellcom:   { secId: '3634249_270',  siteId: '14196',      name: '',
                  sector: '270', freq: '2600', bw: '20' },
-    pelephone: { secId: '935739_22',   siteId: 'P935739', name: 'EINAV',
+    pelephone: { secId: '935739_22',    siteId: 'P935739',    name: 'EINAV',
                  sector: '22',  freq: '750',  bw: '10' },
-    idf:       { secId: '', siteId: '', name: '', sector: '', freq: '', bw: '' },
+    idf:       { secId: 'Halif_11_SL_1', siteId: 'Halif_11_SL', name: 'כיפת שמיים 11',
+                 sector: '1',   freq: '9335', bw: '5' },
   };
 
   function applyExamples(net) {
@@ -457,7 +463,7 @@
   };
 
   /* ── lookup — sector first, then site, across every loaded network ── */
-  function lookup(code) {
+  function lookup(code, mhz) {
     if (!code) return null;
     for (const net of NETWORKS) {
       const db = DB[net]; if (!db) continue;
@@ -471,6 +477,22 @@
     for (const net of NETWORKS) {
       const db = DB[net]; if (!db) continue;
       if (code in db.sites) {
+        // With a carrier hint the frequency is certain, so the only open
+        // question is which of the site's sectors on that carrier served the
+        // point. Filtering to the carrier is what stopped a 700 MHz Pelephone
+        // cell from reporting the 2600 of whichever sector was indexed first.
+        if (mhz != null) {
+          const hits = (db.siteSectorsAll[code] || [])
+            .filter(id => db.sectors[id][2] === mhz);
+          const bws = new Set(hits.map(id => db.sectors[id][3]));
+          return { net, site: db.sites[code] || code, siteId: code,
+                   // one sector on the carrier means it can only be that one
+                   sector: hits.length === 1 ? (db.sectors[hits[0]][1] || '-') : '-',
+                   freq: mhz,
+                   // agree -> certain; disagree or none -> say so, never pick
+                   bw: bws.size === 1 ? [...bws][0] : '-',
+                   exact: hits.length === 1 };
+        }
         const secId = db.siteSectors[code];
         const sec = secId ? db.sectors[secId] : null;
         return { net, site: db.sites[code] || code, siteId: code,
@@ -481,6 +503,82 @@
     }
     return null;
   }
+
+  /* ── Planet point-inspect codes ──────────────────────────── */
+  // Point inspect reports <SiteID>_<cell>, and the shape differs per operator.
+  // Verified 2026-09-06 against a real point inspect pasted out of Planet:
+  //   Partner    NC4050C_LNC4050Ia            -> sector LNC4050Ia     5/5
+  //   Cellcom    13207_3381063_90             -> sector 3381063_90    4/4
+  //   IDF        IDF_Halif_11_SL_1            -> cell   Halif_11_SL_1 2/2
+  //   Pelephone  P630012_630012_1911236_9260  -> site   P630012
+  // Cellcom's leading field is the SITE ID, not the azimuth: ECI minus
+  // SiteID*256 lands in 0..255 on every sample. The azimuth trails.
+  // Pelephone's code carries no sector at all, so it can only ever reach the
+  // site — which lookup() already tags approximate.
+  function planetKey(code) {
+    if (!code) return null;
+    const p = code.split('_');
+    if (p[0] === 'IDF') return p.slice(1).join('_');
+    if (p.length === 4 && /^P\d+$/.test(p[0])) return p[0];
+    if (p.length === 3 && /^\d+$/.test(p[0]) && /^\d+$/.test(p[1]))
+      return p[1] + '_' + p[2];
+    if (p.length === 2) return p[1];
+    return code;
+  }
+
+  // Pelephone's code names no sector, but its trailing field is the EARFCN of
+  // the carrier that served the point. That is enough to pick the right
+  // carrier out of the site instead of guessing at the whole site.
+  function planetCarrier(code) {
+    const p = String(code || '').split('_');
+    if (p.length === 4 && /^P\d+$/.test(p[0]) && /^\d+$/.test(p[3])) {
+      return parseInt(p[3], 10);
+    }
+    return null;
+  }
+
+  // EARFCN → MHz, using the importer's own table (exported by dbparse.js) so
+  // there is no second copy here to drift out of step with it.
+  function mhzOf(earfcn) {
+    if (earfcn == null) return null;
+    for (const b of (self.TableXBands || [])) {
+      if (earfcn >= b[0] && earfcn <= b[1]) return b[2];
+    }
+    return null;
+  }
+
+  // Derived key first, raw code second, so a bare sector id typed by hand
+  // still resolves.
+  function lookupPlanet(code) {
+    const k = planetKey(code);
+    const carrier = planetCarrier(code);
+    const mhz = mhzOf(carrier);
+    const hit = (k && k !== code ? lookup(k, mhz) : null) || lookup(code, mhz);
+
+    // Pelephone prints what its own code carries. `P630012_630012_1911236_9260`
+    // names the site, the cell (1911236) and the carrier (EARFCN 9260) — no
+    // azimuth anywhere, so there is nothing to look a sector up by and nothing
+    // worth guessing. Decided 2026-09-06: show the cell id in the sector column
+    // and the RAW EARFCN as the frequency, both straight from the code, the way
+    // IDF already prints its EARFCN. Nothing here is estimated, so the row is
+    // NOT tagged `סקטור משוער`.
+    //
+    // The MHz conversion still happens, but only inside lookup() to find the
+    // bandwidth — the one field the code does not carry. It comes from the
+    // site's sectors on that carrier and prints '-' when they disagree.
+    if (hit && carrier != null) {
+      const cell = code.split('_')[2];
+      if (cell) { hit.sector = cell; hit.exact = true; }
+      hit.freq = carrier;
+    }
+    return hit;
+  }
+
+  const isNum  = s => /^-?\d+(\.\d+)?$/.test(s);
+  // Planet writes -9999 in BOTH the code and the level column for "no server
+  // here". That is an empty slot, not an unresolvable code, so it must never
+  // reach the warning banner.
+  const isDead = v => !v || /^-?9999(\.0+)?$/.test(v);
 
   /* ── level formatting ────────────────────────────────────────────── */
   // At most 2 decimals, trailing zeros trimmed:
@@ -508,18 +606,27 @@
       const c = line.split('\t').map(s => s.trim());
       if (c.length < 7) continue;
 
-      if (isNaN(parseFloat(c[0]))) {
-        // Planet point analysis, pasted from an RTL sheet: the columns arrive
-        // reversed, so [2,1,0] maps them back to rank 1..3.
-        const pt = parseInt(c[6], 10);
+      // Planet point inspect:  נקודה | RSRP1..3 | BS1..3
+      // Three RSRPs in a row and a non-numeric BS1 is what separates this from
+      // the legacy layout, whose columns 5 and 6 are frequency and bandwidth.
+      // Levels arrive ALREADY negative, and the servers keep Planet's
+      // BS1/BS2/BS3 order rather than being re-sorted by strength.
+      if (isNum(c[1]) && isNum(c[2]) && isNum(c[3]) && !isNum(c[4])) {
+        const pt = parseInt(c[0], 10);
         if (isNaN(pt)) continue;
         groups[pt] = [];
-        [2, 1, 0].forEach((col, rank) => {
-          const code = c[col];
-          const hit = lookup(code);
-          if (!hit && code) miss.push(code);
+        [0, 1, 2].forEach(i => {
+          const code = c[4 + i], lvl = c[1 + i];
+          if (isDead(code) || isDead(lvl)) {
+            groups[pt].push({ rank: i + 1, code: '-', net: null, exact: null,
+                              site: '-', sector: '-', freq: '-', bw: '-',
+                              power: '-' });
+            return;
+          }
+          const hit = lookupPlanet(code);
+          if (!hit) miss.push(code);
           groups[pt].push({
-            rank: rank + 1,
+            rank: i + 1,
             code: code,
             net: hit ? hit.net : null,
             exact: hit ? hit.exact : null,
@@ -527,7 +634,7 @@
             sector: hit ? hit.sector : '-',
             freq: hit ? hit.freq : '-',
             bw: hit ? hit.bw : '-',
-            power: level(c[col + 3], true),
+            power: level(lvl, false),
           });
         });
 
@@ -557,7 +664,9 @@
       .replace(/"/g, '&quot;');
   }
 
-  const NET_TAG = { ours: 'שלנו', partner: 'PARTNER', pelephone: 'PELEPHONE' };
+  // Derived from LABELS rather than a second map: the old one still said
+  // `ours` (renamed to `idf`) and had no cellcom, so those chips rendered blank.
+  const netTag = net => (LABELS[net] || net).toUpperCase();
 
   function renderTable(groups) {
     const keys = Object.keys(groups).map(Number).sort((a, b) => a - b);
@@ -589,7 +698,7 @@
         if (r.net === null && r.exact === null) {
           tag = `<span class="tag tag-miss">לא נמצא</span>`;
         } else {
-          if (r.net) tag += `<span class="tag tag-net">${esc(NET_TAG[r.net])}</span>`;
+          if (r.net) tag += `<span class="tag tag-net">${esc(netTag(r.net))}</span>`;
           if (r.exact === false) tag += `<span class="tag tag-warn">סקטור משוער</span>`;
         }
         // Stagger is capped: past row 18 they all arrive together, so a long
@@ -632,14 +741,15 @@
   }
 
   /* ── wiring ──────────────────────────────────────────────────────── */
+  // Real Partner codes in point-inspect shape, so the demo resolves 21/21.
   const SAMPLE = [
-    'LNN4610Da\tLNE4295Da\tLSI5505Da\t86\t79\t72\t1',
-    'LIN0625Da\tLEI2085Da\tLEA1118Da\t89\t82\t75\t2',
-    'LEA2143Da\tLNN4455Da\tLMN0640Da\t92\t85\t78\t3',
-    'LJN1163Da\tLSI5498Da\tLSO5495Da\t95\t88\t81\t4',
-    'LSO5320Da\tLEI2138Da\tLNC4127Da\t98\t91\t84\t5',
-    'LSO5949Da\tLNN0546Da\tLSO5482Da\t101\t94\t87\t6',
-    'LSI5439Da\tLNN4074Da\tLIN4943Da\t104\t97\t90\t7',
+    '1\t-72.4245\t-78.8269\t-84.1238\tNS3373B_LNS3373Da\tJW1038J_LJW1038Da\tSO5093C_LSO5093Da',
+    '2\t-76.2232\t-82.6274\t-88.9477\tWE6261D_LWE6261Da\tEA2362A_LEA2362Da\tEI2402A_LEI2402Da',
+    '3\t-80.5771\t-86.3967\t-92.9763\tWE0777A_LWE0777Da\tIN4699B_LIN4699Da\tSM5402B_LSO5402Da',
+    '4\t-84.0466\t-90.8585\t-96.2896\tWE3217D_LWE3217Da\tEI2044B_LEI2044Da\tTS0301F_LTS0301Da',
+    '5\t-88.1443\t-94.1178\t-100.3085\tNC4491F_LNC4491Da\tEA2271A_LEA2271Da\tIN4130C_LIN4130Da',
+    '6\t-92.8161\t-98.1807\t-104.5816\tSO5476C_LSO5476Da\tSO5324B_LSO5324Da\tEI2372B_LEI2372Da',
+    '7\t-96.6389\t-102.3724\t-108.5477\tNE4432D_LNE4432Da\tIN4623B_LIN4623Da\tWE3020B_LWE3020Da',
   ].join('\n');
 
   const ta = $('inputArea');
@@ -821,6 +931,15 @@
     ed = null;
   }
 
+  // IDF's frequency slot holds a raw EARFCN rather than MHz — see CLAUDE.md,
+  // "IDF comes from an ENM CLI dump". Labelling 9335 as "MHz" in the editor was
+  // simply wrong. Both are unit symbols, identical in Hebrew and English, so
+  // they stay inline here the way ' MHz' always has rather than going to i18n.
+  function freqText(v) {
+    if (v == null) return '-';
+    return ed && ed.net === 'idf' ? 'EARFCN ' + v : v + ' MHz';
+  }
+
   // siteId -> [sectorId, ...]. Rebuilt per render; cheap next to the DOM work.
   function sectorsBySite() {
     const m = Object.create(null);
@@ -865,7 +984,7 @@
             return '<div class="ed-sector" style="animation-delay:' + (j * 20) + 'ms">' +
               '<span class="mono" dir="ltr">' + esc(sec) + '</span>' +
               '<span class="ed-spec">' + esc(v[1] || '-') + '</span>' +
-              '<span class="ed-spec">' + esc(v[2] == null ? '-' : v[2]) + ' MHz</span>' +
+              '<span class="ed-spec">' + esc(freqText(v[2])) + '</span>' +
               '<span class="ed-spec">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>' +
               '<span class="grow"></span>' +
               '<button class="ed-rm" data-rm-sector="' + esc(sec) + '" title="' +
@@ -878,6 +997,8 @@
             '<span class="ed-name">' + esc(ed.sites[id] || id) + '</span>' +
             '<span class="ed-code" dir="ltr">' + esc(id) + '</span>' +
             '<span class="ed-badge">' + secs.length + '</span>' +
+            '<button class="ed-add-sec" data-add-sector="' + esc(id) + '" title="' +
+              esc(T('ed.addSector')) + '">+</button>' +
             '<button class="ed-rm" data-rm-site="' + esc(id) + '" title="' +
               esc(T('ed.rmSite')) + '">\u2212</button>' +
           '</div>' + rows +
@@ -888,11 +1009,14 @@
         : '');
 
       list.querySelectorAll('[data-toggle]').forEach(el => el.onclick = e => {
-        if (e.target.closest('.ed-rm')) return;      // the minus is not a toggle
+        // neither the minus nor the plus is a toggle
+        if (e.target.closest('.ed-rm, .ed-add-sec')) return;
         const id = el.dataset.toggle;
         if (ed.open.has(id)) ed.open.delete(id); else ed.open.add(id);
         renderEditor();
       });
+      list.querySelectorAll('[data-add-sector]').forEach(b =>
+        b.onclick = () => addSectorTo(b.dataset.addSector));
       list.querySelectorAll('[data-rm-site]').forEach(b =>
         b.onclick = () => removeSite(b.dataset.rmSite));
       list.querySelectorAll('[data-rm-sector]').forEach(b =>
@@ -905,6 +1029,21 @@
     const save = $('edSave');
     save.disabled = !ed.dirty;
     save.textContent = ed.dirty ? T('ed.saveN', { n: ed.dirty }) : T('ed.save');
+  }
+
+  // The `+` on a site row. The add form already accepted an existing Site ID —
+  // this just fills it in, so adding a sector to a known site does not mean
+  // retyping its code and name and risking a typo that forks it into a new one.
+  function addSectorTo(siteId) {
+    $('edAdd').classList.remove('hidden');
+    $('edSiteId').value = siteId;
+    $('edSiteName').value = ed.sites[siteId] || '';
+    $('edSectorId').value = '';
+    $('edSector').value = '';
+    ed.open.add(siteId);
+    renderEditor();
+    $('edSectorId').focus();
+    $('edAdd').scrollIntoView({ block: 'nearest' });
   }
 
   function removeSector(secId) {
@@ -964,7 +1103,10 @@
     ed.open.add(siteId);
     ed.q = '';
     $('edSearch').value = '';
-    ['edSectorId', 'edSiteId', 'edSiteName', 'edSector'].forEach(id => { $(id).value = ''; });
+    // Keep the site id and name. Adding sectors 2 and 3 straight after 1 is the
+    // common case, and retyping the site code is how you accidentally fork one
+    // site into two. Clearing them was fine when this form only added sites.
+    ['edSectorId', 'edSector'].forEach(id => { $(id).value = ''; });
     $('edSectorId').focus();
     toast(T('ed.added', { id: secId }));
     renderEditor();

@@ -993,6 +993,27 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   color: #c0394b;
   transform: scale(1.08);
 }
+/* Same geometry as .ed-rm so the pair reads as one control, mint instead of
+   red because it adds rather than destroys. */
+.ed-add-sec {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: var(--r-btn);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.16s var(--ease), color 0.16s var(--ease),
+              transform 0.16s var(--ease);
+}
+.ed-add-sec:hover {
+  background: rgba(12, 140, 94, 0.10);
+  color: var(--mint);
+  transform: scale(1.08);
+}
 
 .ed-sectors { padding: 0 0 8px 0; display: grid; gap: 2px; }
 .ed-sector {

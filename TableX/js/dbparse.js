@@ -291,6 +291,11 @@
   // Main-thread fallback for app.js when a Worker cannot start.
   scope.TableXParse = parseBuffer;
 
+  // app.js needs EARFCN → MHz too, to resolve Pelephone's point-inspect code
+  // (its trailing field is an EARFCN). Exported rather than copied: a second
+  // table in app.js would drift from the one the importer actually uses.
+  scope.TableXBands = EARFCN_BANDS;
+
   if (IN_WORKER) {
     scope.onmessage = ev => {
       try {
