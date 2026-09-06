@@ -203,8 +203,8 @@ TableX/
   fonts/                      self-hosted Inter (latin) + Heebo (hebrew), 9 woff2
   data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors, 767 KB
   data/idf.json               SHIPPED — 331 sites / 792 sectors, from the ENM dump
-  data/cellcom.json           empty stub, awaiting data
-  data/pelephone.json         empty stub, awaiting data
+  data/cellcom.json           empty stub - the real DB is built on TS, cannot ship
+  data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
   favicon.ico                 browser tab (MUST stay under TableX/ to be served)
   img/elad.jpg                builder photo (About the builder)
   img/ghost.svg               standalone ghost mark
@@ -231,9 +231,9 @@ because that step cost a click on every single use and the whole product is spee
 | Slot | Label | State |
 |------|-------|-------|
 | `idf` | IDF | **shipped**, 331 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
-| `cellcom` | Cellcom | **empty** — added 2026-09-04 |
+| `cellcom` | Cellcom | **ships empty**, but the import is proven — 2,575 sites / 18,891 sectors on TS |
 | `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors |
-| `pelephone` | Pelephone | **empty** — data does not exist yet |
+| `pelephone` | Pelephone | **ships empty**, but the import is proven — 2,383 sites / 18,217 sectors on TS |
 
 `ours` was renamed to `idf` on 2026-09-04 — the key, the file (`data/ours.json` →
 `data/idf.json`), the server whitelist and the label all moved together, rather than leaving an
@@ -583,7 +583,10 @@ result from inside TS by reading one line off the screen.
 | **Pelephone** | `P935739` | `935739_22` | no — Latin (`EINAV`, `HERMESH`) | `P3M_2600LTE.MIMO 3250_20` |
 | **IDF** | `IDF_Amitay` | **`1` / `2` / `3`** | no — `Description` mostly empty | `P3M_750LTE.MIMO 9260_10` |
 
-Partner is the only one of the four that imports cleanly. Three separate blockers stand in the way
+**All of this was written before any of the three had been tried, and two of them now work.**
+`Cellcom_Share` and `Pelephone_Share` both imported cleanly on 2026-09-06 — see "Proven on TS"
+below. Read the rest of this section as the reasoning that got the parsers there, not as current
+status. Three separate blockers stood in the way
 of the others, and each now has a guard so the failure is loud instead of silent.
 
 **1. IDF's `Sector ID` is not a key.** It numbers sectors `1` / `2` / `3` *per site*, so the same
@@ -680,15 +683,36 @@ site id, which is exactly the `Sector ID` on the sectors sheet.
    inside, which is what the band-distribution line in the success toast is for.
 2. ~~A **pasted** Cellcom and Pelephone point analysis.~~ **Done 2026-09-06** — see the code-shape
    table under "Input format". All four operators' point-inspect codes are settled and
-   `planetKey()` resolves them. What remains is the *databases*, not the format: Cellcom and
-   Pelephone are still empty, so their codes resolve to nothing today.
+   `planetKey()` resolves them.
 3. IDF is **not** coming from a Planet group export — an ENM CLI dump is the source, and it
    arrived on 2026-09-06 (`D:/IDF_DB_FOR_CLAUDE/IDF_DB.txt`, 849 rows / 343 nodes / 792 cells).
    It carries site, sector, `dlChannelBandwidth` (kHz) and `earfcndl`, keyed by
    **NodeId + EUtranCellFDDId** — the cell id alone repeats across 51 ids. Still missing: the
    **Hebrew site names**, being written by hand into `D:/IDF_DB_FOR_CLAUDE/NAMES_TO_FILL.csv`
-   (14 family patterns covering 205 sites, plus 105 singletons). Until those land, an IDF row
-   renders its Latin node id.
+   (14 family patterns covering 205 sites, plus 105 singletons). 104 of 105 singletons and 4 of
+   14 families came back on 2026-09-06; the last **10 family patterns** are what still leaves 95
+   sites rendering their Latin node id.
+
+### Proven on TS — 2026-09-06
+
+The packaged exe was run inside TS and the whole chain worked end to end, which retires most of the
+caveats above. What was actually observed:
+
+- **`Cellcom_Share` imported: 2,575 sites / 18,891 sectors.** `Pelephone_Share` imported: 2,383
+  sites / 18,217 sectors. Both through the in-app `עדכן` button, first try, no cleaning step. The
+  EARFCN-vs-MHz `parseBand()` rule and the header-matching contract are therefore **verified against
+  real workbooks**, not just against photographs.
+- **A real Planet point inspect pasted and generated**: 5 points, 15 rows, all four networks
+  resolving in one table — Cellcom, Partner, Pelephone and IDF rows side by side.
+- **Point numbering is 1-based and unique in a real analysis** (נק' 1..5). The worry that a single
+  analysis might repeat the point id — which would have silently collapsed a paste into one point,
+  since the point-inspect path REPLACES a group — did not materialise. Still the thing to re-check
+  if a table ever comes out short.
+
+**The repo still ships `cellcom.json` and `pelephone.json` as empty stubs**, and that is correct:
+those workbooks live on TS and cannot leave it, so the databases exist only on the TS machine. What
+changed is that the *import path* is no longer unproven — anyone with the group export gets a
+working database from it.
 
 ---
 
@@ -920,10 +944,10 @@ the raw key.
 
 ## Known gaps
 
-- **`cellcom` and `pelephone` are empty**, so their point-inspect codes resolve to nothing even
-  though the codes themselves are now understood. The *format* work is done (see the code-shape
-  table under "Input format"); they still need a Planet group export, and the Band Name / EARFCN
-  guards described above apply to it when it arrives.
+- **`cellcom` and `pelephone` ship empty**, so out of the box their point-inspect codes resolve to
+  nothing. This is not an open problem any more — both imported cleanly from their group exports on
+  TS on 2026-09-06 (see "Proven on TS"). The databases simply cannot live in this repo, because the
+  workbooks never leave TS. Anyone setting up a fresh copy runs `export group` and loads it.
 - **95 of IDF's 331 sites still render their Latin node id**, because 10 numbered families have no
   Hebrew pattern yet — `MMSL_{N}` (21 sites), `Relay_{N}` (14), `Beeri_Pakar_{N}` (13),
   `Petel_{N}` (10), `G_{N}`, `MiniSite_{N}`, `MMSL_Pakar_{N}`, `M_Zefoni_{N}`, `Mehola_{N}`,
