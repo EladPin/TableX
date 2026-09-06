@@ -9,7 +9,7 @@
    site id and flagging the row approximate. Unresolved codes are surfaced,
    never silently rendered as the raw English code.
    ═══════════════════════════════════════════════════════════════════ */
-(function () {
+(function (global) {
   'use strict';
 
   const $ = id => document.getElementById(id);
@@ -835,18 +835,23 @@
 
   /* ── views ───────────────────────────────────────────────────────── */
   function show(which) {
-    const table = which === 'table', lk = which === 'lookup';
-    $('viewHome').classList.toggle('hidden', table || lk);
+    const table = which === 'table', lk = which === 'lookup', dk = which === 'decks';
+    $('viewHome').classList.toggle('hidden', table || lk || dk);
     $('viewLookup').classList.toggle('hidden', !lk);
+    $('viewDecks').classList.toggle('hidden', !dk);
     $('viewTable').classList.toggle('hidden', !table);
     // The nav hides for the TABLE view only — that one is the deliverable
-    // and carries its own toolbar. Lookup is a place you leave again, so it
-    // keeps the nav.
+    // and carries its own toolbar. The others are places you leave again, so
+    // they keep the nav.
     $('nav').classList.toggle('hidden', table);
+    const at = lk ? 'lookup' : dk ? 'decks' : 'home';
     document.querySelectorAll('.nav-link[data-goto]').forEach(b =>
-      b.classList.toggle('active', b.dataset.goto === (lk ? 'lookup' : 'home')));
+      b.classList.toggle('active', b.dataset.goto === at));
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (lk) { renderLookup(); setTimeout(() => $('lkSearch').focus(), 60); }
+    // Templates live on the server, so another copy of the app may have
+    // added one since this tab loaded.
+    if (dk && global.TableXDeck) global.TableXDeck.reload();
   }
 
   /* ── lookup view ─────────────────────────────────────────────────────
@@ -1086,6 +1091,7 @@
 
   document.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => {
     if (b.dataset.goto === 'lookup') return show('lookup');
+    if (b.dataset.goto === 'decks') return show('decks');
     show('home');
     if (b.dataset.goto === 'db') $('sectionDb').scrollIntoView({ behavior: 'smooth' });
   });
@@ -1120,6 +1126,51 @@
   });
 
   /* ── PPTX export ─────────────────────────────────────────────────── */
+  /* ── the report table, as data ────────────────────────────────────────
+     ONE definition of the deliverable's shape, because there are now two
+     writers for it: the standalone slide below, and the injector that
+     drops it into a template slot (js/deck.js -> js/pptx.js). They used to
+     be one function and a copy would have drifted the moment either was
+     touched.
+
+     Columns are REVERSED by hand. PowerPoint tables have no RTL column
+     order — rtlMode/rtl="1" only set text direction inside a cell — so the
+     row arrays are built strongest-column-last, mirroring the HTML. Change
+     one, change all of them.
+
+     Colours are the document's own purple, not the app's mint: this is a
+     preview of a PowerPoint slide, not app chrome (DESIGN.md deviation 3). */
+  const TBL = {
+    colW: [1.3, 1.2, 1.2, 0.85, 4.5, 0.85, 0.8],   // inches
+    border: { color: 'BBB5E0', pt: 0.5 },
+    head: '4A3F8C', group: '6B5FB5', rowA: 'F0EEFF', rowB: 'FAF9FF',
+    rowH: 0.36, size: 10,
+  };
+  TBL.frac = TBL.colW.map(w => w / TBL.colW.reduce((a, b) => a + b, 0));
+
+  // [[{t, fill, color, bold, align}, ...], ...] — align uses the OOXML
+  // spelling ('ctr' / 'r'); the PptxGenJS writer maps it.
+  function tableMatrix(groups) {
+    const H = t => ({ t, fill: TBL.head, color: 'FFFFFF', bold: true, align: 'ctr' });
+    const out = [[
+      H('עוצמה(dBm)'), H('רוחב פס (Mhz)'), H('תדר מרכזי'), H('סקטור'),
+      { ...H('שם אתר משרת'), align: 'r' }, H('מס"ד'), H(''),
+    ]];
+    Object.keys(groups).map(Number).sort((a, b) => a - b).forEach((nk, gi) => {
+      const fill = gi % 2 === 0 ? TBL.rowA : TBL.rowB;
+      groups[nk].forEach((r, i) => {
+        const c = t => ({ t: String(t), fill, color: '000000', align: 'ctr' });
+        out.push([
+          c(r.power), c(r.bw), c(r.freq), c(r.sector),
+          { ...c(r.site), align: 'r' }, c(r.rank),
+          { t: i === 0 ? `נק' ${nk}` : '', fill: TBL.group,
+            color: 'FFFFFF', bold: true, align: 'ctr' },
+        ]);
+      });
+    });
+    return out;
+  }
+
   $('btnPptx').onclick = async () => {
     if (!lastRows) return;
     if (typeof PptxGenJS === 'undefined') {
@@ -1140,46 +1191,18 @@
         align: 'center', rtlMode: true, fontFace: 'Arial',
       });
 
-      const BD = { type: 'solid', pt: 0.5, color: 'bbb5e0' };
-      const cell = (fill, bold = false) => ({
-        fill: { color: fill }, bold, align: 'center', valign: 'middle',
-        rtlMode: true, border: BD, fontSize: 10, fontFace: 'Arial',
-      });
-      const hOpts = { ...cell('4a3f8c', true), color: 'FFFFFF' };
-
-      // PowerPoint tables have no RTL column order — rtlMode only sets text
-      // direction inside a cell — so the columns are reversed by hand here to
-      // mirror the HTML. Change one, change the other.
-      const rows = [[
-        { text: 'עוצמה(dBm)',    options: hOpts },
-        { text: 'רוחב פס (Mhz)', options: hOpts },
-        { text: 'תדר מרכזי',     options: hOpts },
-        { text: 'סקטור',         options: hOpts },
-        { text: 'שם אתר משרת',   options: { ...hOpts, align: 'right' } },
-        { text: 'מס"ד',          options: hOpts },
-        { text: '',              options: hOpts },
-      ]];
-
-      Object.keys(lastRows).map(Number).sort((a, b) => a - b).forEach((nk, gi) => {
-        const bg = gi % 2 === 0 ? 'f0eeff' : 'faf9ff';
-        lastRows[nk].forEach((r, i) => {
-          rows.push([
-            { text: String(r.power),  options: cell(bg) },
-            { text: String(r.bw),     options: cell(bg) },
-            { text: String(r.freq),   options: cell(bg) },
-            { text: String(r.sector), options: cell(bg) },
-            { text: String(r.site),   options: { ...cell(bg), align: 'right' } },
-            { text: String(r.rank),   options: cell(bg) },
-            { text: i === 0 ? `נק' ${nk}` : '',
-              options: { ...cell('6b5fb5', true), color: 'FFFFFF' } },
-          ]);
-        });
-      });
+      const BD = { type: 'solid', pt: TBL.border.pt, color: TBL.border.color };
+      const rows = tableMatrix(lastRows).map(row => row.map(c => ({
+        text: c.t,
+        options: {
+          fill: { color: c.fill }, color: c.color, bold: !!c.bold,
+          align: c.align === 'r' ? 'right' : 'center', valign: 'middle',
+          rtlMode: true, border: BD, fontSize: TBL.size, fontFace: 'Arial',
+        },
+      })));
 
       slide.addTable(rows, {
-        x: 0.3, y: 1.0, w: 12.7,
-        colW: [1.3, 1.2, 1.2, 0.85, 4.5, 0.85, 0.8],
-        rowH: 0.36,
+        x: 0.3, y: 1.0, w: 12.7, colW: TBL.colW, rowH: TBL.rowH,
       });
 
       await pptx.writeFile({ fileName: 'TableX.pptx' });
@@ -1189,6 +1212,25 @@
     } finally {
       btn.disabled = false;
     }
+  };
+
+  /* The deck builder needs the report without owning its shape. Exposing a
+     narrow bridge keeps js/deck.js from reaching into app internals, and
+     keeps the table's definition here with the other renderers. */
+  /* Shared chrome. js/deck.js must speak in the app's voice — the same
+     toast and the same in-app dialog — rather than grow a second set that
+     drifts, or fall back to window.confirm() (see "Prompts are in-app"). */
+  global.TableXUI = { toast, ask, T };
+
+  global.TableXReport = {
+    TBL,
+    matrix: () => (lastRows ? tableMatrix(lastRows) : null),
+    has: () => !!lastRows,
+    meta: () => {
+      if (!lastRows) return null;
+      const keys = Object.keys(lastRows);
+      return { points: keys.length, rows: keys.reduce((n, k) => n + lastRows[k].length, 0) };
+    },
   };
 
 
@@ -1479,6 +1521,7 @@
     if (lastRows) renderTable(lastRows);
     if (ed) renderEditor();
     if (!$('viewLookup').classList.contains('hidden')) renderLookup();
+    if (global.TableXDeck) global.TableXDeck.render();
     markActive();
   }
 
@@ -1511,6 +1554,7 @@
     if (askDone) closeAsk(false);
     else if (!setPop.classList.contains('hidden')) toggleSettings(false);
     else if (!$('dbEditor').classList.contains('hidden')) closeEditor();
+    else if (global.TableXDeck && global.TableXDeck.isEditorOpen()) global.TableXDeck.closeEditor();
   });
 
   // Before markActive(), which reads SCENE.enabled — init() is where the
@@ -1520,4 +1564,4 @@
   renderFacts();
   markActive();
   loadAll();
-})();
+})(window);

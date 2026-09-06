@@ -1,6 +1,11 @@
 # Rollback copies written by server.ps1 before a database update.
 TableX/data/*.bak
 
+# Deck templates. These are somebody's actual PowerPoint, uploaded on the
+# machine they work on -- per-installation user data like the .bak above, and
+# not something to carry in the repo.
+TableX/data/tpl/
+
 # Scratch output from tools/build_icon.py (the inline SVG snippet, which is
 # pasted into index.html rather than shipped as a file).
 tools/_ghost-inline.svg.txt

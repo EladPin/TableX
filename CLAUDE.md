@@ -96,11 +96,30 @@ UbiPlus 8093, TableX 8094.
 .\server.ps1 -Port 8099      # different port
 ```
 
-**The server has exactly one route beyond static files**: `POST api/db/<network>`, which writes
-`TableX/data/<network>.json`. That is what makes an in-app database update stick for everyone
-using that copy instead of living in one browser's storage. Everything else is a static file
-under the `TableX/` web root (deliberately not the repo root, so the raw source workbooks
-beside it are not reachable over HTTP).
+**The server has two route families beyond static files**, and both exist for the same reason —
+so what someone builds in the app belongs to that *copy* of the app rather than to one browser's
+storage:
+
+```
+POST   api/db/<network>      writes TableX/data/<network>.json
+GET    api/tpl               lists deck templates (metadata only)
+POST   api/tpl/<id>          writes TableX/data/tpl/<id>.json   (metadata)
+POST   api/tpl/<id>/deck     writes TableX/data/tpl/<id>.pptx   (raw bytes)
+DELETE api/tpl/<id>          removes both
+```
+
+Everything else is a static file under the `TableX/` web root (deliberately not the repo root, so
+the raw source workbooks beside it are not reachable over HTTP) — including the stored `.pptx`,
+which the app fetches back over the ordinary static route.
+
+**The deck rides its own route as raw bytes, not base64 inside JSON.** PS 5.1's
+`ConvertFrom-Json` is backed by `JavaScriptSerializer` and throws on a long string, which a
+multi-MB deck comfortably is. Raw bytes also skip base64's 33% inflation, and mean the stored
+template is a real `.pptx` anyone can just open.
+
+**Template ids are constrained, not whitelisted** — the user creates them, so `$TPL_ID` allows
+`[a-z0-9-]` only, which contains no `.` and no separator and therefore cannot name a path outside
+`data\tpl`. Matched with **`-cmatch`**, for exactly the reason the database route documents.
 
 `file://` will not work any more — the app `fetch()`es `data/*.json` at startup, which a
 `file://` origin blocks. Always go through the server.
@@ -196,6 +215,8 @@ TableX/
   index.html                  whole UI: nav, hero, paste card, DB grid, lookup, table view
   css/main.css                the Mintlify system, tokens at the top
   js/app.js                   the entire application, one IIFE
+  js/pptx.js                  reads a .pptx and fills it in — the template engine
+  js/deck.js                  the Decks view: templates, slots, the build
   js/scene.js                 the hero's pixel landscape + the ghost that walks it
   js/dbparse.js               the workbook contract — runs as a Web Worker
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
@@ -887,6 +908,85 @@ Things worth not re-breaking:
 
 ---
 
+## Decks — a whole PowerPoint from a template
+
+`מצגות` in the nav. Upload a real `.pptx` once, mark the places that change, and every later deck
+is: drop the Planet screenshots, press generate. `js/pptx.js` is the engine (read + patch a
+package), `js/deck.js` is the view.
+
+### The one idea the whole feature rests on: we never re-author the deck
+
+The obvious design is to read a `.pptx`, learn what it contains, and *generate* a new one that
+looks like it. That loses every time. A real deck carries a theme, masters, layouts, fonts,
+gradients, grouped vector logos, animations, speaker notes and a unit's branding — a rebuild
+reproduces the 10% we understood and silently drops the rest. What comes out is *like* the deck,
+and "like" is exactly what makes it unusable in front of a commander.
+
+**So the template IS the uploaded file**, kept whole. Generating only ever:
+
+- adds media parts and the relationships pointing at them,
+- inserts `<p:pic>` / `<p:graphicFrame>` into a slide's `<p:spTree>`,
+- clones, drops or reorders entries in `<p:sldIdLst>`.
+
+Everything untouched survives because it was never touched. That also lets the parser stay
+ignorant: it understands slide size, the slide list, shape rectangles and the relationship graph,
+and a shape it cannot read is a shape it leaves alone.
+
+**This is why the editor does not let you retype the deck's own text.** Editing arbitrary
+PowerPoint content in a browser means reimplementing PowerPoint badly, and the output would be
+worse than the file the user already has. PowerPoint edits the deck; TableX marks it up.
+
+### Things that are load-bearing
+
+- **JSZip is already on `window`** — `js/pptxgen.bundle.js` is a UMD bundle whose first module is
+  JSZip, so the deck *writer* vendored for the table export turned out to carry the zip *reader*
+  too. `js/pptx.js` must load after it. No new dependency was added for any of this.
+- **Clone before patch.** In `build()`, every repeated slide is cloned in pass 1, before pass 2
+  writes anything into any slide. Cloning after patching copies the first copy's picture into the
+  second — the bug the two passes exist to prevent.
+- **Slide ORDER is `<p:sldIdLst>`, never the file names.** `slide7.xml` can be the second slide.
+  That is what makes reorder and delete safe: nothing is renumbered, so every other part's
+  relationships keep pointing where they did.
+- **A deleted slide is deleted, not hidden.** Removing it from `sldIdLst` alone would leave the
+  content in the file; `deleteSlide()` also purges the part, its rels, its content-type override,
+  the presentation relationship and any notes slide that pointed at it. "Deleted" has to mean
+  deleted in something that goes to a commander.
+- **A `graphicFrame` carries `<p:xfrm>`, not `<a:xfrm>`** — the presentation namespace, not
+  drawingml. Reading only the drawingml form skipped every table and chart in a template
+  *silently*, so they never appeared in the preview. Caught by the E2E suite; `xfrmOf()` checks
+  `p:` first because a chart's own drawing can contain a nested `a:xfrm` that would win.
+- **Pictures are centre-cropped, never stretched**, via `<a:srcRect>`. A Planet screenshot
+  squashed to a slot's aspect ratio is a distorted map, which on a coverage slide is a factual
+  error rather than a cosmetic one. The crop is expressed in the file, so it can be undone in
+  PowerPoint.
+- **A missing `<Default Extension="png">` in `[Content_Types].xml`** is the classic "PowerPoint
+  found a problem and needs to repair" prompt. `ensureDefault()` exists for that.
+- **The report table has ONE definition.** `tableMatrix()` + `TBL` in `app.js` are consumed by
+  both writers — the standalone slide and the injector — through the `TableXReport` bridge. They
+  used to be one function, and a copy would have drifted the moment either was touched. The
+  columns are still reversed by hand in both: PowerPoint tables have no RTL column order.
+- **`js/deck.js` speaks through `TableXUI`** (`toast`, `ask`) rather than growing its own, so a
+  prompt still speaks in the app's voice and never becomes `window.confirm()`.
+
+### Assignment is positional, on purpose
+
+Images are one ordered list; slots consume it in deck order. There is no drag-an-image-onto-a-slot
+step to get wrong, reordering the strip is the only control, and **the plan is rendered in full
+before anything is generated** — so the output is never a surprise. A slide marked *repeating*
+consumes as many images as it has picture slots, once per repetition, until they run out; a
+two-maps-per-slide layout therefore just works.
+
+### Testing it
+
+There is no `.pptx` on the dev box and no Office. The suites build their fixture with the app's
+**own** PptxGenJS, then feed it back in — which is a real OOXML package with a master, a layout
+and a theme. Both suites end by re-opening what they produced and asserting on it, including that
+no relationship dangles. `scratchpad/engine.mjs` covers the engine (20 checks) and
+`scratchpad/deck.mjs` the whole flow (31). What they cannot cover is the exotica only real
+PowerPoint emits — which is precisely why the design never re-authors anything.
+
+---
+
 ## Lookup — the databases as a reference, not only as a step
 
 `חיפוש אתר` in the nav opens a third view (`viewLookup`) that searches **all four databases at
@@ -1072,7 +1172,18 @@ the raw key.
   This also retired the earlier band-28-prints-700-not-750 question — IDF no longer prints a band
   label at all, so the disagreement with Planet's `750` label is moot.
 - **PPTX is one slide with no pagination.** ~7 points (21 rows) fits; past ~15 rows the table
-  runs off the bottom. `slide.addTable` supports `autoPage`; not enabled.
+  runs off the bottom. `slide.addTable` supports `autoPage`; not enabled. The template path has
+  the same limit: a table slot gets one table, however many rows it holds.
+- **The template preview is a wireframe, not a renderer.** Background, pictures and text land in
+  the right place at roughly the right size; gradients collapse to their first stop, and
+  SmartArt, charts and WordArt draw as an empty frame. It exists so someone can point at a place
+  on a slide. The *output* is unaffected — none of it is re-authored.
+- **No `.pptx` from real PowerPoint has been through this.** The suites build their fixture with
+  PptxGenJS, which is a valid package but not an exotic one. The design is built so that the
+  unknown is copied rather than interpreted, but the first real unit template is still the test
+  that matters.
+- **Deck templates are gitignored** (`TableX/data/tpl/`) — they are somebody's actual
+  presentation, per-installation data like `data/*.bak`.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized
   data; on Partner you must search to reach a specific site.
 - **The lookup stops scanning at 400 matching sites** (`LK_SCAN_CAP`), so a very broad query
@@ -1107,3 +1218,7 @@ the raw key.
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
   in `server.ps1`, `LABELS` in `tools/build_db.py`, and a `data/<net>.json` stub.
+- When you touch the report table, remember there are now **two PPTX writers** — both read
+  `tableMatrix()`. Change the matrix, not one of the writers.
+- **Never re-author a template's slide content.** If a deck feature seems to need it, it is the
+  wrong feature; see "Decks".

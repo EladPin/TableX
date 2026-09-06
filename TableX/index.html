@@ -56,8 +56,10 @@
   </div>
 </div>
 
-<!-- hidden file input, reused by every DB update -->
+<!-- hidden file inputs, reused by every upload -->
 <input type="file" id="dbFileInput" accept=".xlsx" hidden/>
+<input type="file" id="tplFileInput" accept=".pptx" hidden/>
+<input type="file" id="imgFileInput" accept="image/*" multiple hidden/>
 
 <!-- ══ NAV ══ -->
 <header class="nav" id="nav">
@@ -113,6 +115,7 @@
     <nav class="nav-links">
       <button class="nav-link" data-goto="home" data-i18n="nav.input"></button>
       <button class="nav-link" data-goto="lookup" data-i18n="nav.lookup"></button>
+      <button class="nav-link" data-goto="decks" data-i18n="nav.decks"></button>
       <button class="nav-link" data-goto="db" data-i18n="nav.db"></button>
     </nav>
 
@@ -256,6 +259,90 @@
     <div class="lk-list" id="lkList"><!-- rendered by app.js --></div>
   </section>
 </main>
+
+<!-- ══ DECKS ══ upload a real .pptx once, mark where the pictures and the
+     report table go, then generate the whole presentation from it. The
+     template is the uploaded file itself — see js/pptx.js. ══ -->
+<main class="view hidden" id="viewDecks">
+  <section class="section dk-top">
+    <div class="section-head">
+      <p class="eyebrow"><span class="dot"></span><span data-i18n="dk.eyebrow"></span></p>
+      <h2 class="section-title" data-i18n="dk.title"></h2>
+      <p class="section-sub" data-i18n="dk.sub"></p>
+    </div>
+
+    <div class="dk-tpls" id="dkTpls"><!-- rendered by deck.js --></div>
+
+    <div class="dk-body hidden" id="dkBody">
+      <div class="dk-drop" id="dkDrop">
+        <p class="dk-drop-t" data-i18n="dk.dropTitle"></p>
+        <p class="dk-drop-s" data-i18n="dk.dropSub"></p>
+        <div class="dk-drop-acts">
+          <button class="btn btn-ghost btn-sm" id="dkPick" data-i18n="dk.pick"></button>
+          <button class="btn btn-ghost btn-sm" id="dkClear" data-i18n="dk.clearImgs"></button>
+        </div>
+      </div>
+
+      <div class="dk-imgs" id="dkImgs"><!-- rendered by deck.js --></div>
+
+      <div class="dk-out">
+        <div class="dk-out-head">
+          <h3 class="card-title" data-i18n="dk.planTitle"></h3>
+          <span class="dk-count" id="dkCount"></span>
+        </div>
+        <div id="dkPlan"><!-- rendered by deck.js --></div>
+        <div class="dk-foot">
+          <button class="btn btn-primary" id="dkBuild">
+            <span data-i18n="dk.build"></span>
+            <svg class="btn-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ══ TEMPLATE EDITOR ══ marks up a deck; it never retypes its content ══ -->
+<div class="ed-overlay hidden" id="tplEditor">
+  <div class="ed-modal tpl-modal" role="dialog" aria-modal="true" aria-labelledby="tplHead">
+    <header class="ed-head">
+      <div class="tpl-head-l">
+        <p class="eyebrow"><span class="dot"></span><span data-i18n="dk.editing"></span></p>
+        <input class="tpl-name" id="tplName" type="text" autocomplete="off"
+               data-i18n-placeholder="dk.namePh"/>
+      </div>
+      <button class="ab-x" id="tplClose" data-i18n-title="ed.close" aria-label="Close">✕</button>
+    </header>
+
+    <div class="tpl-work">
+      <aside class="tpl-rail" id="tplRail"><!-- rendered by deck.js --></aside>
+      <div class="tpl-main">
+        <div class="tpl-bar">
+          <button class="btn btn-ghost btn-sm" id="tplAddImg" data-i18n="dk.addImg"></button>
+          <button class="btn btn-ghost btn-sm" id="tplAddTbl" data-i18n="dk.addTbl"></button>
+          <button class="btn btn-ghost btn-sm" id="tplDelSlot" data-i18n="dk.delSlot"></button>
+          <span class="grow"></span>
+          <button class="btn btn-ghost btn-sm toggle" id="tplRepeat"
+                  data-i18n="dk.repeatSlide" data-i18n-title="dk.repeatHint"></button>
+          <span class="tpl-pos" id="tplPos"></span>
+        </div>
+        <div class="tpl-stage-wrap">
+          <div class="tpl-stage" id="tplStage"><!-- rendered by deck.js --></div>
+        </div>
+        <p class="tpl-hint" data-i18n="dk.stageHint"></p>
+      </div>
+    </div>
+
+    <footer class="ed-foot">
+      <span class="grow"></span>
+      <button class="btn btn-ghost" id="tplCancel" data-i18n="ed.cancel"></button>
+      <button class="btn btn-primary" id="tplSave" data-i18n="dk.save"></button>
+    </footer>
+  </div>
+</div>
 
 <!-- ══ TABLE ══ -->
 <main class="view hidden" id="viewTable">
@@ -418,7 +505,11 @@
      TableXParse, the main-thread fallback if a Worker cannot start. -->
 <script src="js/dbparse.js"></script>
 <script src="js/pptxgen.bundle.js"></script>
+<!-- after pptxgen: that bundle is where JSZip comes from -->
+<script src="js/pptx.js"></script>
 <script src="js/scene.js"></script>
 <script src="js/app.js"></script>
+<!-- after app.js: deck.js uses the TableXUI / TableXReport bridges it exposes -->
+<script src="js/deck.js"></script>
 </body>
 </html>

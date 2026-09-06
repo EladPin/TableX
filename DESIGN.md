@@ -71,6 +71,15 @@ Five deliberate deviations, all forced by the app's context:
    `--ink` is the filled-button surface, `--paper` the text on it, so swapping
    inverts the button correctly with no per-component rule.
 
+6. **The template preview renders somebody else's design.** The Decks editor draws
+   a wireframe of the user's own uploaded PowerPoint — their background colour,
+   their pictures, their type. That is deliberately outside this system, and it
+   has to be: the whole point is showing the deck as it actually is so someone
+   can point at a place on it. The system governs the frame around it (the card,
+   the rail, the toolbar, the mint slot rectangles); inside the frame, whatever
+   colours come out of the `.pptx` are the ones that belong there. Do not
+   "correct" them toward the palette.
+
 Everything else follows the spec as written: white canvas (in light theme), one
 green, 4px controls / 16px cards / 24px large containers, whisper shadows, no
 gradients or glassmorphism outside the hero.

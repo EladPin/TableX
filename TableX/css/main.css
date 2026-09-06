@@ -1567,8 +1567,364 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .toast.err { background: var(--err); }
 
 /* ═══ RESPONSIVE ════════════════════════════════════════════════════ */
+/* ═══ DECKS ═════════════════════════════════════════════════════════
+   Template list, image strip, and the plan. The slide PREVIEW inside the
+   editor is the one place the app draws somebody else's design, so it
+   gets no styling of its own beyond a frame — whatever colours come out
+   of the .pptx are the ones that belong there. */
+.dk-top { padding-top: 48px; }
+
+.dk-tpls {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+.dk-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: start;
+  padding: 16px;
+  border: 1px solid var(--mist);
+  border-radius: var(--r-card);
+  background: var(--paper);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+}
+.dk-card:hover { border-color: var(--cloud); }
+.dk-card.on { border-color: var(--mint); box-shadow: 0 0 0 3px var(--mint-wash); }
+.dk-name { font-size: 15px; font-weight: 600; color: var(--ink); }
+.dk-meta { font-size: 12px; color: var(--muted); }
+.dk-acts { display: flex; gap: 10px; margin-top: 8px; }
+.dk-act {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mint);
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+.dk-act:hover { background: var(--mint-wash); }
+.dk-act.danger { color: var(--err); }
+.dk-act.danger:hover { background: rgba(122, 34, 34, 0.08); }
+
+.dk-new {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-style: dashed;
+  border-color: var(--cloud);
+  min-height: 116px;
+}
+.dk-plus { font-size: 22px; line-height: 1; color: var(--mint); }
+
+/* ── drop zone + image strip ── */
+.dk-drop {
+  border: 1.5px dashed var(--cloud);
+  border-radius: var(--r-card);
+  padding: 28px 20px;
+  text-align: center;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+.dk-drop.over { border-color: var(--mint); background: var(--mint-wash); }
+.dk-drop-t { font-size: 16px; font-weight: 600; color: var(--ink); }
+.dk-drop-s {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 520px;
+  margin: 6px auto 0;
+}
+.dk-drop-acts { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+
+.dk-imgs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0 28px;
+}
+.dk-thumb {
+  position: relative;
+  width: 128px;
+  height: 78px;
+  border: 1px solid var(--mist);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--mist);
+}
+.dk-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dk-tn {
+  position: absolute;
+  top: 4px; inset-inline-start: 4px;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(8, 9, 10, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.dk-x, .dk-move {
+  position: absolute;
+  width: 20px; height: 20px;
+  line-height: 20px;
+  text-align: center;
+  border-radius: 4px;
+  background: rgba(8, 9, 10, 0.62);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+.dk-x { top: 4px; inset-inline-end: 4px; }
+.dk-move { bottom: 4px; inset-inline-start: 4px; }
+.dk-move.r { inset-inline-start: 28px; }
+.dk-thumb:hover .dk-x, .dk-thumb:hover .dk-move { opacity: 1; }
+.dk-x:hover { background: var(--err); }
+.dk-move:hover { background: var(--mint); }
+
+/* ── the plan ── */
+.dk-out {
+  border: 1px solid var(--mist);
+  border-radius: var(--r-card);
+  padding: 20px;
+}
+.dk-out-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.dk-count { font-size: 12px; color: var(--muted); }
+.dk-plan { list-style: none; display: grid; gap: 2px; }
+.dk-plan li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.dk-plan li:nth-child(odd) { background: var(--mist); }
+.dk-pn {
+  flex: none;
+  width: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.dk-ps { flex: none; color: var(--ink); font-weight: 500; }
+.dk-pf { color: var(--muted); }
+.dk-warn {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--mist);
+  border-inline-start: 3px solid var(--err);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.dk-foot { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* ═══ TEMPLATE EDITOR ═══════════════════════════════════════════════ */
+.tpl-modal { width: min(1180px, 96vw); }
+.tpl-head-l { flex: 1; min-width: 0; }
+.tpl-name {
+  width: 100%;
+  max-width: 420px;
+  font: inherit;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  padding: 2px 0;
+  outline: none;
+}
+.tpl-name:hover { border-bottom-color: var(--cloud); }
+.tpl-name:focus { border-bottom-color: var(--mint); }
+
+.tpl-work {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 16px;
+  padding: 16px 24px;
+  min-height: 0;
+  overflow: hidden;
+}
+.tpl-rail {
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding-inline-end: 4px;
+}
+.tr-item {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 6px;
+  align-items: center;
+  padding: 6px;
+  border: 1px solid var(--mist);
+  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
+}
+.tr-item:hover { border-color: var(--cloud); }
+.tr-item.on { border-color: var(--mint); background: var(--mint-wash); }
+.tr-n { font-size: 11px; color: var(--muted); text-align: center; }
+.tr-thumb {
+  position: relative;
+  display: block;
+  border: 1px solid var(--mist);
+  border-radius: 3px;
+  overflow: hidden;
+  background: #fff;
+}
+.tr-tags { grid-column: 2; display: flex; gap: 4px; flex-wrap: wrap; }
+.tr-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--mist);
+  color: var(--muted);
+}
+.tr-tag.rep { background: var(--mint-wash); color: var(--mint); }
+.tr-ops {
+  position: absolute;
+  top: 4px; inset-inline-end: 4px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s var(--ease);
+}
+.tr-item:hover .tr-ops { opacity: 1; }
+.tr-ops button {
+  width: 18px; height: 18px;
+  font-size: 9px;
+  line-height: 1;
+  border: 1px solid var(--cloud);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--muted);
+  cursor: pointer;
+}
+.tr-ops button:hover { border-color: var(--mint); color: var(--mint); }
+.tr-ops button.danger:hover { border-color: var(--err); color: var(--err); }
+
+.tpl-main { display: flex; flex-direction: column; min-width: 0; }
+.tpl-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.tpl-pos { font-size: 12px; color: var(--muted); }
+.btn.toggle.on {
+  border-color: var(--mint);
+  color: var(--mint);
+  background: var(--mint-wash);
+}
+.tpl-stage-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+}
+/* The preview draws the user's own slide, so it sits on a neutral card and
+   is given nothing but a border. */
+.tpl-stage {
+  position: relative;
+  width: 100%;
+  max-width: 820px;
+  background: #fff;
+  border: 1px solid var(--cloud);
+  box-shadow: var(--sh-card);
+  overflow: hidden;
+  touch-action: none;              /* pointer drags must not scroll the pane */
+  user-select: none;
+}
+.tpl-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+  margin-top: 10px;
+}
+
+/* ── the wireframe of a slide ── */
+.sl-bg { position: absolute; inset: 0; background-size: 100% 100%; }
+.sl-pic { position: absolute; object-fit: cover; }
+.sl-sp {
+  position: absolute;
+  overflow: hidden;
+  line-height: 1.15;
+  white-space: pre-wrap;
+  display: flex;
+  align-items: center;
+  padding: 1px 2px;
+}
+/* thumbnail scale: a tinted block stands in for type too small to read */
+.sl-sp.sm { background: currentColor; opacity: 0.3; border-radius: 1px; }
+.sl-frame {
+  position: absolute;
+  border: 1px dashed rgba(120, 128, 136, 0.5);
+  background: rgba(120, 128, 136, 0.08);
+}
+
+/* ── slots ── */
+.slot {
+  position: absolute;
+  border: 2px solid var(--mint);
+  background: rgba(12, 140, 94, 0.14);
+  cursor: move;
+  border-radius: 2px;
+}
+.slot.table { border-color: #6b5fb5; background: rgba(107, 95, 181, 0.16); }
+.slot.on { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 4px var(--mint); }
+.slot.table.on { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 4px #6b5fb5; }
+.slot-lb {
+  position: absolute;
+  top: 2px; inset-inline-start: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--mint);
+  color: #fff;
+  pointer-events: none;
+}
+.slot.table .slot-lb { background: #6b5fb5; }
+.slot-h {
+  position: absolute;
+  width: 11px; height: 11px;
+  background: var(--paper);
+  border: 2px solid var(--mint);
+  border-radius: 2px;
+}
+.slot.table .slot-h { border-color: #6b5fb5; }
+.slot-h.nw { top: -6px; left: -6px; cursor: nwse-resize; }
+.slot-h.ne { top: -6px; right: -6px; cursor: nesw-resize; }
+.slot-h.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+.slot-h.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+
 @media (max-width: 900px) {
   .db-grid { grid-template-columns: 1fr; }
+  .tpl-work { grid-template-columns: 1fr; }
+  .tpl-rail { display: flex; overflow-x: auto; }
+  .tr-item { min-width: 150px; }
   /* No landscape here: the band needs ~184px of hero it cannot have on a
      short viewport, and display:none zeroes clientWidth, which makes
      scene.js stand down and kill its timer on its own. */
