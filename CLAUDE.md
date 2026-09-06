@@ -162,6 +162,11 @@ app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resource
 that `--win portable` hits, and an unpacked app means `server.ps1` can read `TableX/` off disk.
 `server.ps1` resolves its web root from `$PSScriptRoot`, so it needs no change when packaged.
 
+**Clear `TableX/data/tpl/` before building.** `"TableX/**"` sweeps in whatever is there, and a
+deck template is somebody's actual presentation — one built while testing would ride along inside
+the zip and be handed to everyone who gets that build. The directory is gitignored, so `git
+status` will not warn you; look at the folder.
+
 **`main.js` must keep the `serverReady` guard and `res.resume()`.** Straight from Interfex, same
 root cause: not draining the poll response leaves the socket open; when the server later closes it
 the error handler fires, the poller retries, finds the server up, and opens a SECOND window — the
@@ -211,6 +216,9 @@ tools/
   build_idf.py                ENM CLI dump + name list → data/idf.json (stdlib only)
   build_fonts.py              downloads + subsets Inter/Heebo into TableX/fonts/
   build_icon.py               the ghost -> .ico / .png / .svg + the nav snippet
+  e2e/run.mjs                 the end-to-end suites — see "Tests" (no npm install)
+  e2e/cdp.mjs                 shared DevTools-Protocol harness
+  e2e/{engine,deck,app}.mjs   one suite each
 TableX/
   index.html                  whole UI: nav, hero, paste card, DB grid, lookup, table view
   css/main.css                the Mintlify system, tokens at the top
@@ -221,17 +229,20 @@ TableX/
   js/dbparse.js               the workbook contract — runs as a Web Worker
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/xlsx.full.min.js         SheetJS — vendored, reads an uploaded workbook
-  js/pptxgen.bundle.js        PptxGenJS 3.12.0 — vendored, writes the deck
+  js/pptxgen.bundle.js        PptxGenJS 3.12.0 — vendored, writes the deck.
+                              ALSO where window.JSZip comes from; pptx.js needs it
   fonts/                      self-hosted Inter (latin) + Heebo (hebrew), 9 woff2
   data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors, 767 KB
   data/idf.json               SHIPPED — 331 sites / 792 sectors, from the ENM dump
   data/cellcom.json           empty stub - the real DB is built on TS, cannot ship
   data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
+  data/tpl/                   deck templates, written by the server — GITIGNORED,
+                              per-installation, and never in a build (see Electron)
   favicon.ico                 browser tab (MUST stay under TableX/ to be served)
   img/elad.jpg                builder photo (About the builder)
   img/ghost.svg               standalone ghost mark
 icon.ico / icon-256.png       Electron build icons — MUST stay at the repo root
-.gitignore                    data/*.bak, icon scratch, build scaffolding
+.gitignore                    data/*.bak, data/tpl/, icon scratch, build scaffolding
 ```
 
 **The source workbooks are no longer in the repo.** `TableX/DB/DEMO_DB.xlsx` (5.9 MB) and
@@ -976,14 +987,41 @@ before anything is generated** — so the output is never a surprise. A slide ma
 consumes as many images as it has picture slots, once per repetition, until they run out; a
 two-maps-per-slide layout therefore just works.
 
-### Testing it
+---
 
-There is no `.pptx` on the dev box and no Office. The suites build their fixture with the app's
-**own** PptxGenJS, then feed it back in — which is a real OOXML package with a master, a layout
-and a theme. Both suites end by re-opening what they produced and asserting on it, including that
-no relationship dangles. `scratchpad/engine.mjs` covers the engine (20 checks) and
-`scratchpad/deck.mjs` the whole flow (31). What they cannot cover is the exotica only real
-PowerPoint emits — which is precisely why the design never re-authors anything.
+## Tests
+
+```
+.\server.ps1 -NoLaunch            # in one window
+node tools/e2e/run.mjs            # in another — 79 checks, ~40 s
+node tools/e2e/run.mjs deck       # one suite
+node tools/e2e/run.mjs --keep-shots
+```
+
+Zero dependencies, like `tools/*.py`: Node 22+ has a global `WebSocket` and `fetch`, so nothing
+is installed and nothing is downloaded. It drives headless Edge (or Chrome) over the DevTools
+Protocol and exits non-zero on failure. `TABLEX_BROWSER` overrides the browser, `TABLEX_URL` the
+server, `TABLEX_VERBOSE=1` prints passing checks too.
+
+| suite | what it covers |
+|-------|----------------|
+| `engine` | `js/pptx.js` — parse a package, insert a picture, clone/reorder/delete slides, then **re-open the output** and assert on it, including that no relationship dangles |
+| `deck`   | the whole Decks flow — upload a template, mark slots, mark a slide repeating, save to the server, drop images, build, re-open, and confirm the report table came out as a native `<a:tbl>` |
+| `app`    | the lookup view and in-table editing |
+
+**Why a browser and not unit tests.** Everything worth testing here is interactive — clicking a
+slot onto a slide, dragging it, typing into a table cell, feeding a `.pptx` through a file input.
+None of it is reachable from Node, and all of it is where the bugs were: both defects these
+suites have caught (a clone taking an already-patched slide, and `graphicFrame` using the
+presentation namespace for its transform) were invisible to reading the code.
+
+**What they cannot cover.** The fixtures are built by the app's own PptxGenJS, so no file from
+real PowerPoint passes through them, and nothing here checks how a deck *looks*. Treat a green
+run as "the packages are well-formed and the flow holds together", not as "it is right".
+
+**A suite that needs the server is not optional about it** — the runner refuses to start rather
+than reporting a wall of failures. Suites each get a fresh page, because one leaving a saved
+template or a generated table behind would make the next pass for the wrong reason.
 
 ---
 
@@ -1121,8 +1159,8 @@ See "The hero scene" below.
 `data-i18n-html` (innerHTML, only for strings carrying markup), `data-i18n-placeholder` and
 `data-i18n-title`. Dynamic strings go through `T('key', {vars})`. **Anything rendered from JS
 must be rebuilt on a language switch** — `I18N.apply()` only refreshes static nodes, which is
-why `relocalize()` also re-runs `renderDbCards`, `updateChip`, `updateHint`, `renderFacts` and
-(if a table is open) `renderTable`. A missing key falls back to Hebrew rather than rendering
+why `relocalize()` also re-runs `renderDbCards`, `updateChip`, `updateHint`, `renderFacts`,
+`renderLookup`, `TableXDeck.render()` and (if a table is open) `renderTable`. A missing key falls back to Hebrew rather than rendering
 the raw key.
 
 ## Gotchas learned the hard way
@@ -1178,10 +1216,14 @@ the raw key.
   the right place at roughly the right size; gradients collapse to their first stop, and
   SmartArt, charts and WordArt draw as an empty frame. It exists so someone can point at a place
   on a slide. The *output* is unaffected — none of it is re-authored.
-- **No `.pptx` from real PowerPoint has been through this.** The suites build their fixture with
-  PptxGenJS, which is a valid package but not an exotic one. The design is built so that the
-  unknown is copied rather than interpreted, but the first real unit template is still the test
-  that matters.
+- **No `.pptx` from real PowerPoint has been through the INPUT side.** The suites build their
+  fixture with PptxGenJS — a valid package, but not an exotic one — so nothing has yet proved the
+  parser against a deck carrying SmartArt, charts, embedded video or a corporate theme. The
+  design copies whatever it does not understand rather than interpreting it, which is what that
+  gap is defended by. The *output* side is in better shape: a generated deck opened correctly in
+  an online PPTX viewer on 2026-09-06, which is the first evidence from outside this repo that
+  the packages we write are well-formed. A real unit template, opened in real PowerPoint, is
+  still the test that matters.
 - **Deck templates are gitignored** (`TableX/data/tpl/`) — they are somebody's actual
   presentation, per-installation data like `data/*.bak`.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized
@@ -1192,8 +1234,10 @@ the raw key.
 - **A hand-edited cell is marked in the app but not in the PPTX.** Consistent with `סקטור משוער`
   and with the chips, and the toolbar always shows the count — but it does mean an exported slide
   cannot distinguish a Planet-derived value from a typed one.
-- **No tests, no build, no lint.** Verification is: `start.bat`, "טען דוגמה", generate, and
-  check the table, the PPTX and the print view.
+- **No build, no lint** — and the tests only cover what a browser can be driven through. See
+  "Tests" above for what they do and do not reach. The manual pass is still worth doing on
+  anything visual: `start.bat`, "טען דוגמה", generate, and check the table, the PPTX and the
+  print view.
 
 ## Conventions for changes
 
@@ -1208,8 +1252,11 @@ the raw key.
   headers on purpose — see "Settings: theme and language".
 - Anything **rendered from JS must be re-rendered in `relocalize()`**, or it keeps the old
   language after a switch.
-- When you touch the table shape, **touch all three renderers**: HTML (`renderTable`), PPTX
-  (`btnPptx`), and the print CSS.
+- When you touch the table shape, **touch all FOUR renderers**: HTML (`renderTable`), the
+  standalone PPTX slide (`btnPptx`), the table injected into a template slot
+  (`TableXPptx.insertTable`, via `js/deck.js`), and the print CSS. The two PPTX writers both read
+  `tableMatrix()`, so for a column or colour change that is the one place to edit — but the row
+  markup, the print rules and the reversed column order still live in three files.
 - **Never `window.confirm()` / `alert()`** — use `ask()`, so a prompt speaks in the app's voice
   rather than the browser's (or Electron's).
 - **Illustration stays in the hero and the loader.** If you touch the hero scene, keep colour in
@@ -1218,7 +1265,8 @@ the raw key.
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
   in `server.ps1`, `LABELS` in `tools/build_db.py`, and a `data/<net>.json` stub.
-- When you touch the report table, remember there are now **two PPTX writers** — both read
-  `tableMatrix()`. Change the matrix, not one of the writers.
 - **Never re-author a template's slide content.** If a deck feature seems to need it, it is the
   wrong feature; see "Decks".
+- **Run the suites before you push**: `node tools/e2e/run.mjs` (the server must be up). They are
+  fast, they need nothing installed, and they have already caught two defects that no amount of
+  reading would have.
