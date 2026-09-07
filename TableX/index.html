@@ -57,7 +57,7 @@
 </div>
 
 <!-- hidden file inputs, reused by every upload -->
-<input type="file" id="dbFileInput" accept=".xlsx" hidden/>
+<input type="file" id="dbFileInput" accept=".xlsx,.json" hidden/>
 <input type="file" id="tplFileInput" accept=".pptx" hidden/>
 <input type="file" id="imgFileInput" accept="image/*" multiple hidden/>
 
@@ -200,8 +200,8 @@
       </div>
       <p class="schema-note" data-i18n-html="paste.note"></p>
 
-      <textarea id="inputArea" class="ta" spellcheck="false" dir="ltr" rows="9"
-        placeholder="LIN0625Da&#9;LNE4295Da&#9;LNN4610Da&#9;93&#9;89&#9;85&#9;1&#10;LEI2085Da&#9;LIN0625Da&#9;LNE4295Da&#9;94&#9;90&#9;86&#9;2"></textarea>
+      <textarea id="inputArea" class="ta" spellcheck="false" dir="ltr" rows="9" wrap="off"
+        placeholder="1&#9;-72.4245&#9;-78.8269&#9;-84.1238&#9;NS3373B_LNS3373Da&#9;JW1038J_LJW1038Da&#9;SO5093C_LSO5093Da&#10;2&#9;-76.2232&#9;-82.6274&#9;-88.9477&#9;WE6261D_LWE6261Da&#9;EA2362A_LEA2362Da&#9;EI2402A_LEI2402Da"></textarea>
 
       <div class="paste-foot">
         <span class="hint" id="pasteHint" data-i18n="hint.waiting"></span>

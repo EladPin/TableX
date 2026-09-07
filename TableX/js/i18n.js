@@ -72,6 +72,8 @@
     'db.built': 'עודכן',
     'db.load': 'טען קובץ',
     'db.update': 'עדכן',
+    'db.backup': 'גבה',
+    'db.backupTitle': 'הורד עותק של המסד כקובץ JSON',
     'db.clear': 'נקה',
     'db.clearConfirm': 'לנקות את מסד הנתונים {label}?\n\n' +
                        'יימחקו מהשרת — סקטורים: {n}, אתרים: {s}.\n\n' +
@@ -199,6 +201,10 @@
                       'Sector ID · Site ID · Band Name), או גיליון יחיד עם: ' +
                       'Sector ID · Site ID · Site Name · Sector · Frequency (MHz) · Bandwidth (MHz)',
     'toast.importCancelled': 'הייבוא בוטל — מסד הנתונים לא שונה',
+    'toast.backupDone': 'גובה {label} — {f} · שמור אותו מחוץ למחשב הזה',
+    'toast.badJson': 'הקובץ אינו גיבוי תקין של מסד נתונים ({e})',
+    'toast.wrongNet': 'הקובץ הזה הוא גיבוי של {got}, לא של {want}. בחר את הכרטיס הנכון.',
+    'toast.restored': 'שוחזר {label} — {n} סקטורים · {s} אתרים',
     'toast.dupSectors': 'הייבוא נעצר: {n} מתוך {total} השורות חוזרות על קוד סקטור קיים ' +
                         '(למשל "{id}"). עמודת Sector ID אינה מזהה ייחודי, וייבוא היה מוחק שורות ' +
                         'בשקט. יש לייצא עם קוד סקטור ייחודי לכל הרשת.',
@@ -296,6 +302,8 @@
     'db.built': 'Updated',
     'db.load': 'Load file',
     'db.update': 'Update',
+    'db.backup': 'Back up',
+    'db.backupTitle': 'Download a copy of this database as JSON',
     'db.clear': 'Clear',
     'db.clearConfirm': 'Clear the {label} database?\n\n' +
                        'Deleted on the server — sectors: {n}, sites: {s}.\n\n' +
@@ -424,6 +432,10 @@
                       'sheet carrying: Sector ID · Site ID · Site Name · Sector · ' +
                       'Frequency (MHz) · Bandwidth (MHz)',
     'toast.importCancelled': 'Import cancelled — the database is unchanged',
+    'toast.backupDone': 'Backed up {label} — {f} · keep it off this machine',
+    'toast.badJson': 'That file is not a valid database backup ({e})',
+    'toast.wrongNet': 'That backup is of {got}, not {want}. Pick the right card.',
+    'toast.restored': 'Restored {label} — {n} sectors · {s} sites',
     'toast.dupSectors': 'Import stopped: {n} of {total} rows repeat a sector code already seen ' +
                         '(e.g. "{id}"). The Sector ID column is not a unique key, so importing ' +
                         'would silently drop rows. Export with a sector code unique across the ' +

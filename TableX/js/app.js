@@ -198,6 +198,8 @@
               ${empty ? T('db.load') : T('db.update')}
             </button>
             <button class="btn btn-ghost btn-sm" data-edit="${net}">${T('ed.open')}</button>
+            ${empty ? '' : `<button class="btn btn-ghost btn-sm" data-backup="${net}"
+                                    title="${esc(T('db.backupTitle'))}">${T('db.backup')}</button>`}
             ${empty ? '' : `<button class="btn btn-ghost btn-sm btn-danger"
                                     data-clear="${net}">${T('db.clear')}</button>`}
           </div>
@@ -208,6 +210,8 @@
       .forEach(b => b.onclick = () => pickFile(b.dataset.update));
     $('dbGrid').querySelectorAll('[data-edit]')
       .forEach(b => b.onclick = () => openEditor(b.dataset.edit));
+    $('dbGrid').querySelectorAll('[data-backup]')
+      .forEach(b => b.onclick = () => backupDb(b.dataset.backup));
     $('dbGrid').querySelectorAll('[data-clear]')
       .forEach(b => b.onclick = () => clearDb(b.dataset.clear));
 
@@ -320,6 +324,95 @@
 
   function pickFile(net) { pendingNet = net; fileInput.value = ''; fileInput.click(); }
 
+  /* ── backup and restore ──────────────────────────────────────────────
+     The server keeps exactly ONE .bak per network, taken on the way past a
+     write, and data/*.bak is gitignored — so a second mistake overwrites the
+     only rollback copy there is. IDF is the worst case: it comes from an ENM
+     dump, not a workbook, so a cleared idf.json cannot be rebuilt from inside
+     the app at all. Backing one up therefore used to mean finding the file on
+     disk, which is not something to ask of someone who has just wiped it.
+
+     Restore rides the SAME api/db/<network> route the xlsx import uses, so the
+     server takes its .bak here too and a restored file is byte-identical in
+     shape to an imported one. */
+
+  // The file shape CLAUDE.md documents, minus the two lookup indexes that
+  // indexDb() adds in place. Rebuilt from memory rather than re-fetched from
+  // data/<net>.json, so a database that only ever loaded for the session
+  // (because the server write failed) can still be saved out.
+  function dbFileShape(net) {
+    const db = DB[net] || {};
+    return {
+      network: net,
+      label: label(net),
+      source: db.source || '—',
+      built: db.built || '—',
+      sites: db.sites || {},
+      sectors: db.sectors || {},
+    };
+  }
+
+  function backupDb(net) {
+    const f = net + '-' + new Date().toISOString().slice(0, 10) + '.json';
+    const url = URL.createObjectURL(
+      new Blob([JSON.stringify(dbFileShape(net))], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = f;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(T('toast.backupDone', { label: label(net), f }));
+  }
+
+  // Throws with a short reason rather than returning null, so the toast can
+  // say WHICH part of the file was wrong instead of a bare "invalid".
+  function readBackup(text) {
+    const d = JSON.parse(text);
+    if (!d || typeof d !== 'object') throw new Error('not an object');
+    if (!d.sites || typeof d.sites !== 'object') throw new Error('sites');
+    if (!d.sectors || typeof d.sectors !== 'object') throw new Error('sectors');
+    const bad = Object.keys(d.sectors).find(k => !Array.isArray(d.sectors[k]));
+    if (bad) throw new Error('sector ' + bad);
+    return d;
+  }
+
+  // Shared by the import and the restore: both REPLACE the database, so both
+  // owe the user the same warning before a big drop.
+  async function confirmShrink(net, now) {
+    const was = count(net, 'sectors');
+    if (!was || now >= was * 0.6) return true;
+    return ask(T('db.shrink', {
+      label: label(net), was: fmt(was), now: fmt(now),
+      pct: Math.round((1 - now / was) * 100),
+    }), { ok: 'db.update', danger: true });
+  }
+
+  // One definition of "write it to the server and adopt it", so the import and
+  // the restore cannot drift. A failed write still leaves the parsed data in
+  // memory for the session — deliberately the opposite of clearDb(), which
+  // must NOT apply in memory when the disk write failed.
+  async function persistDb(net, payload, okMsg) {
+    try {
+      const res = await fetch('api/db/' + net, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(await res.text() || res.status);
+      DB[net] = indexDb(payload);
+      renderDbCards();
+      updateChip();
+      toast(okMsg);
+    } catch (ex) {
+      DB[net] = indexDb(payload);
+      renderDbCards();
+      updateChip();
+      toast(T('toast.dbSession', { e: ex.message }), true);
+    }
+  }
+
   // The workbook contract lives in js/dbparse.js, which runs in a Worker.
   // Parsing an 8 MB Planet group export is 4–6 s of straight-line CPU: on the
   // main thread that is long enough for Chrome to raise "page unresponsive",
@@ -366,6 +459,55 @@
     if (card) card.classList.add('busy');
     toast(T('toast.reading', { f: file.name }));
 
+    // A .json is one of our own backups, not a Planet export: it needs no
+    // parsing, no Worker and no band check, because it was written by the
+    // side of the app that had already done all three.
+    if (/\.json$/i.test(file.name)) {
+      const jr = new FileReader();
+      jr.onload = async ev => {
+        const stop = msg => {
+          if (card) card.classList.remove('busy');
+          toast(msg, true);
+        };
+        let d = null;
+        try { d = readBackup(ev.target.result); }
+        catch (ex) { return stop(T('toast.badJson', { e: ex.message })); }
+
+        // Restoring Partner's backup onto the IDF card would replace a good
+        // database with another network's rows — the same data loss the
+        // shrink guard and the server's -cmatch whitelist exist to prevent.
+        // The file names its own network, so trust that over the card that
+        // happened to be clicked.
+        if (d.network && d.network !== net) {
+          return stop(T('toast.wrongNet', { got: d.network, want: net }));
+        }
+
+        if (!await confirmShrink(net, Object.keys(d.sectors).length)) {
+          if (card) card.classList.remove('busy');
+          toast(T('toast.importCancelled'));
+          return;
+        }
+
+        // Keep the backup's own provenance: a restored IDF database still came
+        // from IDF_DB.txt on the day it was built, not from a .json today.
+        await persistDb(net, {
+          network: net,
+          label: label(net),
+          source: d.source || file.name,
+          built: d.built || new Date().toISOString().slice(0, 10),
+          sites: d.sites,
+          sectors: d.sectors,
+        }, T('toast.restored', {
+          label: label(net),
+          n: fmt(Object.keys(d.sectors).length),
+          s: fmt(Object.keys(d.sites).length),
+        }));
+        if (card) card.classList.remove('busy');
+      };
+      jr.readAsText(file);          // UTF-8, so the Hebrew names survive
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async ev => {
       let parsed = null, err = null;
@@ -411,18 +553,10 @@
       // the first sign of trouble is a table of untranslated English codes —
       // exactly the failure this app exists to prevent. Confirm a big drop;
       // the normal case (a refresh that grows) is never interrupted.
-      const was = count(net, 'sectors');
-      const now = Object.keys(parsed.sectors).length;
-      if (was && now < was * 0.6) {
-        const ok = await ask(T('db.shrink', {
-          label: label(net), was: fmt(was), now: fmt(now),
-          pct: Math.round((1 - now / was) * 100),
-        }), { ok: 'db.update', danger: true });
-        if (!ok) {
-          if (card) card.classList.remove('busy');
-          toast(T('toast.importCancelled'));
-          return;
-        }
+      if (!await confirmShrink(net, Object.keys(parsed.sectors).length)) {
+        if (card) card.classList.remove('busy');
+        toast(T('toast.importCancelled'));
+        return;
       }
 
       const payload = {
@@ -434,31 +568,15 @@
         sectors: parsed.sectors,
       };
 
-      try {
-        const res = await fetch('api/db/' + net, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (!res.ok) throw new Error(await res.text() || res.status);
-        DB[net] = indexDb(payload);
-        renderDbCards();
-        updateChip();
-        // The bands are the cheapest possible check that the import read the
-        // workbook correctly, and the only one available on a machine whose
-        // files can never be sent out: "700, 1800, 2600" is obviously right,
-        // "1400, 2850, 9360" is obviously an EARFCN column read as MHz.
-        toast(T('toast.dbSaved', { label: label(net),
-                                   n: fmt(Object.keys(parsed.sectors).length),
-                                   f: bandList(parsed.sectors) }));
-      } catch (ex) {
-        // The parse worked; only the write failed. Use it for this session so
-        // the work isn't lost, and say plainly that it will not persist.
-        DB[net] = indexDb(payload);
-        renderDbCards();
-        updateChip();
-        toast(T('toast.dbSession', { e: ex.message }), true);
-      }
+      // The bands are the cheapest possible check that the import read the
+      // workbook correctly, and the only one available on a machine whose
+      // files can never be sent out: "700, 1800, 2600" is obviously right,
+      // "1400, 2850, 9360" is obviously an EARFCN column read as MHz.
+      await persistDb(net, payload, T('toast.dbSaved', {
+        label: label(net),
+        n: fmt(Object.keys(parsed.sectors).length),
+        f: bandList(parsed.sectors),
+      }));
       if (card) card.classList.remove('busy');
     };
     reader.readAsArrayBuffer(file);
@@ -679,6 +797,27 @@
       .replace(/"/g, '&quot;');
   }
 
+  // A site cell holds either a Hebrew name or a raw English code, and the two
+  // need OPPOSITE text direction. In an RTL cell the bidi algorithm reorders a
+  // digits-and-underscores code: Cellcom's `13207_3381063_90` paints as
+  // `90_3381063_13207` -- the same bytes backwards. CLAUDE.md records that this
+  // exact reversal, read off Planet's own RTL grid, already produced a wrong
+  // conclusion once; printing it on a commander's slide would be the same
+  // mistake with our name on it. Pelephone's `P630012_...` happens to survive
+  // only because a leading letter anchors the run, which is luck, not safety.
+  // So direction follows CONTENT: anything with no Hebrew in it is rendered LTR
+  // in the table, the PPTX and the print view alike.
+  const HEB = /[\u0590-\u05FF]/;
+  const isLtrText = v => !HEB.test(String(v == null ? '' : v));
+
+  // Interpolating a user-typed value into a Hebrew sentence has the same
+  // hazard, except the value may be Hebrew OR Latin, so a fixed direction is
+  // wrong half the time. U+2068 FIRST STRONG ISOLATE takes its direction from
+  // the value's own first strong character and U+2069 pops back, which is the
+  // mechanism Unicode defines for exactly this. Invisible, so it survives
+  // esc() and works in textContent as well as innerHTML.
+  const bidiIso = v => '\u2068' + String(v == null ? '' : v) + '\u2069';
+
   // Derived from LABELS rather than a second map: the old one still said
   // `ours` (renamed to `idf`) and had no cellcom, so those chips rendered blank.
   const netTag = net => (LABELS[net] || net).toUpperCase();
@@ -722,7 +861,8 @@
         // its row again after the table is rebuilt; `td-edited` marks a
         // hand-typed value and, like every .tag, is app-only.
         const ec = (f, v, extra) =>
-          `<td class="${extra || ''} td-ed${r.edited && r.edited[f] ? ' td-edited' : ''}"` +
+          `<td class="${extra || ''} td-ed${r.edited && r.edited[f] ? ' td-edited' : ''}` +
+          `${f === 'site' && isLtrText(v) ? ' td-ltr' : ''}"` +
           ` data-e="${nk}:${ri}:${f}" tabindex="0">${esc(v)}`;
 
         h += `<tr class="${cls}" style="--i:${Math.min(i++, 18)}">`;
@@ -868,7 +1008,38 @@
   const LK_SCAN_CAP = 400;   // sites collected before the scan gives up
   const lkOpen = new Set();  // "net:siteId" expanded by hand
 
-  const lkMsg = s => '<p class="ed-msg">' + esc(s) + '</p>';
+  // Marks every occurrence of the query inside a name, a site id or a sector
+  // code. A broad query ("בית") matches hundreds of sites in wildly different
+  // positions, and without this the list gives no clue WHY any given row is in
+  // it. Escaping happens per fragment, after the split, so the match indices
+  // are computed against the raw string and no escape sequence can be cut in
+  // half — building the HTML first and searching it second would do exactly
+  // that to a name containing & or ".
+  function lkHi(text, q) {
+    const v = String(text == null ? '' : text);
+    if (!q) return esc(v);
+    const low = v.toLowerCase();
+    let out = '', from = 0, i = low.indexOf(q);
+    while (i >= 0) {
+      out += esc(v.slice(from, i)) +
+             '<mark class="lk-hi">' + esc(v.slice(i, i + q.length)) + '</mark>';
+      from = i + q.length;
+      i = low.indexOf(q, from);
+    }
+    return out + esc(v.slice(from));
+  }
+
+  // The lookup's empty, hint and no-hit states. They used to be bare <p>s
+  // floating in a 200px-tall void, which reads as a search that broke rather
+  // than as an answer. One panel, and the second line (which names the
+  // databases that ship empty) belongs INSIDE it rather than as a second
+  // orphaned paragraph. Deliberately not .ed-msg: deck.js styles its own
+  // empty states with that class and has no reason to change.
+  const lkPanel = (main, sub) =>
+    '<div class="lk-empty">' +
+      '<p class="lk-empty-main">' + esc(main) + '</p>' +
+      (sub ? '<p class="lk-empty-sub">' + esc(sub) + '</p>' : '') +
+    '</div>';
 
   // exact code first, then prefix, then anything — so typing a full sector
   // id puts its site at the top instead of alphabetically among its peers
@@ -882,9 +1053,9 @@
   // dir="ltr" on every spec: "1800 MHz" is an LTR string, and inside the
   // RTL document bidi reorders it to read "MHz 1800".
   function lkSpecs(net, id, v) {
-    return '<span class="ed-spec" dir="ltr">' + esc(sectorLabel(net, id, v)) + '</span>' +
-           '<span class="ed-spec" dir="ltr">' + esc(freqText(v[2], net)) + '</span>' +
-           '<span class="ed-spec" dir="ltr">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>';
+    return '<span class="ed-spec sec" dir="ltr">' + esc(sectorLabel(net, id, v)) + '</span>' +
+           '<span class="ed-spec freq" dir="ltr">' + esc(freqText(v[2], net)) + '</span>' +
+           '<span class="ed-spec bw" dir="ltr">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>';
   }
 
   function renderLookup() {
@@ -893,13 +1064,13 @@
     const live = NETWORKS.filter(n => !isEmpty(n));
     direct.innerHTML = '';
 
-    if (!live.length) { list.innerHTML = lkMsg(T('lk.empty')); return; }
+    if (!live.length) { list.innerHTML = lkPanel(T('lk.empty')); return; }
     if (!raw) {
-      list.innerHTML = lkMsg(T('lk.hint', {
+      list.innerHTML = lkPanel(T('lk.hint', {
         s: fmt(live.reduce((s, n) => s + count(n, 'sectors'), 0)), n: live.length }));
       return;
     }
-    if (raw.length < 2) { list.innerHTML = lkMsg(T('lk.short')); return; }
+    if (raw.length < 2) { list.innerHTML = lkPanel(T('lk.short')); return; }
 
     // A code pasted straight out of Point Inspect resolves through the very
     // function the generator uses, so the answer here IS the answer there —
@@ -944,8 +1115,9 @@
       // their workbooks never leave TS. Name them rather than let someone
       // conclude the lookup is wrong.
       const dark = NETWORKS.filter(n => isEmpty(n)).map(label);
-      list.innerHTML = lkMsg(T('lk.noHits', { q: raw })) +
-        (dark.length ? lkMsg(T('lk.noHitsEmpty', { list: dark.join(', ') })) : '');
+      list.innerHTML = lkPanel(
+        T('lk.noHits', { q: bidiIso(raw) }),
+        dark.length ? T('lk.noHitsEmpty', { list: dark.join(', ') }) : '');
       return;
     }
 
@@ -966,15 +1138,16 @@
           return '<div class="ed-sector lk-sector' +
             (id.toLowerCase().includes(q) ? ' hit' : '') +
             '" data-copy="' + esc(id) + '" style="animation-delay:' + (j * 20) + 'ms">' +
-            '<span class="mono" dir="ltr">' + esc(id) + '</span>' + lkSpecs(h.net, id, v) +
+            '<span class="mono" dir="ltr">' + lkHi(id, q) + '</span>' + lkSpecs(h.net, id, v) +
           '</div>';
         }).join('') + '</div>';
       return '<div class="ed-site lk-site ' + (open ? 'open' : '') + '" style="--i:' + i + '">' +
         '<div class="ed-site-row" data-lk-toggle="' + esc(key) + '">' +
           '<span class="ed-caret">▶</span>' +
           '<span class="ed-name" data-copy="' + esc(h.name || h.id) + '">' +
-            esc(h.name || h.id) + '</span>' +
-          '<span class="ed-code" dir="ltr" data-copy="' + esc(h.id) + '">' + esc(h.id) + '</span>' +
+            lkHi(h.name || h.id, q) + '</span>' +
+          '<span class="ed-code" dir="ltr" data-copy="' + esc(h.id) + '">' +
+            lkHi(h.id, q) + '</span>' +
           '<span class="tag tag-net">' + esc(netTag(h.net)) + '</span>' +
           '<span class="ed-badge">' + h.secs.length + '</span>' +
         '</div>' + rows +
@@ -1162,7 +1335,7 @@
         const c = t => ({ t: String(t), fill, color: '000000', align: 'ctr' });
         out.push([
           c(r.power), c(r.bw), c(r.freq), c(r.sector),
-          { ...c(r.site), align: 'r' }, c(r.rank),
+          { ...c(r.site), align: 'r', ltr: isLtrText(r.site) }, c(r.rank),
           { t: i === 0 ? `נק' ${nk}` : '', fill: TBL.group,
             color: 'FFFFFF', bold: true, align: 'ctr' },
         ]);
@@ -1197,7 +1370,7 @@
         options: {
           fill: { color: c.fill }, color: c.color, bold: !!c.bold,
           align: c.align === 'r' ? 'right' : 'center', valign: 'middle',
-          rtlMode: true, border: BD, fontSize: TBL.size, fontFace: 'Arial',
+          rtlMode: !c.ltr, border: BD, fontSize: TBL.size, fontFace: 'Arial',
         },
       })));
 
@@ -1329,9 +1502,9 @@
             const v = ed.sectors[sec];
             return '<div class="ed-sector" style="animation-delay:' + (j * 20) + 'ms">' +
               '<span class="mono" dir="ltr">' + esc(sec) + '</span>' +
-              '<span class="ed-spec" dir="ltr">' + esc(v[1] || '-') + '</span>' +
-              '<span class="ed-spec" dir="ltr">' + esc(freqText(v[2])) + '</span>' +
-              '<span class="ed-spec" dir="ltr">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>' +
+              '<span class="ed-spec sec" dir="ltr">' + esc(v[1] || '-') + '</span>' +
+              '<span class="ed-spec freq" dir="ltr">' + esc(freqText(v[2])) + '</span>' +
+              '<span class="ed-spec bw" dir="ltr">' + esc(v[3] == null ? '-' : v[3]) + ' MHz</span>' +
               '<span class="grow"></span>' +
               '<button class="ed-rm" data-rm-sector="' + esc(sec) + '" title="' +
                 esc(T('ed.rmSector')) + '">\u2212</button>' +

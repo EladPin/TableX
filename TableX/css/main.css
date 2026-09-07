@@ -105,7 +105,16 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
    error. Make the attribute win everywhere. */
 [hidden] { display: none !important; }
 .grow { flex: 1; }
-.mono { font-family: var(--mono); font-size: 0.92em; }
+/* Every .mono in this app is a Latin code, and codes must be ISOLATED from the
+   Hebrew around them: inside an RTL paragraph the bidi algorithm reorders a
+   digits-and-underscores run, painting Cellcom's 13207_3381063_90 as
+   90_3381063_13207. Several call sites already set dir="ltr" by hand for this
+   reason; the unresolved-code banner did not, which is what made it visible.
+   Putting it on the class means a new call site cannot forget. */
+.mono {
+  font-family: var(--mono); font-size: 0.92em;
+  direction: ltr; unicode-bidi: isolate;
+}
 .mint { color: var(--mint); }
 
 /* ── entrance animation ──────────────────────────────────────────── */
@@ -868,7 +877,20 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
      fit, so a long source filename still wraps. */
   overflow-wrap: anywhere;
 }
-.db-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* A loaded card carries four actions and an empty one two, and with plain
+   flex-wrap the break landed wherever the labels happened to end: Hebrew wrapped
+   3+1 (leaving נקה orphaned on its own line) while English wrapped 2+2. A fixed
+   two-column grid makes it deliberate and identical in both languages —
+   change-the-contents on the first row, manage-the-file on the second — and
+   justify-items keeps each button its natural width rather than stretching a
+   destructive action to fill a column. */
+.db-actions {
+  display: grid;
+  grid-template-columns: repeat(2, auto);
+  justify-content: start;
+  justify-items: start;
+  gap: 8px;
+}
 
 /* ═══ FOOTER ════════════════════════════════════════════════════════ */
 .foot {
@@ -1155,7 +1177,23 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 :root[dir="rtl"] .ed-sector { padding: 6px 26px 6px 2px; }
 .ed-sector:hover { background: var(--mist); }
 .ed-sector .mono { color: var(--black); }
-.ed-spec { flex: none; font-variant-numeric: tabular-nums; }
+/* Each spec is its own named column with a floor width and its digits pinned
+   to the right edge. Without this the row was a plain flex line, so a site
+   whose carriers read 1800/1800/700 stepped the frequency column 14px in and
+   out row to row and the bandwidth column with it — in the one view whose job
+   is reading a site's carriers at a glance. A floor rather than a fixed width
+   because a sector label is 'Da' on Partner and a 7-digit ECI on Cellcom: all
+   the sectors of ONE site share a network, so the floor removes the drift that
+   actually occurs (digit count) while an unusually wide value can still grow
+   instead of being clipped. */
+.ed-spec {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+.ed-spec.sec  { min-width: 54px; }
+.ed-spec.freq { min-width: 92px; }
+.ed-spec.bw   { min-width: 64px; }
 
 .ed-msg {
   padding: 32px 4px;
@@ -1237,6 +1275,41 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .lk-dname { font-size: 16px; font-weight: 600; color: var(--ink); }
 
 .lk-list { min-height: 200px; }
+
+/* The empty, hint and no-hit states. Bare centred text in a 200px void read as
+   a search that had broken rather than as an answer, so they get a panel — the
+   system's own card geometry, no illustration (that stays in the hero and the
+   loader). The sub line carries the "these databases are empty on this machine"
+   note, which belongs with the message rather than orphaned beneath it. */
+.lk-empty {
+  border: 1px solid var(--mist);
+  border-radius: var(--r-card);
+  background: var(--paper);
+  box-shadow: var(--sh-card);
+  padding: 48px 28px;
+  text-align: center;
+}
+.lk-empty-main { font-size: 15px; color: var(--black); }
+.lk-empty-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+  max-width: 46ch;
+  margin-inline: auto;
+}
+
+/* Why this row matched. The UA paints <mark> yellow-on-black, which belongs to
+   no palette here; both properties are replaced. */
+.lk-hi {
+  background: var(--mint-wash);
+  color: var(--mint);
+  font-weight: 600;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* A matching sector row is ALREADY tinted mint and its code already mint-bold,
+   so a second mint wash inside it just muddies the row. */
+.lk-sector.hit .lk-hi { background: none; padding: 0; }
 .lk-site .ed-site-row { cursor: pointer; }
 .lk-sector { cursor: copy; }
 .lk-sector.hit { background: var(--mint-wash); }
@@ -1478,6 +1551,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   white-space: nowrap;
 }
 .td-site { text-align: right; }
+/* A site cell holds a Hebrew name OR a raw English code, which need opposite
+   direction. app.js sets this by content, so an unresolved code reads the way
+   it was typed instead of backwards. Still right-aligned: only the ordering
+   inside the cell changes, not where the column sits. */
+.td-ltr { direction: ltr; }
 .row-a td:not(.nk-cell) { background: #f0eeff; }
 .row-b td:not(.nk-cell) { background: #faf9ff; }
 

@@ -95,6 +95,13 @@ export default async function ({ ev, ok, shot, sleep, send }) {
      await ev(`return !!document.querySelector('#tplStage .slot.table');`));
 
   // ── name and save ────────────────────────────────────────────────────
+  // Templates the developer already has are somebody's real presentation, so
+  // this suite must neither assume an empty server nor delete anything it did
+  // not create. It records what was there first, asserts on the ONE id that
+  // appears afterwards, and removes only that one at the end.
+  const before = await ev(`
+    const r = await fetch('api/tpl', { cache: 'no-store' });
+    return (await r.json()).map(t => t.id);`);
   await ev(`
     const n = document.getElementById('tplName');
     n.value = 'סיכום גזרה';
@@ -106,11 +113,14 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   const saved = await ev(`
     const r = await fetch('api/tpl', { cache: 'no-store' });
     const list = await r.json();
-    return { n: list.length, name: list[0] && list[0].name,
-             slots: list[0] && list[0].slots.length,
-             reps: list[0] && list[0].slides.filter(s => s.repeat).length };`);
+    const had = ${JSON.stringify(before)};
+    const mine = list.filter(t => !had.includes(t.id));
+    const t = mine[0];
+    return { n: mine.length, id: t && t.id, name: t && t.name,
+             slots: t && t.slots.length,
+             reps: t && t.slides.filter(s => s.repeat).length };`);
   ok('template persisted to the server', saved.n === 1 && saved.slots === 2 && saved.reps === 1,
-     `slots=${saved.slots} repeating=${saved.reps}`);
+     `new=${saved.n} slots=${saved.slots} repeating=${saved.reps}`);
   ok('hebrew name survived the round trip', saved.name === 'סיכום גזרה', saved.name);
 
   // ── drop images ──────────────────────────────────────────────────────
@@ -244,4 +254,11 @@ export default async function ({ ev, ok, shot, sleep, send }) {
     }
     return out;`);
   ok('built deck has no dangling relationships', bad.length === 0, bad.slice(0, 3).join(' | '))
+
+  // Leave the server as we found it. Without this the next run sees two
+  // templates and 'template persisted to the server' fails for the wrong
+  // reason — exactly what a pre-push check must never do.
+  if (saved.id) {
+    await ev(`await fetch('api/tpl/' + ${JSON.stringify(saved.id)}, { method: 'DELETE' }); return 1;`);
+  }
 }

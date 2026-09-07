@@ -502,6 +502,43 @@ Three deliberate details:
 When testing this, clear a **stub** network, never `partner`; seed `idf` with a few rows first if
 you need a loaded card. Same rule the write route already carries, for the same reason.
 
+### Backing up and restoring a database
+
+DB card → **גבה** downloads that network as `<net>-YYYY-MM-DD.json`; **עדכן** now
+accepts a `.json` as well as an `.xlsx` and restores it.
+
+**This exists because the server's `.bak` is one deep and gitignored.** It has already
+saved Partner twice (see the gotchas), and one `.bak` means a *second* mistake overwrites
+the only rollback copy there is. IDF is the worst case: it is built from an ENM dump
+rather than a workbook, so a cleared `idf.json` cannot be rebuilt from inside the app at
+all — `tools/build_idf.py` and the original dump are the only way back. Before this,
+backing one up meant finding the file on disk, which is not a thing to ask of someone who
+has just wiped it.
+
+- **The download is rebuilt from memory, not re-fetched from `data/<net>.json`** — so a
+  database that only ever loaded for the session (because the server write failed) can
+  still be saved out. `dbFileShape()` emits exactly the six documented keys, dropping the
+  two lookup indexes `indexDb()` adds in place. Verified against the shipped `idf.json`:
+  the blob is 40,657 bytes to the file's 40,657, same key order, same values.
+- **Restore rides the SAME `api/db/<network>` route** the xlsx import uses, so the server
+  takes its `.bak` on the way past and a restored file is shape-identical to an imported
+  one. `confirmShrink()` and `persistDb()` are shared by both paths so they cannot drift.
+- **A backup names its own network, and that beats the card that was clicked.** Restoring
+  `partner.json` onto the IDF card would replace a good database with another network's
+  rows — the same data loss the shrink guard and the server's `-cmatch` whitelist exist to
+  prevent. Mismatch is refused outright, naming both networks.
+- **The backup's provenance survives the round trip.** A restored IDF database still
+  reports `IDF_DB.txt` / `2026-09-06`, not a `.json` and today's date; `source` and `built`
+  come from the file and only fall back to the upload when it carries neither.
+- **`גבה` only renders on a loaded card**, the same rule `נקה` follows: there is nothing to
+  back up on an empty one, and a present-but-inert button reads as broken.
+- Malformed input is refused with the reason named (`sites`, `sectors`, or the first sector
+  whose value is not an array), because "invalid file" tells the user nothing actionable.
+
+Four buttons made the card's action row wrap at whatever point the labels happened to
+reach — 3+1 in Hebrew, 2+2 in English. `.db-actions` is now a fixed two-column grid, so it
+reads the same in both: change-the-contents on the first row, manage-the-file on the second.
+
 ### The parse runs in a Worker, and why
 
 Parsing an 8 MB Planet group export is **4–6 s of straight-line CPU**. On the main thread that is
@@ -566,6 +603,16 @@ emits, confirmed against a real point inspect.
   2026-09-04) and a `toFixed(2)` on the legacy path that forced `84.30` in the same column. The
   PPTX builder stringifies `r.power` as-is, so it inherits this automatically.
 - A typical job is ~7 points => 21 rows => one slide.
+- **The paste box's placeholder is point-inspect shaped, and must stay that way.** It
+  still showed the retired RTL-Excel layout — positive levels, bare sector codes — while
+  `paste.note` directly above it said "עוצמות כבר שליליות" and gave a
+  `NC4050C_LNC4050Ia` code, so the card contradicted itself and taught a new soldier a
+  format the parser no longer expects to see pasted. It now carries the first two rows of
+  `SAMPLE`, so the ghost text and טען דוגמה teach the same thing. The textarea is
+  `wrap="off"`: a point-inspect row is wider than the box, and wrapping split one point
+  across two visual lines, which read as an extra row. One point per line also means the
+  line count is the point count at a glance. Like the site editor's `EXAMPLES`, these are
+  sample **data** — identical in both languages, so they stay out of `i18n.js`.
 
 ### The code shape differs per operator
 
@@ -1019,6 +1066,13 @@ presentation namespace for its transform) were invisible to reading the code.
 real PowerPoint passes through them, and nothing here checks how a deck *looks*. Treat a green
 run as "the packages are well-formed and the flow holds together", not as "it is right".
 
+**The deck suite cleans up after itself, and deletes only what it made.** It used to assert
+that the server held exactly one template, while never removing the one it saved — so it
+passed on a clean machine and failed on every run after, which is the worst possible
+behaviour for a check you are told to run before pushing. It now records the template ids
+that existed first, asserts on the single new one, and `DELETE`s just that at the end. It
+must never clear the directory wholesale: a deck template is somebody's actual presentation.
+
 **A suite that needs the server is not optional about it** — the runner refuses to start rather
 than reporting a wall of failures. Suites each get a fresh page, because one leaving a saved
 template or a generated table behind would make the next pass for the wrong reason.
@@ -1057,6 +1111,34 @@ times a day, and the answer was a Planet session.
 - **A miss names the empty databases.** `cellcom` and `pelephone` ship empty, so out of the box a
   Cellcom code finds nothing — and a bare "not found" reads as a broken search rather than a
   missing database. The no-hits message lists whichever networks are empty on that machine.
+- **The sector columns are floored, not content-sized** (`.ed-spec.sec/.freq/.bw`, right
+  aligned). A site whose carriers read 1800/1800/1800/700/700/700 stepped the frequency
+  column 14px in and out row to row, and the bandwidth with it — in the one view whose job
+  is reading a site's carriers at a glance. A floor rather than a fixed width because a
+  sector label is `Da` on Partner and a 7-digit ECI on Cellcom, and all of one site's
+  sectors share a network, so the floor removes the drift that actually occurs (digit
+  count) while an unusual value can still grow instead of being clipped. The `app` suite
+  asserts each column has exactly ONE x-position across the rows; with the floors removed
+  it sees five, so the guard is not vacuous.
+  **Do not make the code column `flex: 1` to chase the last case.** It was tried: it fixes
+  the 28 IDF sites (of 331) whose cell ids differ in length within one site — `Halif_11_SL_1`
+  against `Halif_11_SL_2_900` — but it un-packs the row from the RTL start edge and strands
+  the code in the middle of the line for **all 16,510 Partner sectors, every one of which is
+  exactly 9 characters** and therefore never drifted. Those 28 sites shift as a block, which
+  reads as a longer code rather than as a broken column.
+- **The query is marked wherever it occurs** (`lkHi()` → `mark.lk-hi`), in the site name,
+  the site id and the sector code. A broad query matches hundreds of sites in wildly
+  different positions and the list gave no clue why any row was in it. Escaping is per
+  fragment, AFTER the split, so match indices are computed against the raw string —
+  building the HTML first and searching it second would cut an escape sequence in half on
+  a name containing `&` or `"`. A row that is already tinted (`.lk-sector.hit`) drops the
+  mark's background, or the mint sits on mint.
+- **Empty, hint and no-hit states are one panel** (`lkPanel()` → `.lk-empty`), not bare
+  text in a 200px void, which read as a search that had broken rather than as an answer.
+  The "these databases are empty on this machine" line belongs INSIDE that panel rather
+  than as a second orphaned paragraph. Deliberately not `.ed-msg`: `deck.js` styles its own
+  empty states with that class and has no reason to change. **No illustration here** — that
+  stays in the hero and the loader.
 - Site names, site ids and sector codes are click-to-copy (`data-copy`, delegated).
 
 ---
@@ -1189,6 +1271,22 @@ the raw key.
   and `build_db.py` reports *no usable layout* on a perfectly good workbook. Strip the leading
   slash, then add `xl/` only if it isn't already there — and keep the `namelist()` guard that
   falls back to positional order if `workbook.xml` can't be read.
+- **An RTL page reverses an all-digit code — and TableX was doing it to its own output.**
+  A Cellcom code is digits and underscores, and inside an RTL paragraph the bidi algorithm
+  reorders it: `13207_3381063_90` *painted* as `90_3381063_13207`, in the unresolved-code
+  banner and in the table cell that becomes the slide. This is the exact reversal documented
+  under "the Cellcom point-analysis code, settled" — the one that already produced a wrong
+  conclusion once when read off Planet's own RTL grid — except this time with our name on it.
+  Pelephone's `P630012_...` looked fine only because a leading letter anchors the run, which
+  is luck, not safety. Direction now follows CONTENT: `isLtrText()` (no Hebrew in the string)
+  drives a `td-ltr` class in the HTML, `rtlMode` in the standalone PPTX writer and `rtl="0"`
+  in `pptx.js`'s cell, so all of the HTML, the print view and both PPTX paths agree. `.mono`
+  carries `direction: ltr; unicode-bidi: isolate` for the same reason — several call sites
+  were already setting `dir="ltr"` by hand and the banner was the one that forgot, so the
+  class now makes it impossible to forget. A user-typed value interpolated into a Hebrew
+  sentence (the lookup's "no site found for X") goes through `bidiIso()` instead, which wraps
+  it in U+2068/U+2069 — a FIRST STRONG ISOLATE takes its direction from the value's own first
+  strong character, so it is right whether the query is Hebrew or Latin.
 - **Verifying Hebrew in a terminal is useless here** — the console codepage mangles it and it
   looks like corruption when the data is fine. Verify by *comparing against a known-good
   source* (that is what the Interfex cross-check is for), not by eyeballing console output.

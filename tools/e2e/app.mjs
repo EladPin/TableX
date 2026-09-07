@@ -184,6 +184,42 @@ export default async function ({ ev, ok, shot, sleep, send }) {
     const el = document.getElementById('lkSearch');
     el.value = 'zzzznope'; el.dispatchEvent(new Event('input'));`);
   await sleep(300);
-  ok('no-hits message shown',
-     await ev(`return !!document.querySelector('.ed-msg') && !document.querySelector('.lk-site');`))
+  // The empty/hint/no-hit states render as ONE panel, with the "these
+  // databases are empty on this machine" note inside it rather than as a
+  // second orphaned paragraph beneath it.
+  const none = await ev(`
+    const p = document.querySelectorAll('.lk-empty');
+    return { panels: p.length,
+             sites: document.querySelectorAll('.lk-site').length,
+             main: !!document.querySelector('.lk-empty-main'),
+             subInside: !!document.querySelector('.lk-empty .lk-empty-sub') };`);
+  ok('no-hits shows one panel and no sites',
+     none.panels === 1 && none.sites === 0 && none.main,
+     `panels=${none.panels} sites=${none.sites}`);
+  // cellcom and pelephone ship empty, so the note must be there — and in it
+  ok('empty-database note sits inside the panel', none.subInside);
+
+  // the query is marked wherever it occurs, so a broad search says WHY a row matched
+  await ev(`
+    const el = document.getElementById('lkSearch');
+    el.value = 'LNN4610'; el.dispatchEvent(new Event('input'));`);
+  await sleep(400);
+  const hi = await ev(`
+    const m = [...document.querySelectorAll('.lk-site mark.lk-hi')];
+    return { marks: m.length, allMatch: m.every(x => x.textContent === 'LNN4610') };`);
+  ok('search match is highlighted', hi.marks > 0 && hi.allMatch,
+     `marks=${hi.marks}`);
+
+  // Sector rows must line up: this site's carriers are 1800/1800/1800/700/700/700,
+  // and with content-sized columns the frequency stepped 14px in and out row to
+  // row. Pure CSS, so nothing else would notice it regressing.
+  const cols = await ev(`
+    const rows = [...document.querySelectorAll('.lk-site.open .ed-sector')];
+    const at = sel => [...new Set(rows.map(r =>
+      Math.round(r.querySelector(sel).getBoundingClientRect().left)))];
+    return { rows: rows.length, sec: at('.ed-spec.sec'),
+             freq: at('.ed-spec.freq'), bw: at('.ed-spec.bw') };`);
+  ok('sector columns align across rows',
+     cols.rows > 1 && cols.sec.length === 1 && cols.freq.length === 1 && cols.bw.length === 1,
+     `rows=${cols.rows} sec=${cols.sec.length} freq=${cols.freq.length} bw=${cols.bw.length}`);
 }

@@ -483,8 +483,11 @@
     // rtl="1" on the paragraph is what puts Hebrew the right way round
     // INSIDE a cell; it says nothing about column order (see the note in
     // app.js — the columns are reversed by hand, in both writers).
+    // A cell flagged `ltr` holds an English code rather than a Hebrew name:
+    // under rtl="1" PowerPoint reorders `13207_3381063_90` to
+    // `90_3381063_13207`, the same reversal app.js guards in the HTML table.
     return `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>` +
-      `<a:p><a:pPr algn="${c.align || 'ctr'}" rtl="1"/>${run}</a:p></a:txBody>` +
+      `<a:p><a:pPr algn="${c.align || 'ctr'}" rtl="${c.ltr ? '0' : '1'}"/>${run}</a:p></a:txBody>` +
       // schema order inside tcPr is lnL, lnR, lnT, lnB, then the fill
       `<a:tcPr marL="45720" marR="45720" marT="0" marB="0" anchor="ctr">${line}` +
       `<a:solidFill><a:srgbClr val="${(c.fill || 'FFFFFF').toUpperCase()}"/></a:solidFill>` +
