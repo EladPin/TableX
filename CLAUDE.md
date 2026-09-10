@@ -147,7 +147,7 @@ powershell -ExecutionPolicy Bypass -Command "npm run build"
 Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
 ```
 
-Last build 2026-09-10: electron 33.4.11 + electron-builder 26.15.3, target `dir`, completed cleanly
+Last build 2026-09-10 at commit `7e612e9`: electron 33.4.11 + electron-builder 26.15.3, target `dir`, completed cleanly
 with no winCodeSign symlink error. **`dist\TableX.zip`, 110.8 MB.** The app (`main.js`,
 `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`. Verified by running the
 packaged exe and pointing the `app` suite at **its** server: 40/40, so the shipped build is checked
