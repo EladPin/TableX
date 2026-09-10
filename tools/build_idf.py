@@ -44,6 +44,35 @@ EARFCN_BANDS = [
 # 2026-09-06 (Halif_7_SL is the same place as Halif_7).
 VARIANT = re.compile(r'_(SL|T)$')
 
+# The cell number ENM writes in front of a cell's id: `4_Hadas_1` is cell 4 of
+# the baseband, serving sector 1 at Hadas. Both separators occur -- `_` under
+# Nahal_Sion, `-` under Kirya_2.
+SLOT = re.compile(r'^\d+[-_]')
+
+# Sites carried on ANOTHER site's baseband -- "אתר משורשר": an RRU standing at
+# the site named here, fibred back to a baseband elsewhere. ENM names such a
+# cell after the site the antenna is on and hangs it under the baseband's
+# NodeId, so the node says where the electronics are and the cell id says where
+# the radio is.
+#
+# This list is CONFIRMED WITH THE TEAM, never inferred, because nothing in the
+# dump tells a chained site apart from a cell merely NAMED after what it points
+# at. Both look identical from here, and four of the eight candidates the id
+# shapes suggest turned out not to be chained at all (2026-09-10):
+#   Kirya_2's 1-Aman_1 / 2-Agat_2 / 3-Asiya_3 are three sectors of קרייה 2
+#     pointed at three buildings -- and Aman is אמ"ן, which the name list
+#     already carries as a suffix at Kisufim_Aman and Yarkon_Aman.
+#   Petel_296's Petel_002_* cells are a renumbering the cell names never
+#     followed, not a second site.
+# build() prints every candidate NOT listed here, so one that arrives in a
+# later dump is a line to check rather than a silent wrong site on a slide.
+CHAINED = {'Hadas', 'Zivanit', 'KD27', 'Ido'}
+
+
+def flat(s):
+    """Separator- and case-insensitive form, for comparing a cell id to a node."""
+    return s.lower().replace('_', '').replace('-', '')
+
 
 def band_of(earfcn):
     for lo, hi, label in EARFCN_BANDS:
@@ -161,6 +190,53 @@ def sector_of(cell, node):
     return m.group(1) if m else stem
 
 
+def stem_of(cell):
+    """The site a cell id names, with ENM's decorations stripped.
+
+        4_Hadas_1      -> Hadas          (slot prefix, then the sector)
+        6_Hadas_3_900  -> Hadas          (_900 is the band, never a sector)
+        KD27_5         -> KD27
+        Halif_11_SL_1  -> Halif_11_SL
+    """
+    stem = SLOT.sub('', cell)
+    stem = re.sub(r'_900$', '', stem)      # band suffix, never a sector
+    return re.sub(r'_\d+$', '', stem)      # the sector
+
+
+def names_own_node(cell, node):
+    """Is this cell named after the node it hangs under?
+
+    MMSL_Takti4_SL_1 sits under MMSL_Takti_4_SL -- a missing underscore, not a
+    second site. Comparing with the separators removed keeps a typo from
+    forking one site into two.
+    """
+    stem = stem_of(cell)
+    return not stem or flat(stem) in (flat(node), flat(VARIANT.sub('', node)))
+
+
+def site_of(cell, node):
+    """Which SITE the antenna stands on -- not which baseband carries it.
+
+        4_Hadas_1     under node Nahal_Sion    -> Hadas        (chained)
+        KD27_5        under node Mizpe_Zor     -> KD27         (chained)
+        1-Aman_1      under node Kirya_2       -> Kirya_2      (a sector name)
+        Halif_11_SL_1 under node Halif_11_SL   -> Halif_11_SL  (ordinary)
+
+    The deck answers "which site serves this point", and the answer is where
+    the antenna is, not where its electronics sit. Attributing a chained cell
+    to its baseband printed נחל שיאון on a slide for a point served by the mast
+    at הדס -- an exact-looking row naming the wrong site, and not even tagged
+    approximate, because the cell id itself matched.
+
+    Only a cell whose site is in CHAINED moves. A chained cell that was named
+    after its baseband anyway is invisible here, and no rule can recover it.
+    """
+    if names_own_node(cell, node):
+        return node
+    stem = stem_of(cell)
+    return stem if stem in CHAINED else node
+
+
 def build(dump_path, names_path):
     rows = load_dump(dump_path)
     pats, singles = load_names(names_path) if names_path else ({}, {})
@@ -172,6 +248,8 @@ def build(dump_path, names_path):
     sites, sectors = {}, {}
     unnamed, no_band, conflicts = set(), 0, []
     bands_seen = {}
+    chained = {}          # chained site   -> {baseband node: cells carried}
+    candidates = {}       # unlisted stem  -> the node it hangs under
 
     for cell, cands in sorted(by_cell.items()):
         # The cell id alone is not unique: 51 ids sit under 2-3 nodes
@@ -190,7 +268,17 @@ def build(dump_path, names_path):
             row = cands[0]
 
         node = row['NodeId']
-        base = VARIANT.sub('', node)
+        # Where the antenna is, which is not always the node the cell hangs
+        # under -- see site_of().
+        site = site_of(cell, node)
+        if site != node:
+            on = chained.setdefault(site, {})
+            on[node] = on.get(node, 0) + 1
+        elif not names_own_node(cell, node):
+            # Named after somewhere else but not confirmed chained. Reported,
+            # so the next dump's new ones get asked about rather than assumed.
+            candidates.setdefault(stem_of(cell), set()).add(node)
+        base = VARIANT.sub('', site)
         heb = name_for(base, pats, singles)
         if heb is None:
             unnamed.add(base)
@@ -213,8 +301,8 @@ def build(dump_path, names_path):
         except (ValueError, KeyError):
             bw = None
 
-        sites[node] = heb
-        sectors[cell] = [node, sector_of(cell, node), earfcn, bw]
+        sites[site] = heb
+        sectors[cell] = [site, sector_of(cell, node), earfcn, bw]
         bands_seen[band] = bands_seen.get(band, 0) + 1
 
     # A site no sector points at is unreachable by any lookup -- the same rule
@@ -229,7 +317,7 @@ def build(dump_path, names_path):
         'built': __import__('datetime').date.today().isoformat(),
         'sites': sites,
         'sectors': sectors,
-    }, unnamed, no_band, conflicts, bands_seen
+    }, unnamed, no_band, conflicts, bands_seen, chained, candidates
 
 
 def main():
@@ -237,7 +325,7 @@ def main():
         raise SystemExit(__doc__)
     dump = sys.argv[1]
     names = sys.argv[2] if len(sys.argv) > 2 else None
-    db, unnamed, no_band, conflicts, bands_seen = build(dump, names)
+    db, unnamed, no_band, conflicts, bands_seen, chained, candidates = build(dump, names)
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     out = os.path.join(root, 'TableX', 'data', 'idf.json')
@@ -268,6 +356,26 @@ def main():
     if conflicts:
         print('NOTE    : %d cell ids are ambiguous across nodes with differing '
               'freq/bw; one was chosen deterministically' % len(conflicts))
+    if chained:
+        print('chained : %d sites -- the antenna stands here, the baseband is '
+              'elsewhere:' % len(chained))
+        for s in sorted(chained):
+            # The cells that MOVED, not the site's total -- KD27 has four of
+            # its own on its own baseband and one carried by Mizpe_Zor.
+            total = sum(1 for v in db['sectors'].values() if v[0] == s)
+            for node in sorted(chained[s]):
+                print('            %-20s %d of its %d cells on %s'
+                      % (s, chained[s][node], total, node))
+    if candidates:
+        # Cells named after somewhere other than their node, which CHAINED does
+        # not list. Each is either a sector named after what it points at (fine)
+        # or a chained site nobody has told this tool about (a wrong site on a
+        # commander's slide). Only the team can say which, so they are named
+        # here on every build rather than resolved by a guess.
+        print('CHECK   : %d cell names disagree with their node and are NOT in '
+              'CHAINED -- sector names, or chained sites to add?' % len(candidates))
+        for s in sorted(candidates):
+            print('            %-20s on %s' % (s, ', '.join(sorted(candidates[s]))))
     if unnamed:
         print('NOTE    : %d sites have no Hebrew name and fall back to their '
               'Latin id:' % len(unnamed))

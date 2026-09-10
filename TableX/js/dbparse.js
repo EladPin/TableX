@@ -296,6 +296,14 @@
   // table in app.js would drift from the one the importer actually uses.
   scope.TableXBands = EARFCN_BANDS;
 
+  // The site editor's add form writes the same two numeric slots this parser
+  // does, so it reads them with the same helper. It used to have its own copy
+  // of `num`; when the parser moved out of app.js into this file the copy went
+  // with it and the editor's call became a ReferenceError, which is why the
+  // Add button did nothing at all from bac72b0 until now. Exported rather than
+  // reinstated there, for the reason above it.
+  scope.TableXNum = num;
+
   if (IN_WORKER) {
     scope.onmessage = ev => {
       try {

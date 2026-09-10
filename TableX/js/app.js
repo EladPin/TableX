@@ -56,7 +56,42 @@
     }
     db.siteSectors = bySite;
     db.siteSectorsAll = allBySite;
+    db.alias = aliasIndex(db);
     return db;
+  }
+
+  // ── chained sites (אתרים משורשרים) ─────────────────────────────────
+  // An RRU standing at one site, fibred back to ANOTHER site's baseband. ENM
+  // names the cell after the site the antenna is on and hangs it under the
+  // baseband's NodeId, prefixed with its cell number on that baseband:
+  //
+  //   node Nahal_Sion   cells 1_Nahal_Sion_1  2_Zivanit_2  4_Hadas_1 …
+  //                           ^ its own       ^ Zivanit's  ^ Hadas's
+  //
+  // Planet's point inspect reports the cell WITHOUT that prefix — `IDF_Hadas_1`,
+  // not `IDF_4_Hadas_1` (two real codes off a soldier's paste, 2026-09-10). So
+  // one cell has two spellings and both have to resolve: the ENM one because it
+  // is the key and what the team reads in ENM, the Planet one because it is what
+  // actually gets pasted. Aliasing rather than re-keying means neither is lost.
+  //
+  // IDF only. Every other network leads with digits that mean something else —
+  // stripping Cellcom's `3634249_270` would leave a bare `270` claiming to be a
+  // cell id, on hundreds of rows at once.
+  const SLOT_PREFIX = /^\d+[-_]/;
+
+  function aliasIndex(db) {
+    const m = Object.create(null);
+    if (db.network !== 'idf') return m;
+    for (const secId in db.sectors) {
+      const a = secId.replace(SLOT_PREFIX, '');
+      // A real key is never shadowed by an alias, and an alias two cells both
+      // claim resolves to neither — a wrong site on a slide is worse than a
+      // missing one, which is the rule the Pelephone bandwidth path follows.
+      if (a === secId || a in db.sectors) continue;
+      m[a] = (a in m) ? null : secId;
+    }
+    for (const k in m) if (m[k] === null) delete m[k];
+    return m;
   }
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -594,17 +629,29 @@
     return (sec && sec[1]) || '-';
   }
 
+  // A named cell: sector, frequency and bandwidth are the real values for the
+  // cell the code named, so the row is exact. `secId` is the key the values
+  // were read under, which is not always the code that was looked up — see
+  // aliasIndex().
+  function exactHit(net, db, secId) {
+    const sec = db.sectors[secId];
+    return { net, site: db.sites[sec[0]] || sec[0], siteId: sec[0],
+             sector: sectorLabel(net, secId, sec),
+             freq: sec[2] == null ? '-' : sec[2],
+             bw: sec[3] == null ? '-' : sec[3], exact: true };
+  }
+
   function lookup(code, mhz) {
     if (!code) return null;
     for (const net of NETWORKS) {
       const db = DB[net]; if (!db) continue;
-      const sec = db.sectors[code];
-      if (sec) {
-        return { net, site: db.sites[sec[0]] || sec[0], siteId: sec[0],
-                 sector: sectorLabel(net, code, sec),
-                 freq: sec[2] == null ? '-' : sec[2],
-                 bw: sec[3] == null ? '-' : sec[3], exact: true };
-      }
+      if (db.sectors[code]) return exactHit(net, db, code);
+    }
+    // The same cell under its other spelling. Still exact — the cell is
+    // identified beyond doubt, only its id is written the other way round.
+    for (const net of NETWORKS) {
+      const db = DB[net]; if (!db || !db.alias) continue;
+      if (db.alias[code]) return exactHit(net, db, db.alias[code]);
     }
     for (const net of NETWORKS) {
       const db = DB[net]; if (!db) continue;
@@ -1615,8 +1662,11 @@
     ed.sectors[secId] = [
       siteId,
       $('edSector').value.trim() || null,
-      num($('edFreq').value.trim()),
-      num($('edBw').value.trim()),
+      // The importer's own number reader, reached through dbparse.js rather
+      // than copied, so a hand-added sector holds exactly what an imported one
+      // holds — the same rule mhzOf() follows for EARFCN_BANDS.
+      self.TableXNum($('edFreq').value.trim()),
+      self.TableXNum($('edBw').value.trim()),
     ];
     ed.dirty++;
     ed.open.add(siteId);

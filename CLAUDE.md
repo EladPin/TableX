@@ -147,25 +147,33 @@ powershell -ExecutionPolicy Bypass -Command "npm run build"
 Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
 ```
 
-Last build 2026-09-06 at commit `fd7ae0d`: electron 33.4.11 + electron-builder 26.15.3, target
-`dir`, completed cleanly with no winCodeSign symlink error. **`dist\TableX.zip`, 110.7 MB.** The
-app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`.
+Last build 2026-09-10: electron 33.4.11 + electron-builder 26.15.3, target `dir`, completed cleanly
+with no winCodeSign symlink error. **`dist\TableX.zip`, 110.8 MB.** The app (`main.js`,
+`server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`. Verified by running the
+packaged exe and pointing the `app` suite at **its** server: 40/40, so the shipped build is checked
+rather than assumed. (Before that, 2026-09-06 at commit `fd7ae0d`, 110.7 MB.)
 
 `package.json` — the settings that matter:
 
 ```json
 { "main": "main.js", "build": { "asar": false, "win": { "target": "dir", "icon": "icon.ico" },
-  "files": ["main.js","package.json","server.ps1","icon.ico","TableX/**"] } }
+  "files": ["main.js","package.json","server.ps1","icon.ico","TableX/**",
+            "!TableX/data/*.bak","!TableX/data/tpl/**"] } }
 ```
+
+**The two negations are not optional.** `"TableX/**"` sweeps in `data/*.bak` and `data/tpl/` alike,
+and the 2026-09-10 build shipped a stale `idf.json.bak` before they were added — a rollback copy of
+somebody's database riding inside everyone's install, which is the same leak the `tpl/` warning
+below describes, one directory over. Both are gitignored, so `git status` says nothing either way.
 
 `asar: false` and `target: "dir"` are both deliberate: `dir` avoids the winCodeSign symlink failure
 that `--win portable` hits, and an unpacked app means `server.ps1` can read `TableX/` off disk.
 `server.ps1` resolves its web root from `$PSScriptRoot`, so it needs no change when packaged.
 
-**Clear `TableX/data/tpl/` before building.** `"TableX/**"` sweeps in whatever is there, and a
-deck template is somebody's actual presentation — one built while testing would ride along inside
-the zip and be handed to everyone who gets that build. The directory is gitignored, so `git
-status` will not warn you; look at the folder.
+**Still look in `TableX/data/tpl/` before building.** The `!TableX/data/tpl/**` negation above now
+keeps it out of the package, but a deck template is somebody's actual presentation and the
+directory is gitignored, so `git status` will not warn you either way — and a build config is one
+edit away from losing that line. Look at the folder; it costs a second.
 
 **`main.js` must keep the `serverReady` guard and `res.resume()`.** Straight from Interfex, same
 root cause: not draining the poll response leaves the socket open; when the server later closes it
@@ -233,7 +241,7 @@ TableX/
                               ALSO where window.JSZip comes from; pptx.js needs it
   fonts/                      self-hosted Inter (latin) + Heebo (hebrew), 9 woff2
   data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors, 767 KB
-  data/idf.json               SHIPPED — 331 sites / 792 sectors, from the ENM dump
+  data/idf.json               SHIPPED — 334 sites / 792 sectors, from the ENM dump
   data/cellcom.json           empty stub - the real DB is built on TS, cannot ship
   data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
   data/tpl/                   deck templates, written by the server — GITIGNORED,
@@ -263,7 +271,7 @@ because that step cost a click on every single use and the whole product is spee
 
 | Slot | Label | State |
 |------|-------|-------|
-| `idf` | IDF | **shipped**, 331 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
+| `idf` | IDF | **shipped**, 334 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
 | `cellcom` | Cellcom | **ships empty**, but the import is proven — 2,575 sites / 18,891 sectors on TS |
 | `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors |
 | `pelephone` | Pelephone | **ships empty**, but the import is proven — 2,383 sites / 18,217 sectors on TS |
@@ -443,7 +451,7 @@ IDF is the one network the xlsx import cannot serve: its Planet export numbers s
 site, so the sector code is not a key. `tools/build_idf.py` reads an ENM CLI dump instead:
 
 ```
-python tools/build_idf.py D:/IDF_DB_FOR_CLAUDE/IDF_DB.txt                           D:/IDF_DB_FOR_CLAUDE/NAMES_TO_FILL_FILLED.txt
+python tools/build_idf.py F:/IDF_DB_FOR_CLAUDE/IDF_DB.txt                           F:/IDF_DB_FOR_CLAUDE/NAMES_TO_FILL_FILLED.txt
 ```
 
 The dump writes its header block vertically, one field per line, then tab-separated rows. Four
@@ -470,6 +478,52 @@ things it settles, and one it cannot:
   on frequency or bandwidth. Planet reports only the cell id, so one row has to win: an ENABLED
   cell first, then the node the cell is actually named after. Deterministic, and the tool says how
   many it had to resolve that way.
+
+#### Chained sites — אתרים משורשרים
+
+An RRU standing at one site, fibred back to a **different** site's baseband. ENM names such a cell
+after the site the antenna is on and hangs it under the baseband's `NodeId`, prefixed with its cell
+number on that baseband:
+
+```
+node Nahal_Sion   1_Nahal_Sion_1   2_Zivanit_2  3_Zivanit_3   4_Hadas_1  5_Hadas_2  6_Hadas_3
+                  ^ its own        ^ Zivanit's mast          ^ Hadas's mast
+node Mizpe_Zor    Mizpe_Zor_1..4   KD27_5       ^ the fifth sector of KD27, which is also a node
+```
+
+**The node says where the electronics are; the cell id says where the radio is, and the deck needs
+the radio.** Attributing `KD27_5` to its baseband printed מצפה צור on a slide for a point served by
+the mast at ק.ד 27 — and not even tagged `סקטור משוער`, because the cell id itself matched exactly.
+`site_of()` therefore attributes a chained cell to the site it is *named* after. Reported 2026-09-10.
+
+**Which sites are chained is CONFIRMED WITH THE TEAM, never inferred** — the `CHAINED` set in
+`build_idf.py`. Nothing in the dump tells a chained site apart from a cell merely *named after what
+it points at*, and of the eight candidates the id shapes suggest, **four turned out not to be
+chained**: `Kirya_2`'s `1-Aman_1` / `2-Agat_2` / `3-Asiya_3` are three sectors of קרייה 2 pointed at
+three buildings — and `Aman` is אמ"ן, which the name list already carries as a suffix at
+`Kisufim_Aman` and `Yarkon_Aman` — while `Petel_296`'s `Petel_002_*` cells are a renumbering the
+cell names never followed. So the tool prints a **`CHECK :`** line naming every cell whose name
+disagrees with its node and is *not* in `CHAINED`. A new one there is a question for the team, not
+a thing to resolve by reading the id.
+
+`MMSL_Takti4_SL_1` under node `MMSL_Takti_4_SL` is neither: a missing underscore, caught by
+comparing with the separators removed, or the typo would fork one site into two.
+
+**Planet drops the slot prefix.** A point inspect reports `IDF_Hadas_1`, not `IDF_4_Hadas_1` (two
+real codes off a soldier's paste, 2026-09-10), so one cell has two spellings — and before this,
+every chained cell simply came back **לא נמצא**. `aliasIndex()` in `app.js` maps the Planet spelling
+onto the ENM key so both resolve; see "The code shape differs per operator". Aliasing rather than
+re-keying is deliberate: the ENM id is what the team reads in ENM and stays searchable in חיפוש אתר.
+
+**A chained cell that was named after its baseband anyway is invisible here**, and no rule can
+recover it — the dump has no field for the antenna's location. If a table ever names a site the RF
+team knows is wrong, that is the case to suspect.
+
+A chained site needs its **own** `SITE` row in the name list: `Hadas` / `Zivanit` / `Ido` are sites
+in their own right now, not sectors of נחל שיאון and חרמון, so they no longer inherit a name from
+anything. `הדס` / `זיוונית` / `עידו` were added on 2026-09-10. `KD27` needed nothing — the existing
+`FAMILY KD{N} → ק.ד {N}` row already covered it, which is why its chained cell picked up ק.ד 27 the
+moment it was attributed correctly.
 
 **The Hebrew names cannot come from the dump** — it has none, and DOGMA only names 12 sites. They
 are written by hand into a name list the tool reads, which takes two row types: a `SITE` row naming
@@ -633,6 +687,21 @@ is exact, but nothing in the code identifies which of the site's sectors was ser
 resolves through the site path and is tagged `סקטור משוער`, which is the honest answer rather than
 an arbitrary sector presented as fact.
 
+**One IDF cell has two spellings, and `lookup()` accepts both.** ENM prefixes a cell with its
+number on the baseband — `4_Hadas_1` — and Planet's point inspect reports it without one,
+`IDF_Hadas_1`. `aliasIndex()` builds `stripped id → real key` at load and `lookup()` consults it
+straight after the exact-sector pass, so an alias hit is **exact**, not the approximate site
+fallback. Three rules keep it safe:
+
+- **IDF only.** Every other network's ids lead with digits that mean something else — stripping
+  Cellcom's `3634249_270` would leave a bare `270` claiming to be a cell id, on hundreds of rows.
+- **A real key is never shadowed by an alias**, and an alias two cells both claim resolves to
+  neither. A wrong site on a slide is worse than a missing one — the rule the Pelephone bandwidth
+  path already follows.
+- It is a rule about **spelling**, independent of `CHAINED`, which is about *attribution*. The
+  hyphen family (`1-Aman_1`) is aliased too even though those cells are not chained, because
+  whether Planet writes the prefix there has never been observed and aliasing costs nothing.
+
 **Never read a code off Planet's own grid — only off a paste.** Planet renders the table RTL, so
 `13207_3381063_90` is *displayed* as `90_3381063_13207`. Both are the same bytes in a different
 direction, and the reversed reading is what produced the wrong conclusion recorded below.
@@ -765,13 +834,18 @@ site id, which is exactly the `Sector ID` on the sectors sheet.
    table under "Input format". All four operators' point-inspect codes are settled and
    `planetKey()` resolves them.
 3. IDF is **not** coming from a Planet group export — an ENM CLI dump is the source, and it
-   arrived on 2026-09-06 (`D:/IDF_DB_FOR_CLAUDE/IDF_DB.txt`, 849 rows / 343 nodes / 792 cells).
-   It carries site, sector, `dlChannelBandwidth` (kHz) and `earfcndl`, keyed by
-   **NodeId + EUtranCellFDDId** — the cell id alone repeats across 51 ids. Still missing: the
-   **Hebrew site names**, being written by hand into `D:/IDF_DB_FOR_CLAUDE/NAMES_TO_FILL.csv`
-   (14 family patterns covering 205 sites, plus 105 singletons). 104 of 105 singletons and 4 of
-   14 families came back on 2026-09-06; the last **10 family patterns** are what still leaves 95
-   sites rendering their Latin node id.
+   arrived on 2026-09-06 (849 rows / 343 nodes / 792 cells). It carries site, sector,
+   `dlChannelBandwidth` (kHz) and `earfcndl`, keyed by **NodeId + EUtranCellFDDId** — the cell id
+   alone repeats across 51 ids. Still missing: the **Hebrew site names**, written by hand into
+   `NAMES_TO_FILL.csv` (14 family patterns covering 205 sites, plus 105 singletons). 104 of 105
+   singletons and 4 of 14 families came back on 2026-09-06; the last **10 family patterns** are
+   what still leaves 95 sites rendering their Latin node id.
+
+   **Both source files live on `F:/IDF_DB_FOR_CLAUDE/`, not `D:`** — they were moved after the
+   first build and the old path in this file sent a later session looking for a rebuild it could
+   not run. Re-verified 2026-09-10: `build_idf.py` against those two files reproduces the shipped
+   `idf.json` **byte for byte** (40,657 bytes, same sha256), which is what makes them trustworthy
+   as the rebuild path rather than merely present. `DOGMA_API_OUTPUT.txt` sits beside them.
 
 ### Proven on TS — 2026-09-06
 
@@ -1040,7 +1114,7 @@ two-maps-per-slide layout therefore just works.
 
 ```
 .\server.ps1 -NoLaunch            # in one window
-node tools/e2e/run.mjs            # in another — 79 checks, ~40 s
+node tools/e2e/run.mjs            # in another — 91 checks, ~45 s
 node tools/e2e/run.mjs deck       # one suite
 node tools/e2e/run.mjs --keep-shots
 ```
@@ -1054,7 +1128,7 @@ server, `TABLEX_VERBOSE=1` prints passing checks too.
 |-------|----------------|
 | `engine` | `js/pptx.js` — parse a package, insert a picture, clone/reorder/delete slides, then **re-open the output** and assert on it, including that no relationship dangles |
 | `deck`   | the whole Decks flow — upload a template, mark slots, mark a slide repeating, save to the server, drop images, build, re-open, and confirm the report table came out as a native `<a:tbl>` |
-| `app`    | the lookup view and in-table editing |
+| `app`    | the lookup view, in-table editing, the site editor's add form, and that a chained cell resolves under BOTH its ENM and its Planet spelling, to the same site |
 
 **Why a browser and not unit tests.** Everything worth testing here is interactive — clicking a
 slot onto a slide, dragging it, typing into a table cell, feeding a `.pptx` through a file input.
@@ -1121,7 +1195,7 @@ times a day, and the answer was a Planet session.
   asserts each column has exactly ONE x-position across the rows; with the floors removed
   it sees five, so the guard is not vacuous.
   **Do not make the code column `flex: 1` to chase the last case.** It was tried: it fixes
-  the 28 IDF sites (of 331) whose cell ids differ in length within one site — `Halif_11_SL_1`
+  the 27 IDF sites (of 334) whose cell ids differ in length within one site — `Halif_11_SL_1`
   against `Halif_11_SL_2_900` — but it un-packs the row from the RTL start edge and strands
   the code in the middle of the line for **all 16,510 Partner sectors, every one of which is
   exactly 9 characters** and therefore never drifted. Those 28 sites shift as a block, which
@@ -1287,6 +1361,14 @@ the raw key.
   sentence (the lookup's "no site found for X") goes through `bidiIso()` instead, which wraps
   it in U+2068/U+2069 — a FIRST STRONG ISOLATE takes its direction from the value's own first
   strong character, so it is right whether the query is Hebrew or Latin.
+- **A helper that moves files leaves its callers behind, and nothing here would tell you.** When
+  `bac72b0` moved the workbook parser out of `app.js` into `dbparse.js`, `num()` went with it — but
+  the site editor's add form still called it. Every press of `הוסף` threw `ReferenceError: num is
+  not defined` *after* `preventDefault()`, so the form did not submit, no toast appeared, nothing
+  was staged, and the only trace was a console line nobody had open. It shipped broken for three
+  commits. There is no build and no lint, so a moved function is exactly the defect this codebase
+  cannot catch by itself — which is why `num` is now reached as `self.TableXNum`, the way `mhzOf()`
+  reaches `EARFCN_BANDS`, and why the `app` suite now presses that button.
 - **Verifying Hebrew in a terminal is useless here** — the console codepage mangles it and it
   looks like corruption when the data is fine. Verify by *comparing against a known-good
   source* (that is what the Interfex cross-check is for), not by eyeballing console output.
@@ -1297,11 +1379,17 @@ the raw key.
   nothing. This is not an open problem any more — both imported cleanly from their group exports on
   TS on 2026-09-06 (see "Proven on TS"). The databases simply cannot live in this repo, because the
   workbooks never leave TS. Anyone setting up a fresh copy runs `export group` and loads it.
-- **95 of IDF's 331 sites still render their Latin node id**, because 10 numbered families have no
+- **95 of IDF's 334 sites still render their Latin node id**, because 10 numbered families have no
   Hebrew pattern yet — `MMSL_{N}` (21 sites), `Relay_{N}` (14), `Beeri_Pakar_{N}` (13),
   `Petel_{N}` (10), `G_{N}`, `MiniSite_{N}`, `MMSL_Pakar_{N}`, `M_Zefoni_{N}`, `Mehola_{N}`,
   `Ofek_{N}`. Ten lines in the name list would cover 83 of them. A Latin name is the deliberate
   fallback rather than a guess, but it is still Latin on a Hebrew slide.
+- **A chained site can only be found by its cell's NAME.** `site_of()` moves a cell to the site it
+  is named after, and `CHAINED` says which of those names are real sites — but a chained cell that
+  was named after its *baseband* in ENM looks exactly like an ordinary one, and the dump carries no
+  field for where the antenna is. So the table would name the baseband's site with no sign anything
+  is wrong. If the RF team ever says a row names the wrong site, this is the first thing to suspect.
+  The build's `CHECK :` line is the only routine guard against it drifting further.
 - **IDF's frequency column is an EARFCN, every other network's is MHz.** A mixed point prints
   `1800` and `9335` side by side under תדר מרכזי. Requested 2026-09-06 and accepted with that
   consequence understood; it is the one place in the deliverable where a column carries two units.

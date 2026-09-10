@@ -222,4 +222,97 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   ok('sector columns align across rows',
      cols.rows > 1 && cols.sec.length === 1 && cols.freq.length === 1 && cols.bw.length === 1,
      `rows=${cols.rows} sec=${cols.sec.length} freq=${cols.freq.length} bw=${cols.bw.length}`);
+
+  // ── CHAINED SITES ─────────────────────────────────────────────────────
+  // An RRU at one site on ANOTHER site's baseband. ENM prefixes such a cell
+  // with its cell number on that baseband (`4_Hadas_1`); Planet's point
+  // inspect reports it without one (`IDF_Hadas_1`). Both spellings must
+  // resolve, and the prefixed one must be a hit rather than a guess.
+  //
+  // The code is derived FROM the shipped database, so this keeps testing the
+  // real thing after a rebuild instead of pinning one site's name.
+  const chained = await ev(`
+    const r = await fetch('data/idf.json'); const d = await r.json();
+    const enm = Object.keys(d.sectors).find(k => /^\\d+[-_]/.test(k));
+    return enm ? { enm, planet: 'IDF_' + enm.replace(/^\\d+[-_]/, '') } : null;`);
+  ok('the database still carries a chained cell', !!chained,
+     chained ? `${chained.enm} → ${chained.planet}` : 'none found — check build_idf.py');
+  if (chained) {
+    await ev(`
+      const el = document.getElementById('lkSearch');
+      el.value = ${JSON.stringify(chained.planet)};
+      el.dispatchEvent(new Event('input'));`);
+    await sleep(300);
+    ok('Planet spelling of a chained cell resolves',
+       await ev(`return !!document.querySelector('.lk-direct');`), chained.planet);
+    // Approximate would mean it fell through to the site path and picked an
+    // arbitrary sector — the failure the alias exists to prevent.
+    ok('and resolves EXACTLY, not by site',
+       await ev(`return !document.querySelector('.lk-direct.approx');`));
+    // Both spellings are the same cell, so both must land on the same site.
+    const both = await ev(`
+      const el = document.getElementById('lkSearch');
+      const read = async q => {
+        el.value = q; el.dispatchEvent(new Event('input'));
+        await new Promise(r => setTimeout(r, 250));
+        const d = document.querySelector('.lk-direct');
+        return d ? d.textContent.replace(/\\s+/g, ' ').trim() : null;
+      };
+      return { enm: await read(${JSON.stringify(chained.enm)}),
+               planet: await read(${JSON.stringify(chained.planet)}) };`);
+    ok('ENM and Planet spellings agree on the site',
+       !!both.enm && !!both.planet && both.enm === both.planet,
+       `enm="${both.enm}" planet="${both.planet}"`);
+  }
+
+  // ── SITE EDITOR: ADD ──────────────────────────────────────────────────
+  // The add form calls the importer's number reader. When the parser moved
+  // into dbparse.js the call was left behind as a ReferenceError and the Add
+  // button silently did nothing for three commits — no toast, no error, no
+  // staged change. Nothing but a browser would have caught it.
+  //
+  // cellcom ships empty, so this touches no real data, and Save is never
+  // clicked — the same rule the write-route tests follow.
+  await ev(`document.querySelector('[data-goto="db"]').click();`);
+  await sleep(250);
+  await ev(`document.querySelector('[data-edit="cellcom"]').click();`);
+  await sleep(300);
+  ok('editor opens on an empty database',
+     await ev(`return !document.getElementById('dbEditor').classList.contains('hidden');`));
+  const added = await ev(`
+    const errs = [];
+    window.addEventListener('error', e => errs.push(String(e.message)));
+    document.getElementById('edAddToggle').click();
+    document.getElementById('edSectorId').value = '3634249_270';
+    document.getElementById('edSiteId').value   = '14196';
+    document.getElementById('edSiteName').value = 'בדיקה';
+    document.getElementById('edSector').value   = '270';
+    document.getElementById('edFreq').value     = '2600';
+    document.getElementById('edBw').value       = '20';
+    document.getElementById('edAdd').dispatchEvent(
+      new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise(r => setTimeout(r, 250));
+    return { errs,
+             saveEnabled: !document.getElementById('edSave').disabled,
+             listed: document.getElementById('edList').textContent.includes('3634249_270'),
+             // the numeric slots must arrive as numbers, the way an import
+             // writes them — a string there breaks the carrier filter
+             specs: [...document.querySelectorAll('.ed-sector .ed-spec')]
+                      .map(s => s.textContent.trim()) };`);
+  ok('Add stages the sector', added.saveEnabled && added.listed,
+     `errors=${JSON.stringify(added.errs)}`);
+  ok('Add throws nothing', added.errs.length === 0, added.errs.join('; '));
+  ok('frequency and bandwidth are read, not dropped',
+     added.specs.join(' ').includes('2600') && added.specs.join(' ').includes('20 MHz'),
+     added.specs.join(' | '));
+  await shot('ed_added');
+  // leave nothing staged behind for the next suite
+  await ev(`document.getElementById('edCancel').click();`);
+  await sleep(250);
+  await ev(`
+    if (!document.getElementById('askOverlay').classList.contains('hidden'))
+      document.getElementById('askYes').click();`);
+  await sleep(250);
+  ok('editor discards without saving',
+     await ev(`return document.getElementById('dbEditor').classList.contains('hidden');`));
 }
