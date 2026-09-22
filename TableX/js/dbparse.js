@@ -266,6 +266,99 @@
              sites, sectors, rows, dupes, dupeExample, unknownBand, bandExample };
   }
 
+  /* ── inspector ───────────────────────────────────────────────────── */
+
+  // What is actually IN a workbook: every sheet, every column, a sample value
+  // and whether the column is populated at all.
+  //
+  // It exists because the Cellcom, Pelephone and IDF workbooks live on TS and
+  // can never leave it — the only channel out is a photograph of a screen. A
+  // screen that prints the headers is a far better photograph than the sheet
+  // itself, and it carries the fill counts, which is the signal that actually
+  // matters: Planet ships a `Site Name` column that is EMPTY in all 3,129 rows
+  // of the Partner export, and a list of header names alone would never say so.
+  //
+  // It is also the answer to "why did my file not import". The roles below are
+  // decided by the SAME predicates the import uses, so this reports what the
+  // importer sees rather than a second opinion that can disagree with it.
+  const SAMPLE_ROWS = 25;
+
+  // Excel's own column name, so a column can be found in the sheet by eye.
+  function colLetter(i) {
+    let s = '';
+    for (i += 1; i > 0; i = Math.floor((i - 1) / 26)) {
+      s = String.fromCharCode(65 + ((i - 1) % 26)) + s;
+    }
+    return s;
+  }
+
+  function inspectSheet(name, ws) {
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false });
+
+    // The header is the WIDEST of the first five rows, not simply the first: a
+    // sheet can open with a title line above its real header, and picking that
+    // would report a one-column sheet.
+    let hr = 0, widest = -1;
+    for (let r = 0; r < Math.min(5, rows.length); r++) {
+      const n = (rows[r] || []).reduce((a, c) => a + (norm(c) ? 1 : 0), 0);
+      if (n > widest) { widest = n; hr = r; }
+    }
+
+    const head = rows[hr] || [], body = rows.slice(hr + 1);
+    const hdr = {};
+    head.forEach((c, i) => { const k = norm(c); if (k) hdr[k] = i; });
+
+    const cols = head.map((c, i) => {
+      let fill = 0, sample = '';
+      for (const row of body) {
+        const v = row[i];
+        if (v === undefined || v === null || v === '') continue;
+        fill++;
+        if (!sample) sample = String(v);
+      }
+      return { col: colLetter(i), head: String(c == null ? '' : c).trim(),
+               fill, sample: sample.slice(0, 48) };
+    });
+
+    return { name, hdr, cols, sampled: body.length };
+  }
+
+  function inspectBuffer(ab) {
+    const data = new Uint8Array(ab);
+    // Same trick as pass 1 of parseBuffer: sheetRows caps every sheet, so even
+    // a 47-column x 18,891-row carriers sheet is nearly free to look at.
+    const wb = XLSX.read(data, { type: 'array', sheetRows: SAMPLE_ROWS + 6 });
+
+    const sheets = [];
+    for (const name of wb.SheetNames) {
+      const ws = wb.Sheets[name];
+      if (ws) sheets.push(inspectSheet(name, ws));
+    }
+
+    // Only a sheet carrying a Site ID is a candidate, exactly as readSheets
+    // decides it. Without that, a sheet with a Description column and no
+    // sectors (Antenna_Model_Bands, say) would be reported as the site list.
+    const eligible = sheets.filter(sh => 'site id' in sh.hdr);
+    const flat = eligible.find(sh => WANT.every(w => w in sh.hdr));
+    const sec = eligible.find(isSectorSheet);
+    const sites = eligible.filter(isSiteSheet);
+
+    const role = Object.create(null);
+    if (flat) role[flat.name] = 'flat';
+    else {
+      if (sec) role[sec.name] = 'sectors';
+      for (const s of sites) if (!role[s.name]) role[s.name] = 'sites';
+    }
+
+    return {
+      layout: flat ? 'flat' : (sec && sites.length ? 'multi' : null),
+      sheets: sheets.map(sh => ({
+        name: sh.name, sampled: sh.sampled, cols: sh.cols,
+        role: role[sh.name] || null,
+      })),
+    };
+  }
+
   /* ── entry point ─────────────────────────────────────────────────── */
 
   // TWO passes, and the second is why this is fast enough to be bearable:
@@ -288,8 +381,9 @@
     return pick.layout === 'flat' ? buildFlat(sheets) : buildMulti(sheets);
   }
 
-  // Main-thread fallback for app.js when a Worker cannot start.
+  // Main-thread fallbacks for app.js when a Worker cannot start.
   scope.TableXParse = parseBuffer;
+  scope.TableXInspect = inspectBuffer;
 
   // app.js needs EARFCN → MHz too, to resolve Pelephone's point-inspect code
   // (its trailing field is an EARFCN). Exported rather than copied: a second
@@ -306,8 +400,16 @@
 
   if (IN_WORKER) {
     scope.onmessage = ev => {
+      // The buffer used to arrive bare; it now travels in an envelope so the
+      // inspector can share this Worker. Both shapes are accepted, so neither
+      // side depends on the other being updated in the same breath.
+      const msg = ev.data;
+      const op = (msg && msg.op) || 'parse';
+      const buf = (msg && msg.buf) || msg;
       try {
-        const result = parseBuffer(ev.data, stage => scope.postMessage({ stage }));
+        const result = op === 'inspect'
+          ? inspectBuffer(buf)
+          : parseBuffer(buf, stage => scope.postMessage({ stage }));
         scope.postMessage({ result });
       } catch (e) {
         scope.postMessage({ error: (e && e.message) ? e.message : String(e) });

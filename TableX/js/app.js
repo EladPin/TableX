@@ -456,10 +456,17 @@
   // dbparse.js is ALSO loaded as a plain script by index.html, so if a Worker
   // cannot start we still parse — inline, freezing as before, rather than
   // refusing the user's file. One copy of the parser serves both paths.
-  function parseWorkbookAsync(buf, onStage) {
+  //
+  // `op` picks which side of dbparse.js runs: 'parse' builds a database,
+  // 'inspect' just reports what is in the workbook. One driver for both, so
+  // the Worker, the fallback and the error handling cannot drift apart.
+  function parseWorkbookAsync(buf, onStage, op) {
+    op = op || 'parse';
     return new Promise((resolve, reject) => {
       const inline = () => {
-        try { resolve(self.TableXParse(buf)); } catch (ex) { reject(ex); }
+        try {
+          resolve(op === 'inspect' ? self.TableXInspect(buf) : self.TableXParse(buf));
+        } catch (ex) { reject(ex); }
       };
       let w = null;
       try { w = new Worker('js/dbparse.js'); } catch (e) { w = null; }
@@ -482,7 +489,7 @@
       };
       // Structured clone, NOT a transfer: a transfer detaches the buffer here,
       // and the inline fallback above would then have nothing left to parse.
-      w.postMessage(buf);
+      w.postMessage({ op, buf });
     });
   }
 
@@ -616,6 +623,97 @@
     };
     reader.readAsArrayBuffer(file);
   };
+
+  /* ── workbook inspector ──────────────────────────────────────────── */
+  // The Cellcom, Pelephone and IDF workbooks live on TS and can never leave
+  // it, so every parser here has been designed from photographs of a screen.
+  // This screen is built to BE that photograph: load any .xlsx and it reports
+  // every sheet, every column, a sample value, and which columns are empty —
+  // which is the fact a header list alone cannot carry, and the one that has
+  // already cost this project once (`Site Name`, empty in all 3,129 rows of
+  // the Partner export).
+  //
+  // It reads the workbook and writes nothing. No database is touched, so it is
+  // safe to point at a live export with no card selected and nothing at risk.
+  const insInput = $('dbInspectInput');
+  let insData = null, insOpen = {};
+
+  $('btnInspect').onclick = () => { insInput.value = ''; insInput.click(); };
+  $('insClose').onclick = closeInspect;
+  $('dbInspect').onclick = e => { if (e.target === $('dbInspect')) closeInspect(); };
+  $('insAll').onclick = () => {
+    const all = insData.sheets.every((_, i) => insOpen[i]);
+    insData.sheets.forEach((_, i) => { insOpen[i] = !all; });
+    renderInspect();
+  };
+
+  function closeInspect() { $('dbInspect').classList.add('hidden'); }
+
+  insInput.onchange = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    toast(T('toast.reading', { f: file.name }));
+
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      let d = null, err = null;
+      try {
+        d = await parseWorkbookAsync(ev.target.result,
+                                     stage => toast(T('toast.' + stage)), 'inspect');
+      } catch (ex) { err = ex.message; }
+
+      if (!d || !d.sheets.length) {
+        toast(T('toast.insFail') + (err ? ' — ' + err : ''), true);
+        return;
+      }
+
+      insData = d;
+      insOpen = {};
+      // The sheets the importer would use open on their own: "why did my file
+      // not import" is the other half of this screen's job, and the answer is
+      // usually a missing header on one of them.
+      d.sheets.forEach((sh, i) => { if (sh.role) insOpen[i] = true; });
+      $('insFile').textContent = file.name;
+      renderInspect();
+      $('dbInspect').classList.remove('hidden');
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  function renderInspect() {
+    const d = insData;
+    if (!d) return;
+
+    $('insCount').textContent = T('ins.count', {
+      n: fmt(d.sheets.length), layout: T('ins.layout.' + (d.layout || 'none')),
+    });
+
+    $('insList').innerHTML = d.sheets.map((sh, i) => `
+      <div class="ins-sheet${insOpen[i] ? ' open' : ''}">
+        <button class="ins-head" data-sheet="${i}" aria-expanded="${!!insOpen[i]}">
+          <span class="ins-caret" aria-hidden="true">▸</span>
+          <span class="mono ins-name">${esc(sh.name)}</span>
+          ${sh.role ? `<span class="tag tag-net">${T('ins.role.' + sh.role)}</span>` : ''}
+          <span class="grow"></span>
+          <span class="ins-dim">${T('ins.cols', { n: sh.cols.length, r: fmt(sh.sampled) })}</span>
+        </button>
+        ${insOpen[i] ? `<div class="ins-cols">${sh.cols.map(c => `
+          <div class="ins-col${c.fill ? '' : ' empty'}">
+            <span class="ins-letter mono">${esc(c.col)}</span>
+            <span class="ins-h mono">${esc(c.head || '—')}</span>
+            <span class="ins-v">${c.fill ? esc(bidiIso(c.sample)) : T('ins.emptyCol')}</span>
+          </div>`).join('')}</div>` : ''}
+      </div>`).join('');
+
+    $('insList').querySelectorAll('[data-sheet]').forEach(b => b.onclick = () => {
+      const i = +b.dataset.sheet;
+      insOpen[i] = !insOpen[i];
+      renderInspect();
+    });
+
+    $('insAll').textContent = d.sheets.every((_, i) => insOpen[i])
+      ? T('ins.collapseAll') : T('ins.expandAll');
+  }
 
   /* ── lookup — sector first, then site, across every loaded network ── */
   // What the סקטור column shows, per network. Cellcom's Sector ID is
@@ -1743,6 +1841,7 @@
     updateHint();
     if (lastRows) renderTable(lastRows);
     if (ed) renderEditor();
+    if (!$('dbInspect').classList.contains('hidden')) renderInspect();
     if (!$('viewLookup').classList.contains('hidden')) renderLookup();
     if (global.TableXDeck) global.TableXDeck.render();
     markActive();
@@ -1776,6 +1875,7 @@
     // "discard unsaved changes?" prompt.
     if (askDone) closeAsk(false);
     else if (!setPop.classList.contains('hidden')) toggleSettings(false);
+    else if (!$('dbInspect').classList.contains('hidden')) closeInspect();
     else if (!$('dbEditor').classList.contains('hidden')) closeEditor();
     else if (global.TableXDeck && global.TableXDeck.isEditorOpen()) global.TableXDeck.closeEditor();
   });

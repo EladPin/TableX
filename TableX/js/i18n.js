@@ -60,6 +60,23 @@
     'hint.waiting': 'ממתין לנתונים',
     'hint.ready': '{n} נקודות מוכנות',
 
+    /* Workbook inspector — a screen built to be photographed, because the
+       operator workbooks live on TS and a picture of a screen is the only
+       way their shape ever reaches the repo. */
+    'ins.open': 'בדיקת קובץ',
+    'ins.title': 'מה יש בקובץ',
+    'ins.hint': 'לחץ על גיליון כדי לראות את העמודות שלו. הקובץ נקרא בלבד — אף מסד לא משתנה.',
+    'ins.count': '{n} גיליונות · {layout}',
+    'ins.cols': '{n} עמודות · {r} שורות נדגמו',
+    'ins.emptyCol': 'עמודה ריקה',
+    'ins.expandAll': 'פתח הכל',
+    'ins.collapseAll': 'סגור הכל',
+    'ins.layout.flat': 'הייבוא יקרא את זה כגיליון שטוח',
+    'ins.layout.multi': 'הייבוא יקרא את זה כייצוא קבוצה',
+    'ins.layout.none': 'הייבוא לא יזהה מבנה מוכר בקובץ הזה',
+    'ins.role.sites': 'גיליון האתרים',
+    'ins.role.sectors': 'גיליון הסקטורים',
+    'ins.role.flat': 'גיליון שטוח',
     'db.eyebrow': 'מסדי נתונים',
     'db.title': 'כל המסדים, טעונים מראש',
     'db.sub': 'המסדים מגיעים בתוך האפליקציה — אין מה לטעון בכל פתיחה. עדכון מחליף את הקובץ בשרת, כך שהוא נשמר לכולם.',
@@ -195,6 +212,7 @@
     'toast.dbsLoading': 'מסדי הנתונים עדיין נטענים — רגע אחד',
     'toast.reading': 'קורא את {f}…',
     'toast.dbScan': 'סורק את גיליונות הקובץ…',
+    'toast.insFail': 'לא הצלחתי לקרוא את הקובץ — דרוש קובץ xlsx.',
     'toast.dbBuild': 'בונה את מסד הנתונים…',
     'toast.badSheet': 'לא זוהה מבנה מוכר בקובץ. דרוש ייצוא קבוצה מ-Planet ' +
                       '(גיליון Sites עם Site ID ועמודת שם, וגיליון Sectors עם ' +
@@ -290,6 +308,23 @@
     'hint.waiting': 'Waiting for data',
     'hint.ready': '{n} points ready',
 
+    /* Workbook inspector — a screen built to be photographed, because the
+       operator workbooks live on TS and a picture of a screen is the only
+       way their shape ever reaches the repo. */
+    'ins.open': 'Inspect a workbook',
+    'ins.title': 'What is in this workbook',
+    'ins.hint': 'Click a sheet to see its columns. The file is only read — no database changes.',
+    'ins.count': '{n} sheets · {layout}',
+    'ins.cols': '{n} columns · {r} rows sampled',
+    'ins.emptyCol': 'empty column',
+    'ins.expandAll': 'Expand all',
+    'ins.collapseAll': 'Collapse all',
+    'ins.layout.flat': 'the import would read this as a flat sheet',
+    'ins.layout.multi': 'the import would read this as a group export',
+    'ins.layout.none': 'the import would not recognise this file',
+    'ins.role.sites': 'sites sheet',
+    'ins.role.sectors': 'sectors sheet',
+    'ins.role.flat': 'flat sheet',
     'db.eyebrow': 'Databases',
     'db.title': 'Every database, preloaded',
     'db.sub': 'The databases ship inside the app — nothing to load on every open. An update replaces the file on the server, so it sticks for everyone.',
@@ -425,6 +460,7 @@
     'toast.dbsLoading': 'Databases are still loading — one moment',
     'toast.reading': 'Reading {f}…',
     'toast.dbScan': 'Scanning the workbook sheets…',
+    'toast.insFail': 'Could not read that file — it needs to be an .xlsx.',
     'toast.dbBuild': 'Building the database…',
     'toast.badSheet': 'No recognised layout in this file. It needs either a Planet ' +
                       'group export (a Sites sheet with Site ID and a name column, plus ' +

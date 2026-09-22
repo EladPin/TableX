@@ -445,6 +445,63 @@ interrupted.
 for that session and the toast says plainly that it will not persist. Silent in-memory-only
 success would be worse than the error.
 
+### Seeing what is in a workbook — `בדיקת קובץ`
+
+The DB section's **בדיקת קובץ** button loads any `.xlsx` and reports what is in it: every
+sheet, every column, a sample value, and **which columns are empty**. It writes nothing and
+touches no database, so it is safe to point at a live export with nothing at risk.
+
+**It exists because the operator workbooks live on TS and the only channel out is a photograph
+of a screen.** Every parser in this repo was designed from one. A screen that prints the headers
+is a far better photograph than the sheet itself, and it carries the fill counts — which is the
+fact a list of header names cannot: Planet ships a `Site Name` column empty in all 3,129 rows of
+the Partner export, and the inspector marks it `עמודה ריקה` in red rather than leaving emptiness
+to be inferred from a blank sample.
+
+It doubles as **"why did my file not import"**. The `גיליון האתרים` / `גיליון הסקטורים` /
+`גיליון שטוח` tags are decided by the SAME predicates `pickSheets()` uses, so it reports what
+the importer sees rather than a second opinion that can disagree with it.
+
+`inspectBuffer()` lives in `dbparse.js` beside the parser and rides the same Worker. The message
+is now an envelope (`{op, buf}`) and the bare-buffer shape is still accepted, so neither side
+depends on the other being updated in the same breath. Verified 2026-09-22 against `DEMO_DB.xlsx`:
+envelope and bare buffer both build 14,252 sectors with byte-identical sites.
+
+### What a Planet group export actually contains
+
+`DEMO_DB.xlsx` is still in git history — `git show 5ff1091:TableX/DB/DEMO_DB.xlsx > out.xlsx` —
+and it carries **eight** sheets, not the two the importer reads. Dumped 2026-09-22:
+
+| sheet | keyed by | what it carries |
+|---|---|---|
+| `Sites` | Site ID | `Longitude` `Latitude`, `Description` = the Hebrew name; `Site Name` and `Site Name 2` both EMPTY |
+| `Antennas` | Site ID + Antenna ID | `Antenna File` `Height (m)` `Azimuth` `Mechanical Tilt` `Twist`, and a `Sectors` column naming what it serves |
+| `Antenna_Electrical_Parameters` | Site ID + Antenna ID | `Electrical Tilt` / `Azimuth` / `Beamwidth` |
+| `Sectors` | Sector ID | `Band Name` — the sheet the importer reads |
+| `Sector_Antennas` | Site ID + Sector ID + Antenna ID | **the explicit sector→antenna join**, plus `MIMO Group`, `Cable Length` |
+| `LTE_FDD_Sectors` | Site ID + Sector ID | `PA Power (dBm)` `Total EIRP (dBm)` `Physical Cell ID` |
+| `LTE_FDD_Sectors_Carriers` | Site ID + Sector ID + Carrier Name | `Cell ID`, `TAC`; `Cell Name` and `E-UTRAN Cell ID` both EMPTY here |
+| `DB` | Sector ID | the hand-built flat tab — which is why flat is tried first |
+
+Four things follow that are worth not re-deriving:
+
+- **`Sector_Antennas` means the sector→antenna join never has to be guessed.** Matching an antenna
+  to a sector by azimuth breaks on any multi-band site — a 700 and an 1800 antenna both on azimuth
+  90 would take whichever was indexed first, the same class of silent wrong answer the Pelephone
+  bandwidth path refuses to give.
+- **`PA Power (dBm)` moves between sheets across Planet versions**: it is on `LTE_FDD_Sectors` here
+  and on `LTE_FDD_Sector_Carriers` in the Planet the team runs now (photographed 2026-09-22). Find
+  it by header on whichever sheet carries `Site ID` + `Sector ID` + `PA Power (dBm)`, never by tab
+  name — the rule the rest of the contract already follows. Watts are `10^((dBm-30)/10)`, so
+  49.03 → 80 W and 46.02 → 40 W, which is the `80WAT` / `40WAT` an operator request form prints.
+- **`Longitude` / `Latitude` are not always degrees.** WGS84 degrees in this Partner export
+  (`35.517217`), projected metres in the IDF one (`735054` / `3684600`, UTM 36N). Same header,
+  different units, decided by the project's coordinate system — so anything reading them has to
+  tell which it has (`|value| <= 180` is degrees) rather than assume.
+- **`Antenna File` is a file name, not always a model name.** Partner's read `742270_1800.pafx`;
+  the IDF project's read `ODI-032R20M-Q.pafx`. A slide that wants the antenna MODEL gets it only
+  where the planner named the file after one.
+
 ### IDF comes from an ENM CLI dump, not a workbook
 
 IDF is the one network the xlsx import cannot serve: its Planet export numbers sectors 1/2/3 per
@@ -573,7 +630,7 @@ has just wiped it.
   database that only ever loaded for the session (because the server write failed) can
   still be saved out. `dbFileShape()` emits exactly the six documented keys, dropping the
   two lookup indexes `indexDb()` adds in place. Verified against the shipped `idf.json`:
-  the blob is 40,657 bytes to the file's 40,657, same key order, same values.
+  the blob is 40,681 bytes to the file's 40,681, same key order, same values.
 - **Restore rides the SAME `api/db/<network>` route** the xlsx import uses, so the server
   takes its `.bak` on the way past and a restored file is shape-identical to an imported
   one. `confirmShrink()` and `persistDb()` are shared by both paths so they cannot drift.
@@ -844,7 +901,7 @@ site id, which is exactly the `Sector ID` on the sectors sheet.
    **Both source files live on `F:/IDF_DB_FOR_CLAUDE/`, not `D:`** — they were moved after the
    first build and the old path in this file sent a later session looking for a rebuild it could
    not run. Re-verified 2026-09-10: `build_idf.py` against those two files reproduces the shipped
-   `idf.json` **byte for byte** (40,657 bytes, same sha256), which is what makes them trustworthy
+   `idf.json` **byte for byte** (40,681 bytes, same sha256), which is what makes them trustworthy
    as the rebuild path rather than merely present. `DOGMA_API_OUTPUT.txt` sits beside them.
 
 ### Proven on TS — 2026-09-06

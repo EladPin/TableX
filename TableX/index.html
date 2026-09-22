@@ -58,6 +58,7 @@
 
 <!-- hidden file inputs, reused by every upload -->
 <input type="file" id="dbFileInput" accept=".xlsx,.json" hidden/>
+<input type="file" id="dbInspectInput" accept=".xlsx" hidden/>
 <input type="file" id="tplFileInput" accept=".pptx" hidden/>
 <input type="file" id="imgFileInput" accept="image/*" multiple hidden/>
 
@@ -222,6 +223,8 @@
       <p class="eyebrow"><span class="dot"></span><span data-i18n="db.eyebrow"></span></p>
       <h2 class="section-title" data-i18n="db.title"></h2>
       <p class="section-sub" data-i18n="db.sub"></p>
+      <button class="btn btn-outline btn-sm ins-open" id="btnInspect"
+              data-i18n="ins.open"></button>
     </div>
     <div class="db-grid" id="dbGrid"><!-- rendered by app.js --></div>
   </section>
@@ -447,6 +450,29 @@
       <button class="btn btn-ghost btn-sm" id="edCancel" data-i18n="ed.cancel"></button>
       <button class="btn btn-primary btn-sm" id="edSave" disabled data-i18n="ed.save"></button>
     </footer>
+  </div>
+</div>
+
+<!-- ══ WORKBOOK INSPECTOR ══ -->
+<div class="ed-overlay hidden" id="dbInspect">
+  <div class="ed-modal ins-modal" role="dialog" aria-modal="true" aria-labelledby="insTitle">
+
+    <header class="ed-head">
+      <div>
+        <p class="eyebrow"><span class="dot"></span><span class="mono" id="insFile"></span></p>
+        <h2 class="ed-title" id="insTitle" data-i18n="ins.title"></h2>
+        <p class="ed-count" id="insCount"></p>
+      </div>
+      <button class="ab-x" id="insClose" data-i18n-title="ed.close" aria-label="Close">✕</button>
+    </header>
+
+    <div class="ed-bar">
+      <span class="ins-hint" data-i18n="ins.hint"></span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="insAll" data-i18n="ins.expandAll"></button>
+    </div>
+
+    <div class="ed-list" id="insList"></div>
   </div>
 </div>
 
