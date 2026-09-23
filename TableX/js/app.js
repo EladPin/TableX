@@ -384,6 +384,7 @@
       built: db.built || '—',
       sites: db.sites || {},
       sectors: db.sectors || {},
+      ...(db.notes && Object.keys(db.notes).length ? { notes: db.notes } : {}),
     };
   }
 
@@ -609,20 +610,48 @@
         sites: parsed.sites,
         sectors: parsed.sectors,
       };
+      // Optional, and omitted when empty so a database with no notes stays
+      // shape-identical to one imported before notes existed.
+      if (parsed.notes && Object.keys(parsed.notes).length) {
+        payload.notes = parsed.notes;
+      }
 
       // The bands are the cheapest possible check that the import read the
       // workbook correctly, and the only one available on a machine whose
       // files can never be sent out: "700, 1800, 2600" is obviously right,
       // "1400, 2850, 9360" is obviously an EARFCN column read as MHz.
+      // The composite key is said out loud for the same reason the band list
+      // is: on a machine whose files never leave, the toast is the only place
+      // the import can be checked. A database that quietly re-keyed itself is
+      // exactly the thing someone should see.
       await persistDb(net, payload, T('toast.dbSaved', {
         label: label(net),
         n: fmt(Object.keys(parsed.sectors).length),
         f: bandList(parsed.sectors),
-      }));
+      }) + (parsed.composite ? ' \u00b7 ' + T('toast.compositeKey') : ''));
       if (card) card.classList.remove('busy');
     };
     reader.readAsArrayBuffer(file);
   };
+
+  /* ── site notes ─────────────────────────────────────── */
+  // A trailing parenthetical on a site name is RF-team information, not part
+  // of the name — `אמיתי (סקטורים 2,3 הם של ק.ד 235)`. dbparse.js splits it
+  // off so the deliverable gets the clean name, and it surfaces HERE instead:
+  // in the lookup and the site editor, where someone is asking what a site is.
+  //
+  // It is deliberately absent from renderTable(), the PPTX writers and the
+  // print view, which is the same rule the network chips and `סקטור משוער`
+  // already follow: the slide stays seven clean columns.
+  function siteNote(net, siteId) {
+    const db = DB[net];
+    return (db && db.notes && db.notes[siteId]) || null;
+  }
+
+  function noteSpan(note) {
+    return note ? '<span class="ed-note" title="' + esc(note) + '">' +
+                  esc(note) + '</span>' : '';
+  }
 
   /* ── workbook inspector ──────────────────────────────────────────── */
   // The Cellcom, Pelephone and IDF workbooks live on TS and can never leave
@@ -1291,6 +1320,7 @@
           '<span class="ed-caret">▶</span>' +
           '<span class="ed-name" data-copy="' + esc(h.name || h.id) + '">' +
             lkHi(h.name || h.id, q) + '</span>' +
+          noteSpan(siteNote(h.net, h.id)) +
           '<span class="ed-code" dir="ltr" data-copy="' + esc(h.id) + '">' +
             lkHi(h.id, q) + '</span>' +
           '<span class="tag tag-net">' + esc(netTag(h.net)) + '</span>' +
@@ -1571,6 +1601,10 @@
     ed = {
       net: net,
       sites: JSON.parse(JSON.stringify(src.sites || {})),
+      // Staged and written back even though nothing here edits them: a Save
+      // posts the whole database, so leaving notes out would silently wipe
+      // every one of them the next time somebody added a sector.
+      notes: JSON.parse(JSON.stringify(src.notes || {})),
       sectors: JSON.parse(JSON.stringify(src.sectors || {})),
       open: new Set(),
       dirty: 0,
@@ -1659,6 +1693,7 @@
           '<div class="ed-site-row" data-toggle="' + esc(id) + '">' +
             '<span class="ed-caret">\u25B6</span>' +
             '<span class="ed-name">' + esc(ed.sites[id] || id) + '</span>' +
+            noteSpan(ed.notes && ed.notes[id]) +
             '<span class="ed-code" dir="ltr">' + esc(id) + '</span>' +
             '<span class="ed-badge">' + secs.length + '</span>' +
             '<button class="ed-add-sec" data-add-sector="' + esc(id) + '" title="' +
@@ -1698,6 +1733,10 @@
   // The `+` on a site row. The add form already accepted an existing Site ID —
   // this just fills it in, so adding a sector to a known site does not mean
   // retyping its code and name and risking a typo that forks it into a new one.
+  // A note belongs to a site, so it goes when the site does — the same rule
+  // the parsers apply to a site left with no sectors.
+  function dropNote(siteId) { if (ed.notes) delete ed.notes[siteId]; }
+
   function addSectorTo(siteId) {
     $('edAdd').classList.remove('hidden');
     $('edSiteId').value = siteId;
@@ -1718,6 +1757,7 @@
     // rather than leave an orphan name in the file.
     if (!Object.keys(ed.sectors).some(k => ed.sectors[k][0] === siteId)) {
       delete ed.sites[siteId];
+      dropNote(siteId);
       ed.open.delete(siteId);
     }
     ed.dirty++;
@@ -1730,6 +1770,7 @@
       if (ed.sectors[secId][0] === siteId) delete ed.sectors[secId];
     }
     delete ed.sites[siteId];
+    dropNote(siteId);
     ed.open.delete(siteId);
     ed.dirty++;
     toast(T('ed.rmDone', { id: siteId }));
@@ -1789,6 +1830,7 @@
       built: new Date().toISOString().slice(0, 10),
       sites: ed.sites,
       sectors: ed.sectors,
+      ...(Object.keys(ed.notes || {}).length ? { notes: ed.notes } : {}),
     };
     try {
       const res = await fetch('api/db/' + ed.net, {

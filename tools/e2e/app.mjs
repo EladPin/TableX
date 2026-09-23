@@ -315,4 +315,74 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   await sleep(250);
   ok('editor discards without saving',
      await ev(`return document.getElementById('dbEditor').classList.contains('hidden');`));
+
+  // ── THE WORKBOOK CONTRACT ─────────────────────────────────────────────
+  // dbparse.js is a pure function of a buffer, so this drives it directly
+  // rather than through an import: an import WRITES a database, and the one
+  // rule this repo keeps repeating is never to point a test at a live one.
+  //
+  // It builds an IDF-shaped group export in the page — Sector IDs that repeat
+  // 1/2/3 per site, Hebrew in Description, two names carrying Elad's trailing
+  // note — and asserts the two rules that make such a file importable at all.
+  const wbk = await ev(`
+    const sites = XLSX.utils.aoa_to_sheet([
+      ['Site ID','Site UID','Longitude','Latitude','Description','Site Name'],
+      ['IDF_Amitay','',622321.5,3452921,'אמיתי (סקטורים 2,3 הם של ק.ד 235)',''],
+      ['IDF_Astra','',757636.4,3691737,'אסטרא',''],
+    ]);
+    const secs = XLSX.utils.aoa_to_sheet([
+      ['Site ID','Sector ID','Band Name'],
+      ['IDF_Amitay',1,'P3M_750LTE.MIMO 9260_10'],
+      ['IDF_Amitay',2,'P3M_750LTE.MIMO 9260_10'],
+      ['IDF_Astra',1,'P3M_750LTE.MIMO 9260_10'],
+      ['IDF_Astra','3_900','P3M_900LTE.MIMO 3525_5'],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sites, 'Sites');
+    XLSX.utils.book_append_sheet(wb, secs, 'Sectors');
+    const buf = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' })).buffer;
+    const d = self.TableXParse(buf);
+    return { composite: d.composite, dupes: d.dupes,
+             keys: Object.keys(d.sectors).sort(),
+             astra900: d.sectors['IDF_Astra_3_900'],
+             names: d.sites, notes: d.notes || {} };`);
+
+  // Without this the import is REFUSED: IDF numbers sectors per site, so the
+  // plain Sector ID column collapses the network into a handful of rows.
+  ok('repeating Sector IDs fall back to <Site ID>_<Sector ID>',
+     wbk.composite === true && wbk.dupes === 0,
+     `composite=${wbk.composite} dupes=${wbk.dupes}`);
+  ok('the composite key IS the point-inspect code',
+     wbk.keys.join(',') === 'IDF_Amitay_1,IDF_Amitay_2,IDF_Astra_1,IDF_Astra_3_900',
+     wbk.keys.join(','));
+  // sectorOf() reads the KEY, and IDF_Astra_3_900 would hand it '900'.
+  ok('the Sector ID column is the sector, not the key tail',
+     wbk.astra900 && wbk.astra900[1] === '3_900', JSON.stringify(wbk.astra900));
+
+  // A note left in the name reaches שם אתר משרת on a commander's slide.
+  ok('a trailing note is split off the site name',
+     wbk.names.IDF_Amitay === 'אמיתי' && wbk.names.IDF_Astra === 'אסטרא',
+     JSON.stringify(wbk.names));
+  ok('the note itself is kept, not discarded',
+     wbk.notes.IDF_Amitay === 'סקטורים 2,3 הם של ק.ד 235',
+     JSON.stringify(wbk.notes));
+  ok('a name with no note gets none', !('IDF_Astra' in wbk.notes));
+
+  // The three operators whose Sector IDs are already unique must NOT re-key:
+  // partner.json was verified sector-for-sector against Planet on that path.
+  const flat = await ev(`
+    const sh = XLSX.utils.aoa_to_sheet([
+      ['Sector ID','Site ID','Site Name','Sector','Frequency (MHz)','Bandwidth (MHz)'],
+      ['LNN4610Da','MN4610A','גג בית העם  דישון','Da',1800,20],
+      ['LNN4610Db','MN4610A','גג בית העם  דישון','Db',1800,20],
+    ]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sh, 'DB');
+    const buf = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' })).buffer;
+    const d = self.TableXParse(buf);
+    return { keys: Object.keys(d.sectors).sort(), composite: d.composite };`);
+  ok('a unique Sector ID is left alone',
+     flat.composite === false && flat.keys.join(',') === 'LNN4610Da,LNN4610Db',
+     `composite=${flat.composite} keys=${flat.keys.join(',')}`);
 }
+

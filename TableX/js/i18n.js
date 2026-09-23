@@ -212,6 +212,7 @@
     'toast.dbsLoading': 'מסדי הנתונים עדיין נטענים — רגע אחד',
     'toast.reading': 'קורא את {f}…',
     'toast.dbScan': 'סורק את גיליונות הקובץ…',
+    'toast.compositeKey': 'מפתח: Site ID + Sector ID',
     'toast.insFail': 'לא הצלחתי לקרוא את הקובץ — דרוש קובץ xlsx.',
     'toast.dbBuild': 'בונה את מסד הנתונים…',
     'toast.badSheet': 'לא זוהה מבנה מוכר בקובץ. דרוש ייצוא קבוצה מ-Planet ' +
@@ -460,6 +461,7 @@
     'toast.dbsLoading': 'Databases are still loading — one moment',
     'toast.reading': 'Reading {f}…',
     'toast.dbScan': 'Scanning the workbook sheets…',
+    'toast.compositeKey': 'key: Site ID + Sector ID',
     'toast.insFail': 'Could not read that file — it needs to be an .xlsx.',
     'toast.dbBuild': 'Building the database…',
     'toast.badSheet': 'No recognised layout in this file. It needs either a Planet ' +

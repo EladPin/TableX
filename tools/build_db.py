@@ -282,6 +282,39 @@ def parse_band(s):
     return freq, bw
 
 
+TRAILING_NOTE = re.compile(r'^(.*?)\s*\(([^()]*)\)\s*$')
+
+
+def split_name(v):
+    """A site name plus a trailing parenthetical NOTE -> (name, note).
+
+    The IDF export's Description carries RF-team information after the name --
+    "sectors 2,3 belong to KD 235" -- and the site-name column is the one a
+    commander reads on the slide. Measured rather than assumed: of the 3,129
+    site names in the shipped partner.json, 17 contain a parenthesis and ZERO
+    end in one, and the ENM name list already uses this exact convention on
+    Asaf_M4 and Rafah_M5.
+    """
+    t = (v or '').strip()
+    m = TRAILING_NOTE.match(t)
+    if not m or not m.group(1):        # a name that is ONLY a parenthetical
+        return t, None
+    return m.group(1), (m.group(2).strip() or None)
+
+
+def count_dupes(rows, key_of):
+    seen, n, example = set(), 0, None
+    for r in rows:
+        k = key_of(r)
+        if k in seen:
+            n += 1
+            if example is None:
+                example = k
+        else:
+            seen.add(k)
+    return n, example
+
+
 def build_multi(sheets):
     """Layout A. Returns (sites, sectors, description) or None."""
     sec_sheet = None
@@ -306,19 +339,23 @@ def build_multi(sheets):
 
     s_name, s_hdr, s_rows = site_sheet
     name_col = best_name_col(s_hdr, s_rows)
-    sites = {}
+    sites, notes = {}, {}
     for row in s_rows:
         site_id = cell(row, s_hdr, 'site id')
         if not site_id:
             continue
-        nm = cell(row, s_hdr, name_col)
+        nm, note = split_name(cell(row, s_hdr, name_col))
         if site_id not in sites or (nm and not sites[site_id]):
             sites[site_id] = nm
+            if note:
+                notes[site_id] = note
+            else:
+                notes.pop(site_id, None)
 
     c_name, c_hdr, c_rows = sec_sheet
-    sectors, skipped = {}, 0
-    rows = dupes = unknown_band = 0
-    dupe_example = band_example = None
+    raw, skipped = [], 0
+    rows = unknown_band = 0
+    band_example = None
     for row in c_rows:
         sec_id = cell(row, c_hdr, 'sector id')
         site_id = cell(row, c_hdr, 'site id')
@@ -326,14 +363,7 @@ def build_multi(sheets):
             skipped += 1
             continue
         rows += 1
-        # A repeated Sector ID is not a key -- the second row overwrites the
-        # first. IDF's export numbers sectors 1/2/3 PER SITE, so importing it
-        # blind would collapse a whole network into a handful of rows.
-        if sec_id in sectors:
-            dupes += 1
-            if dupe_example is None:
-                dupe_example = sec_id
-        sector = cell(row, c_hdr, 'sector') or sector_of(sec_id)
+        sector = cell(row, c_hdr, 'sector')
         band_name = cell(row, c_hdr, 'band name')
         freq, bw = parse_band(band_name)
         # Present but resolving to neither a label nor an EARFCN is a shape
@@ -348,7 +378,32 @@ def build_multi(sheets):
             bw = num(cell(row, c_hdr, 'bandwidth (mhz)')) or bw
         elif 'carrier bandwidth (mhz)' in c_hdr:
             bw = num(cell(row, c_hdr, 'carrier bandwidth (mhz)')) or bw
-        sectors[sec_id] = [site_id, sector or None, freq, bw]
+        raw.append((sec_id, site_id, sector, freq, bw))
+
+    # THE KEY. A repeated Sector ID is not a key -- the second row overwrites
+    # the first, and IDF's export numbers sectors 1/2/3 PER SITE, so the plain
+    # column collapses a whole network into a handful of rows.
+    #
+    # <Site ID>_<Sector ID> is tried next, and it is not a guess: that
+    # composite IS what Planet's point inspect reports for IDF. Site ID
+    # 'IDF_Amitay' and Sector ID '1' give 'IDF_Amitay_1', checked 2026-09-23
+    # against the ENM-built idf.json. Only REACHED once the plain key has
+    # failed, and only ACCEPTED when itself unique, so the three operators keep
+    # the exact path they were verified on.
+    dupes, dupe_example = count_dupes(raw, lambda r: r[0])
+    composite = False
+    if dupes:
+        c_dupes, _ = count_dupes(raw, lambda r: '%s_%s' % (r[1], r[0]))
+        if not c_dupes:
+            composite, dupes, dupe_example = True, 0, None
+
+    sectors = {}
+    for sec_id, site_id, sector, freq, bw in raw:
+        # With the composite the Sector ID column IS the sector: sector_of()
+        # reads the key, and 'IDF_Astra_3_900' would hand it '900'.
+        sec = sector or (sec_id if composite else sector_of(sec_id))
+        key = '%s_%s' % (site_id, sec_id) if composite else sec_id
+        sectors[key] = [site_id, sec or None, freq, bw]
 
     # A site with no sectors is unreachable by any lookup, so carrying its name
     # only grows a file the browser fetches on every load. Same rule the site
@@ -357,9 +412,16 @@ def build_multi(sheets):
     dropped = [k for k in sites if k not in used]
     for k in dropped:
         del sites[k]
+        notes.pop(k, None)
 
     desc = ('multi-sheet: sites=%r (name column %r), sectors=%r'
             % (s_name, name_col, c_name))
+    if composite:
+        desc += ('\n  key: Site ID + Sector ID (the Sector ID column '
+                 'repeats per site, which is how Planet reports it)')
+    if notes:
+        desc += ('\n  %d site name(s) carry a trailing note, split off'
+                 % len(notes))
     if dropped:
         desc += '\n  dropped %d site(s) with no sectors' % len(dropped)
     if skipped:
@@ -373,7 +435,7 @@ def build_multi(sheets):
                  '(e.g. %r).\nThe Sector ID column is not a unique key, so this '
                  'import would silently drop rows.\nExport with a sector code '
                  'unique across the whole network.' % (dupes, rows, dupe_example))
-    return sites, sectors, desc
+    return sites, notes, sectors, desc
 
 
 def build_flat(sheets):
@@ -381,7 +443,7 @@ def build_flat(sheets):
     for name, hdr, rows in sheets:
         if not all(w in hdr for w in WANT):
             continue
-        sites, sectors, skipped = {}, {}, 0
+        sites, notes, sectors, skipped = {}, {}, {}, 0
         n_rows = dupes = 0
         dupe_example = None
         for row in rows:
@@ -395,9 +457,13 @@ def build_flat(sheets):
                 dupes += 1
                 if dupe_example is None:
                     dupe_example = sec_id
-            nm = cell(row, hdr, 'site name')
+            nm, note = split_name(cell(row, hdr, 'site name'))
             if site_id not in sites or (nm and not sites[site_id]):
                 sites[site_id] = nm
+                if note:
+                    notes[site_id] = note
+                else:
+                    notes.pop(site_id, None)
             sectors[sec_id] = [site_id, cell(row, hdr, 'sector') or None,
                                num(cell(row, hdr, 'frequency (mhz)')),
                                num(cell(row, hdr, 'bandwidth (mhz)'))]
@@ -409,7 +475,7 @@ def build_flat(sheets):
                      '(e.g. %r).\nThe Sector ID column is not a unique key, so '
                      'this import would silently drop rows.'
                      % (dupes, n_rows, dupe_example))
-        return sites, sectors, desc
+        return sites, notes, sectors, desc
     return None
 
 
@@ -433,7 +499,7 @@ def main():
                  'OR a Planet group export with a Sites sheet (Site ID + a '
                  'name column)\nand a Sectors sheet (Sector ID + Site ID + '
                  'Band Name).' % ' | '.join(WANT))
-    sites, sectors, desc = built
+    sites, notes, sectors, desc = built
     print('layout: %s' % desc)
 
     out = {
@@ -444,6 +510,10 @@ def main():
         'sites': sites,
         'sectors': sectors,
     }
+    # Optional, and omitted when empty, so a database with no notes stays
+    # byte-identical to one built before this existed.
+    if notes:
+        out['notes'] = notes
     os.makedirs(DATA, exist_ok=True)
     dest = os.path.join(DATA, '%s.json' % network)
     if os.path.exists(dest):                       # the .bak has saved this

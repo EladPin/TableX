@@ -100,6 +100,37 @@
     return isNaN(f) ? (s || null) : f;
   }
 
+  // A site name may carry a trailing parenthetical NOTE. The IDF export's
+  // Description reads `אמיתי (סקטורים 2,3 הם של ק.ד 235)` — RF-team
+  // information, not a site name, and שם אתר משרת is the one column a
+  // commander actually reads. Split it: the name goes to the deliverable,
+  // the note is kept and shown in the app.
+  //
+  // Safe because it was MEASURED, not assumed: of the 3,129 site names in the
+  // shipped partner.json, 17 contain a parenthesis and ZERO end in one. The
+  // convention is already the team's — the ENM name list carries exactly this
+  // trailing note on Asaf_M4 and Rafah_M5.
+  const TRAILING_NOTE = /^(.*?)\s*\(([^()]*)\)\s*$/;
+
+  function splitName(v) {
+    const t = String(v == null ? '' : v).trim();
+    const m = TRAILING_NOTE.exec(t);
+    // A name that is ONLY a parenthetical is a name, not a note.
+    if (!m || !m[1]) return [t, null];
+    return [m[1], m[2].trim() || null];
+  }
+
+  function countDupes(list, keyOf) {
+    const seen = Object.create(null);
+    let n = 0, example = null;
+    for (const r of list) {
+      const k = keyOf(r);
+      if (k in seen) { n++; if (example === null) example = k; }
+      else seen[k] = 1;
+    }
+    return { n, example };
+  }
+
   /* ── sheet discovery ─────────────────────────────────────────────── */
 
   // Every sheet carrying a recognisable header row in its first five lines.
@@ -185,7 +216,8 @@
   function buildFlat(sheets) {
     for (const sh of sheets) {
       if (!WANT.every(w => w in sh.hdr)) continue;
-      const sites = Object.create(null), sectors = Object.create(null);
+      const sites = Object.create(null), notes = Object.create(null);
+      const sectors = Object.create(null);
       let rows = 0, dupes = 0, dupeExample = null;
       for (const row of sh.rows) {
         const secId = cellAt(row, sh.hdr, 'sector id');
@@ -193,16 +225,22 @@
         if (!secId || !siteId) continue;
         rows++;
         if (secId in sectors) { dupes++; if (!dupeExample) dupeExample = secId; }
-        const nm = cellAt(row, sh.hdr, 'site name');
-        if (!(siteId in sites) || (nm && !sites[siteId])) sites[siteId] = nm;
+        const split = splitName(cellAt(row, sh.hdr, 'site name'));
+        const nm = split[0];
+        if (!(siteId in sites) || (nm && !sites[siteId])) {
+          sites[siteId] = nm;
+          if (split[1]) notes[siteId] = split[1];
+          else delete notes[siteId];
+        }
         sectors[secId] = [siteId, cellAt(row, sh.hdr, 'sector') || null,
                           num(cellAt(row, sh.hdr, 'frequency (mhz)')),
                           num(cellAt(row, sh.hdr, 'bandwidth (mhz)'))];
       }
       // The flat path reads explicit Frequency (MHz) / Bandwidth (MHz)
       // columns, so there is no band derivation here to distrust.
-      return { layout: 'flat', sheet: sh.name, sites, sectors,
-               rows, dupes, dupeExample, unknownBand: 0, bandExample: null };
+      return { layout: 'flat', sheet: sh.name, sites, notes, sectors,
+               rows, dupes, dupeExample, composite: false,
+               unknownBand: 0, bandExample: null };
     }
     return null;
   }
@@ -214,27 +252,29 @@
     if (!siteSheet) return null;
 
     const nameCol = bestNameCol(siteSheet);
-    const sites = Object.create(null);
+    const sites = Object.create(null), notes = Object.create(null);
     for (const row of siteSheet.rows) {
       const siteId = cellAt(row, siteSheet.hdr, 'site id');
       if (!siteId) continue;
-      const nm = cellAt(row, siteSheet.hdr, nameCol);
-      if (!(siteId in sites) || (nm && !sites[siteId])) sites[siteId] = nm;
+      const split = splitName(cellAt(row, siteSheet.hdr, nameCol));
+      const nm = split[0];
+      if (!(siteId in sites) || (nm && !sites[siteId])) {
+        sites[siteId] = nm;
+        if (split[1]) notes[siteId] = split[1];
+        else delete notes[siteId];
+      }
     }
 
-    const hdr = secSheet.hdr, sectors = Object.create(null);
-    let rows = 0, dupes = 0, dupeExample = null;
+    const hdr = secSheet.hdr;
+    const raw = [];
+    let rows = 0;
     let unknownBand = 0, bandExample = null;
     for (const row of secSheet.rows) {
       const secId = cellAt(row, hdr, 'sector id');
       const siteId = cellAt(row, hdr, 'site id');
       if (!secId || !siteId) continue;
       rows++;
-      // A Sector ID that repeats is not a key — the second row overwrites the
-      // first. IDF's export numbers sectors 1/2/3 PER SITE, so importing it
-      // blind would collapse a whole network into a handful of rows.
-      if (secId in sectors) { dupes++; if (!dupeExample) dupeExample = secId; }
-      const sector = cellAt(row, hdr, 'sector') || sectorOf(secId);
+      const sector = cellAt(row, hdr, 'sector');
       const bandName = cellAt(row, hdr, 'band name');
       let band = parseBand(bandName);
       let freq = band[0], bw = band[1];
@@ -252,7 +292,37 @@
       } else if ('carrier bandwidth (mhz)' in hdr) {
         bw = num(cellAt(row, hdr, 'carrier bandwidth (mhz)')) || bw;
       }
-      sectors[secId] = [siteId, sector || null, freq, bw];
+      raw.push({ secId: secId, siteId: siteId, sector: sector, freq: freq, bw: bw });
+    }
+
+    // THE KEY. A Sector ID that repeats is not a key — the second row
+    // overwrites the first, and IDF's export numbers sectors 1/2/3 PER SITE,
+    // so the plain column collapses a whole network into a handful of rows.
+    //
+    // `<Site ID>_<Sector ID>` is tried next, and it is not a guess: that
+    // composite IS what Planet's point inspect reports for IDF. Site ID
+    // `IDF_Amitay` and Sector ID `1` give `IDF_Amitay_1`, checked 2026-09-23
+    // against the ENM-built idf.json — 44 of the 45 cells legible in a
+    // photograph of IDF_Share.xlsx exist there, including the two that carry
+    // the fingerprint (Fares has 1/3/4 and no 2; Astra carries a 3_900).
+    //
+    // It is only REACHED when the plain key has already failed and only
+    // ACCEPTED when it is itself unique, so Partner, Cellcom and Pelephone —
+    // whose Sector IDs are already unique — never take this path.
+    const plain = countDupes(raw, r => r.secId);
+    let composite = false, dupes = plain.n, dupeExample = plain.example;
+    if (dupes) {
+      const comp = countDupes(raw, r => r.siteId + '_' + r.secId);
+      if (!comp.n) { composite = true; dupes = 0; dupeExample = null; }
+    }
+
+    const sectors = Object.create(null);
+    for (const r of raw) {
+      // With the composite, the Sector ID column IS the sector — sectorOf()
+      // reads the key, and `IDF_Astra_3_900` would hand it `900`.
+      const sector = r.sector || (composite ? r.secId : sectorOf(r.secId));
+      sectors[composite ? r.siteId + '_' + r.secId : r.secId] =
+        [r.siteId, sector || null, r.freq, r.bw];
     }
 
     // A site with no sectors is unreachable by any lookup, so carrying its name
@@ -260,10 +330,15 @@
     // editor applies when you remove a site's last sector.
     const used = Object.create(null);
     for (const k in sectors) used[sectors[k][0]] = 1;
-    for (const k in sites) if (!(k in used)) delete sites[k];
+    for (const k in sites) {
+      if (k in used) continue;
+      delete sites[k];
+      delete notes[k];          // same pass — sites[k] is gone after this
+    }
 
     return { layout: 'multi', sheet: siteSheet.name + ' + ' + secSheet.name,
-             sites, sectors, rows, dupes, dupeExample, unknownBand, bandExample };
+             sites, notes, sectors, rows, dupes, dupeExample, composite,
+             unknownBand, bandExample };
   }
 
   /* ── inspector ───────────────────────────────────────────────────── */

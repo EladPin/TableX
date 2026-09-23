@@ -299,9 +299,13 @@ state, not an error — the card renders as "ריק" with a load button.
   "source":  "DEMO_DB.xlsx",     // which workbook this came from
   "built":   "2026-09-04",
   "sites":   { "MN4610A": "גג בית העם  דישון" },
-  "sectors": { "LNN4610Da": ["MN4610A", "Da", 1800, 20] }
+  "sectors": { "LNN4610Da": ["MN4610A", "Da", 1800, 20] },
+  "notes":   { "IDF_Amitay": "סקטורים 2,3 הם של ק.ד 235" }   // optional
 }
 ```
+
+**`notes` is optional and omitted when empty**, so a database with none is
+shape-identical to one built before notes existed.
 
 Site names are **deduplicated into `sites`** rather than repeated per sector — a site carries up
 to 12 sectors here and the Hebrew name is by far the longest field. That halves the file
@@ -408,6 +412,25 @@ sector ids the two sources share (2026-09-05):
   `700_5_9435` → 700 / 5). **No EARFCN conversion is needed** — Planet already reports MHz here.
   Frequency 14,008 / 14,008 exact; bandwidth 13,984 / 14,008, the 24 differences being a real
   700 MHz carrier change that the export's own `Carrier Bandwidth (MHz)` column confirms.
+
+**The key is the Sector ID, or `<Site ID>_<Sector ID>` when that repeats.** IDF's export numbers
+sectors `1` / `2` / `3` per site, so the plain column collapses a whole network into a handful of
+rows — the import used to refuse it outright. The composite is not a guess: it **is** the
+point-inspect code, since Site ID `IDF_Amitay` and Sector ID `1` give `IDF_Amitay_1`. It is only
+reached once the plain key has failed and only accepted when itself unique, so Partner, Cellcom
+and Pelephone keep the exact path their data was verified on — and a workbook whose composite
+*also* collides is still refused. When it is used, the Sector ID column is the sector verbatim:
+`sectorOf()` reads the KEY, and `IDF_Astra_3_900` would hand it `900`. **The success toast names
+the key** (`מפתח: Site ID + Sector ID`), for the same reason it names the bands.
+
+**A trailing parenthetical is a NOTE, not part of the name.** The IDF export's `Description` reads
+`אמיתי (סקטורים 2,3 הם של ק.ד 235)` — RF-team information, and שם אתר משרת is the one column a
+commander reads. `splitName()` puts the name in `sites` and the note in `notes`. Safe because it
+was measured: of the 3,129 names in the shipped `partner.json`, **17 contain a parenthesis and
+zero end in one**, and the ENM name list already used this convention on `Asaf_M4` and `Rafah_M5`.
+A name that is *only* a parenthetical stays a name. **The note is app-only** — the lookup and the
+site editor show it, `renderTable()` and both PPTX writers never see it, the same rule the network
+chips follow.
 
 An explicit `Frequency (MHz)` / `Bandwidth (MHz)` column on the sectors sheet beats the derived
 value when one is present. Sites carrying no sectors are dropped: a site no sector points at is
