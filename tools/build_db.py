@@ -252,16 +252,49 @@ def best_name_col(hdr, rows):
     return best
 
 
-def parse_band(s):
+EARFCN_NETS = frozenset(['idf'])
+
+
+def band_of(earfcn):
+    """The band an EARFCN lands in, for the build's own verification line."""
+    for lo, hi, label in EARFCN_BANDS:
+        if lo <= earfcn <= hi:
+            return label
+    return None
+
+
+def parse_band(s, mode=None):
     """'1800_20' -> (1800, 20)   '700_5_9435' -> (700, 5)   '2850_20' -> (2600, 20)
-    'P3M_2600LTE.MIMO 3250_20' -> (2600, 20)   '' -> (None, None)"""
+    'P3M_2600LTE.MIMO 3250_20' -> (2600, 20)   '' -> (None, None)
+
+    MODE 'earfcn' keeps the EARFCN ITSELF instead of the band it lands in.
+    IDF's frequency column is the raw EARFCN, because the team reads ENM and
+    that is the number they recognise, so 'P3M_750LTE.MIMO 9260_10' has to
+    store 9260 rather than 750. Every other network still stores MHz.
+
+    The EARFCN is the first number in a downlink range that is NEITHER a legal
+    channel width NOR a band label, which skips the 3 of the 'P3M_' prefix (a
+    legal width) and the 750 of the band label before reaching 9260. Bandwidth
+    is unaffected and stays MHz for every network.
+    """
     nums = [int(n) for n in re.findall(r'\d+', s or '')]
 
     freq = None
-    for n in nums:
-        if n in BAND_LABELS:
-            freq = n
-            break
+    if mode == 'earfcn':
+        for n in nums:
+            if n in LTE_BW or n in BAND_LABELS:
+                continue
+            for lo, hi, _label in EARFCN_BANDS:
+                if lo <= n <= hi:
+                    freq = n
+                    break
+            if freq is not None:
+                break
+    if freq is None:
+        for n in nums:
+            if n in BAND_LABELS:
+                freq = n
+                break
     if freq is None:
         for n in nums:
             for lo, hi, label in EARFCN_BANDS:
@@ -357,7 +390,7 @@ def agreed(values):
     return out if seen else None
 
 
-def build_multi(sheets):
+def build_multi(sheets, mode=None):
     """Layout A. Returns (sites, sectors, description) or None."""
     sec_sheet = None
     for name, hdr, rows in sheets:
@@ -407,7 +440,7 @@ def build_multi(sheets):
         rows += 1
         sector = cell(row, c_hdr, 'sector')
         band_name = cell(row, c_hdr, 'band name')
-        freq, bw = parse_band(band_name)
+        freq, bw = parse_band(band_name, mode)
         # Present but resolving to neither a label nor an EARFCN is a shape
         # nobody here has seen. Leave it blank and count it.
         if freq is None and band_name:
@@ -630,7 +663,8 @@ def main():
     sheets = load_sheets(zf, sst)
     print('sheets read: %s' % ', '.join(repr(s[0]) for s in sheets))
 
-    built = build_flat(sheets) or build_multi(sheets)
+    mode = 'earfcn' if network in EARFCN_NETS else None
+    built = build_flat(sheets) or build_multi(sheets, mode)
     if not built:
         sys.exit('No usable layout. Needs EITHER one sheet carrying\n  %s\n'
                  'OR a Planet group export with a Sites sheet (Site ID + a '
@@ -663,6 +697,16 @@ def main():
     with open(dest, 'w', encoding='utf8') as fh:
         json.dump(out, fh, ensure_ascii=False, separators=(',', ':'))
 
+    # The same verification the import toast performs, and the reason
+    # build_idf.py printed both lines: '9260, 3525 (700, 900)' is obviously
+    # right, and a band column read as an EARFCN would not be.
+    freqs = sorted({v[2] for v in sectors.values() if v[2] is not None})
+    line = ', '.join(str(f) for f in freqs) or '-'
+    if mode == 'earfcn':
+        bands = sorted({b for b in (band_of(f) for f in freqs) if b})
+        if bands:
+            line += ' (%s)' % ', '.join(str(b) for b in bands)
+    print('freqs:   %s' % line)
     print('sites:   %6d' % len(sites))
     print('sectors: %6d' % len(sectors))
     print('wrote:   %s  (%.1f KB)' % (dest, os.path.getsize(dest) / 1024.0))

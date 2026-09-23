@@ -359,7 +359,11 @@ export default async function ({ ev, ok, shot, sleep, send }) {
     XLSX.utils.book_append_sheet(wb, pwr, 'LTE_FDD_Sector_Carriers');
     const buf = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' })).buffer;
     const d = self.TableXParse(buf);
-    return { composite: d.composite, dupes: d.dupes,
+    // IDF stores the raw EARFCN in the frequency slot, not the band label.
+    const e = self.TableXParse(buf, null, { freq: 'earfcn' });
+    return { mhz: d.sectors['IDF_Amitay_1'], earfcn: e.sectors['IDF_Amitay_1'],
+             earfcn900: e.sectors['IDF_Astra_3_900'],
+             composite: d.composite, dupes: d.dupes,
              keys: Object.keys(d.sectors).sort(),
              astra900: d.sectors['IDF_Astra_3_900'],
              names: d.sites, notes: d.notes || {},
@@ -401,6 +405,16 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   ok('dBm converts to the watts the request form shows',
      Math.round(Math.pow(10, (wbk.pwr.IDF_Amitay_1 - 30) / 10)) === 80 &&
      Math.round(Math.pow(10, (wbk.pwr.IDF_Amitay_2 - 30) / 10)) === 40);
+  // IDF's תדר מרכזי is the EARFCN because the team reads ENM; every other
+  // network stays in MHz. Bandwidth is MHz for all of them.
+  ok('the default is MHz, as the other three networks need',
+     wbk.mhz[2] === 750 && wbk.mhz[3] === 10, JSON.stringify(wbk.mhz));
+  ok('earfcn mode stores the EARFCN, not the band it lands in',
+     wbk.earfcn[2] === 9260 && wbk.earfcn900[2] === 3525,
+     JSON.stringify([wbk.earfcn, wbk.earfcn900]));
+  ok('bandwidth stays MHz in earfcn mode',
+     wbk.earfcn[3] === 10 && wbk.earfcn900[3] === 5);
+
   ok('site coordinates are kept as the workbook states them',
      JSON.stringify(wbk.coords.IDF_Amitay) === '[622321.5,3452921]',
      JSON.stringify(wbk.coords.IDF_Amitay));

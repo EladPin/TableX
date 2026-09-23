@@ -235,11 +235,30 @@
 
   // '1800_20' → [1800, 20]   '700_5_9435' → [700, 5]   '2850_20' → [2600, 20]
   // 'P3M_2600LTE.MIMO 3250_20' → [2600, 20]            '' → [null, null]
-  function parseBand(s) {
+  //
+  // MODE 'earfcn' keeps the EARFCN ITSELF instead of the band it lands in.
+  // IDF's תדר מרכזי column is the raw EARFCN, because the team reads ENM and
+  // that is the number they recognise — so `P3M_750LTE.MIMO 9260_10` has to
+  // store 9260, not 750. Every other network still stores MHz.
+  //
+  // The EARFCN is the first number that is in a downlink range and is NEITHER
+  // a legal channel width NOR a band label, which is what skips the `3` of the
+  // `P3M_` prefix (a legal width) and the `750` of the band label before
+  // reaching 9260. Bandwidth is unaffected and stays MHz for every network.
+  function parseBand(s, mode) {
     const nums = (String(s == null ? '' : s).match(/\d+/g) || []).map(Number);
 
     let freq = null;
-    for (const n of nums) if (BAND_LABELS.has(n)) { freq = n; break; }
+    if (mode === 'earfcn') {
+      for (const n of nums) {
+        if (LTE_BW.has(n) || BAND_LABELS.has(n)) continue;
+        for (const b of EARFCN_BANDS) {
+          if (n >= b[0] && n <= b[1]) { freq = n; break; }
+        }
+        if (freq !== null) break;
+      }
+    }
+    if (freq === null) for (const n of nums) if (BAND_LABELS.has(n)) { freq = n; break; }
     if (freq === null) {
       for (const n of nums) {
         for (const b of EARFCN_BANDS) {
@@ -256,6 +275,15 @@
     for (const n of nums) if (LTE_BW.has(n)) bw = n;
 
     return [freq, bw];
+  }
+
+  // The band an EARFCN lands in. The import toast names these alongside the
+  // raw values for an EARFCN network, because that line is the only check
+  // available on a machine whose files never leave: `9260, 3525 (700, 900)`
+  // is obviously right, and a band column read as an EARFCN would not be.
+  function bandOf(earfcn) {
+    for (const b of EARFCN_BANDS) if (earfcn >= b[0] && earfcn <= b[1]) return b[2];
+    return null;
   }
 
   function buildFlat(sheets) {
@@ -293,7 +321,7 @@
     return null;
   }
 
-  function buildMulti(sheets) {
+  function buildMulti(sheets, mode) {
     const secSheet = sheets.find(isSectorSheet);
     if (!secSheet) return null;
     const siteSheet = sheets.find(sh => isSiteSheet(sh) && bestNameCol(sh));
@@ -324,7 +352,7 @@
       rows++;
       const sector = cellAt(row, hdr, 'sector');
       const bandName = cellAt(row, hdr, 'band name');
-      let band = parseBand(bandName);
+      let band = parseBand(bandName, mode);
       let freq = band[0], bw = band[1];
       // A Band Name that is present but resolves to neither a label nor an
       // EARFCN is a shape nobody here has seen. Leave it blank and count it.
@@ -581,7 +609,7 @@
   // TWO passes, and the second is why this is fast enough to be bearable:
   // reading all seven sheets of the Partner export costs ~6 s and most of the
   // memory, while the two we actually use cost ~2 s.
-  function parseBuffer(ab, report) {
+  function parseBuffer(ab, report, opts) {
     const data = new Uint8Array(ab);
 
     if (report) report('dbScan');
@@ -595,7 +623,9 @@
     // Pass 2 — full parse of ONLY the sheets pass 1 matched.
     const full = XLSX.read(data, { type: 'array', sheets: pick.names });
     const sheets = readSheets(full);
-    return pick.layout === 'flat' ? buildFlat(sheets) : buildMulti(sheets);
+    return pick.layout === 'flat'
+      ? buildFlat(sheets)
+      : buildMulti(sheets, opts && opts.freq);
   }
 
   // Main-thread fallbacks for app.js when a Worker cannot start.
@@ -615,6 +645,9 @@
   // reinstated there, for the reason above it.
   scope.TableXNum = num;
 
+  // app.js names the bands an EARFCN import derived, for the toast.
+  scope.TableXBandOf = bandOf;
+
   if (IN_WORKER) {
     scope.onmessage = ev => {
       // The buffer used to arrive bare; it now travels in an envelope so the
@@ -626,7 +659,7 @@
       try {
         const result = op === 'inspect'
           ? inspectBuffer(buf)
-          : parseBuffer(buf, stage => scope.postMessage({ stage }));
+          : parseBuffer(buf, stage => scope.postMessage({ stage }), msg && msg.opts);
         scope.postMessage({ result });
       } catch (e) {
         scope.postMessage({ error: (e && e.message) ? e.message : String(e) });

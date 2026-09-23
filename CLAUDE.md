@@ -563,7 +563,22 @@ Four things follow that are worth not re-deriving:
   the IDF project's read `ODI-032R20M-Q.pafx`. A slide that wants the antenna MODEL gets it only
   where the planner named the file after one.
 
-### IDF comes from an ENM CLI dump, not a workbook
+### IDF used to come from an ENM CLI dump — it now imports like the rest
+
+**Superseded 2026-09-23.** Elad filled every IDF site's `Description` in Planet with its Hebrew
+name, so `IDF_Share.xlsx` now carries everything the importer needs and IDF goes through the
+ordinary `עדכן` button: export the group, load it. That also closes the 95-Latin-names gap, and
+the names survive every future export because they live in Planet rather than in a CSV here.
+
+Three things make it work, all documented under the workbook contract: the `<Site ID>_<Sector ID>`
+composite key (which is what point inspect reports), the trailing-note split, and `'earfcn'` mode
+for the frequency column.
+
+**`tools/build_idf.py` and the ENM dump are kept as the fallback** until the Planet import has been
+run for real on TS. The rest of this section describes that path, and the chained-site reasoning in
+it is still the best record of which IDF sites are fibred where.
+
+### The ENM CLI dump path (superseded)
 
 IDF is the one network the xlsx import cannot serve: its Planet export numbers sectors 1/2/3 per
 site, so the sector code is not a key. `tools/build_idf.py` reads an ENM CLI dump instead:
@@ -578,7 +593,11 @@ things it settles, and one it cannot:
 - **Keyed by `EUtranCellFDDId`**, because that is exactly what Planet reports — `IDF_Halif_11_SL_1`
   is `IDF_` + the cell id. All 792 cells round-trip through `lookupPlanet()` as Planet codes.
 - **IDF prints the raw EARFCN in the תדר מרכזי column, not MHz** — `9335`, not `700`. Requested
-  2026-09-06: the team reads ENM, and the EARFCN is the number they recognise. **Every other
+  2026-09-06: the team reads ENM, and the EARFCN is the number they recognise. **The Planet
+  import stores it the same way** (2026-09-23): `EARFCN_NETS` in `app.js` selects `parseBand`'s
+  `'earfcn'` mode for IDF, so `P3M_750LTE.MIMO 9260_10` stores **9260**, not 750, and the
+  ENM-built and Planet-built databases agree. `freqText()` reads the same set, so the importer
+  and the renderer cannot disagree about which networks those are. **Every other
   network still prints MHz**, so a point served by both shows `1800` and `9335` in the same column
   with nothing marking the unit change. That is a known and accepted property, not an oversight.
   **Bandwidth** comes from `dlChannelBandwidth` (kHz → MHz) and is in MHz for every network.
@@ -929,6 +948,11 @@ the middle and a carrier number at the end. Both fall out correctly from "last o
 Verified against every sample there is — the eleven Band Names observed across all three operators
 all resolve correctly, **and Partner's 16,510 sectors come out byte-identical to the committed
 `partner.json`**, so the rule that reads the other two costs the verified one nothing.
+
+**An EARFCN network's toast names the bands too** — `תדרים: 9260, 3525 (700, 900)`. The raw
+values mean nothing at a glance, so the bands they land in are printed beside them, which is what
+keeps that line a *check*. Same reason `build_idf.py` printed both, and `build_db.py` now prints a
+`freqs:` line doing the same.
 
 **How to check it inside TS without sending anything out:** the success toast names the distinct
 bands it derived — `עודכן Cellcom — N סקטורים נשמרו בשרת · תדרים: 700, 1800, 2600`. That line is

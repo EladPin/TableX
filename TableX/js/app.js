@@ -23,6 +23,13 @@
   // silently drops what the import worked to collect.
   const OPTIONAL = ['notes', 'coords', 'ant', 'pwr'];
 
+  // Networks whose תדר מרכזי is the raw EARFCN rather than MHz. IDF only:
+  // requested 2026-09-06 because the team reads ENM and the EARFCN is the
+  // number they recognise. It is the ONE place the deliverable's frequency
+  // column carries two units, and it is a known, accepted property. Defined
+  // here so the importer and freqText() cannot disagree about it.
+  const EARFCN_NETS = new Set(['idf']);
+
   // network → { label, sites, sectors, source, built, siteSectors }
   const DB = Object.create(null);
 
@@ -276,10 +283,19 @@
   }
 
   // Distinct frequencies in a parsed database, ascending, as "700, 1800, 2600".
-  const bandList = sectors => {
+  const bandList = (sectors, net) => {
     const seen = new Set();
     for (const k in sectors) if (sectors[k][2] != null) seen.add(sectors[k][2]);
-    return [...seen].sort((a, b) => a - b).join(', ') || '—';
+    const vals = [...seen].sort((a, b) => a - b);
+    if (!vals.length) return '—';
+    const line = vals.join(', ');
+    // For an EARFCN network the raw values mean nothing at a glance, so the
+    // bands they land in are named too — that is what makes this line a
+    // check rather than a number. `9260, 3525 (700, 900)`.
+    if (!EARFCN_NETS.has(net) || !self.TableXBandOf) return line;
+    const bands = [...new Set(vals.map(v => self.TableXBandOf(v)).filter(Boolean))]
+                    .sort((a, b) => a - b);
+    return bands.length ? line + ' (' + bands.join(', ') + ')' : line;
   };
 
   /* ── in-app confirm ──────────────────────────────────────────────── */
@@ -469,12 +485,14 @@
   // `op` picks which side of dbparse.js runs: 'parse' builds a database,
   // 'inspect' just reports what is in the workbook. One driver for both, so
   // the Worker, the fallback and the error handling cannot drift apart.
-  function parseWorkbookAsync(buf, onStage, op) {
+  function parseWorkbookAsync(buf, onStage, op, opts) {
     op = op || 'parse';
     return new Promise((resolve, reject) => {
       const inline = () => {
         try {
-          resolve(op === 'inspect' ? self.TableXInspect(buf) : self.TableXParse(buf));
+          resolve(op === 'inspect'
+            ? self.TableXInspect(buf)
+            : self.TableXParse(buf, null, opts));
         } catch (ex) { reject(ex); }
       };
       let w = null;
@@ -498,7 +516,7 @@
       };
       // Structured clone, NOT a transfer: a transfer detaches the buffer here,
       // and the inline fallback above would then have nothing left to parse.
-      w.postMessage({ op, buf });
+      w.postMessage({ op, buf, opts });
     });
   }
 
@@ -563,7 +581,9 @@
     reader.onload = async ev => {
       let parsed = null, err = null;
       try {
-        parsed = await parseWorkbookAsync(ev.target.result, stage => toast(T('toast.' + stage)));
+        parsed = await parseWorkbookAsync(
+          ev.target.result, stage => toast(T('toast.' + stage)), 'parse',
+          { freq: EARFCN_NETS.has(net) ? 'earfcn' : null });
       } catch (ex) { err = ex.message; }
 
       if (!parsed) {
@@ -635,7 +655,7 @@
       await persistDb(net, payload, T('toast.dbSaved', {
         label: label(net),
         n: fmt(Object.keys(parsed.sectors).length),
-        f: bandList(parsed.sectors),
+        f: bandList(parsed.sectors, net),
       }) + (parsed.composite ? ' \u00b7 ' + T('toast.compositeKey') : ''));
       if (card) card.classList.remove('busy');
     };
@@ -1876,7 +1896,7 @@
   // because it shows all four networks in one list.
   function freqText(v, net) {
     if (v == null) return '-';
-    return (net || (ed && ed.net)) === 'idf' ? 'EARFCN ' + v : v + ' MHz';
+    return EARFCN_NETS.has(net || (ed && ed.net)) ? 'EARFCN ' + v : v + ' MHz';
   }
 
   // siteId -> [sectorId, ...]. Rebuilt per render; cheap next to the DOM work.
