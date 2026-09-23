@@ -120,6 +120,22 @@
     return [m[1], m[2].trim() || null];
   }
 
+  // One sector can be served by more than one antenna (MIMO), and one antenna
+  // by more than one sector. Where they agree, that is the value; where they
+  // DISAGREE, the answer is nothing — the same rule the Pelephone bandwidth
+  // path follows, because a confident wrong azimuth on a slide going to an
+  // operator is worse than a visibly missing one. Applied per field, so a
+  // disagreement about tilt does not blank the height.
+  function agreed(values) {
+    let out;
+    for (const v of values) {
+      if (v === null || v === undefined || v === '') continue;
+      if (out === undefined) out = v;
+      else if (out !== v) return null;
+    }
+    return out === undefined ? null : out;
+  }
+
   function countDupes(list, keyOf) {
     const seen = Object.create(null);
     let n = 0, example = null;
@@ -156,6 +172,29 @@
     ('band name' in sh.hdr ||
      ('frequency (mhz)' in sh.hdr && 'bandwidth (mhz)' in sh.hdr));
 
+  // THE PHYSICAL PLANT. Three more sheets, all optional, all matched by
+  // header like everything else here. They carry what a site-data slide needs
+  // and the sector sheet does not: where the antenna points, how high it is,
+  // what it is, and how hard it is driven.
+  //
+  //   Antennas         Site ID + Antenna ID + Azimuth/Height/Antenna File,
+  //                    and a `Sectors` column naming what each one serves.
+  //   Sector_Antennas  the same join stated separately, in older exports.
+  //   PA Power (dBm)   on LTE_FDD_Sectors in the 2024 Partner export and on
+  //                    LTE_FDD_Sector_Carriers in the Planet the team runs
+  //                    now, so it is found by header on whichever sheet has
+  //                    it rather than by tab name.
+  const isAntennaSheet = sh =>
+    'site id' in sh.hdr && 'antenna id' in sh.hdr &&
+    ('azimuth' in sh.hdr || 'height (m)' in sh.hdr || 'antenna file' in sh.hdr);
+
+  const isJoinSheet = sh =>
+    'site id' in sh.hdr && 'sector id' in sh.hdr && 'antenna id' in sh.hdr &&
+    !isAntennaSheet(sh);
+
+  const isPowerSheet = sh =>
+    'site id' in sh.hdr && 'sector id' in sh.hdr && 'pa power (dbm)' in sh.hdr;
+
   // A sheet with a Sector ID is a sector sheet, never the site list.
   const isSiteSheet = sh =>
     !('sector id' in sh.hdr) && NAME_COLS.some(k => k in sh.hdr);
@@ -172,7 +211,13 @@
     // is what keeps this selection identical to build_db.py's.
     const sites = heads.filter(isSiteSheet);
     if (!sites.length) return null;
-    return { layout: 'multi', names: [sec.name].concat(sites.map(s => s.name)) };
+    // The plant sheets are optional: a workbook without them still imports,
+    // and the site-data slide simply shows nothing for those columns rather
+    // than inventing them.
+    const extra = heads.filter(sh => isAntennaSheet(sh) || isJoinSheet(sh) ||
+                                     isPowerSheet(sh)).map(sh => sh.name);
+    return { layout: 'multi',
+             names: [sec.name].concat(sites.map(s => s.name)).concat(extra) };
   }
 
   /* ── builders ────────────────────────────────────────────────────── */
@@ -238,7 +283,10 @@
       }
       // The flat path reads explicit Frequency (MHz) / Bandwidth (MHz)
       // columns, so there is no band derivation here to distrust.
+      // The flat sheet carries six columns and none of them is plant, so a
+      // legacy workbook imports exactly as it always did.
       return { layout: 'flat', sheet: sh.name, sites, notes, sectors,
+               coords: {}, ant: {}, pwr: {},
                rows, dupes, dupeExample, composite: false,
                unknownBand: 0, bandExample: null };
     }
@@ -336,9 +384,103 @@
       delete notes[k];          // same pass — sites[k] is gone after this
     }
 
+    // ── the physical plant ────────────────────────────────────────────
+    // Gathered AFTER the key is chosen, because every one of these is keyed by
+    // sector and the sector key may be the composite.
+    const secKey = (siteId, secId) =>
+      composite ? siteId + '_' + secId : secId;
+
+    const coords = Object.create(null);
+    if ('longitude' in siteSheet.hdr && 'latitude' in siteSheet.hdr) {
+      for (const row of siteSheet.rows) {
+        const siteId = cellAt(row, siteSheet.hdr, 'site id');
+        if (!siteId || !(siteId in sites)) continue;
+        const x = num(cellAt(row, siteSheet.hdr, 'longitude'));
+        const y = num(cellAt(row, siteSheet.hdr, 'latitude'));
+        // Planet writes WGS84 degrees in one project and projected metres in
+        // another under these same two headers, so nothing here converts: the
+        // pair is stored as the workbook states it and labelled at render.
+        if (typeof x === 'number' && typeof y === 'number') coords[siteId] = [x, y];
+      }
+    }
+
+    // sector key -> [[height, azimuth, tilt, file], ...] before agreement
+    const antBy = Object.create(null);
+    const push = (key, v) => { (antBy[key] || (antBy[key] = [])).push(v); };
+
+    const antSheet = sheets.find(isAntennaSheet);
+    const antById = Object.create(null);          // siteId + '\u0000' + antId
+    if (antSheet) {
+      for (const row of antSheet.rows) {
+        const siteId = cellAt(row, antSheet.hdr, 'site id');
+        const antId = cellAt(row, antSheet.hdr, 'antenna id');
+        if (!siteId) continue;
+        const a = [num(cellAt(row, antSheet.hdr, 'height (m)')),
+                   num(cellAt(row, antSheet.hdr, 'azimuth')),
+                   num(cellAt(row, antSheet.hdr, 'mechanical tilt')),
+                   cellAt(row, antSheet.hdr, 'antenna file') || null];
+        if (antId !== undefined && antId !== null && antId !== '') {
+          antById[siteId + '\u0000' + antId] = a;
+        }
+        // The Antennas sheet names what it serves itself, and one antenna can
+        // serve several: `1, 3`.
+        const served = cellAt(row, antSheet.hdr, 'sectors');
+        if (served === undefined || served === null || served === '') continue;
+        for (const one of String(served).split(',')) {
+          const t = one.trim();
+          if (t) push(secKey(siteId, t), a);
+        }
+      }
+    }
+
+    // Older exports state the join on their own sheet instead.
+    const joinSheet = sheets.find(isJoinSheet);
+    if (joinSheet && antSheet) {
+      for (const row of joinSheet.rows) {
+        const siteId = cellAt(row, joinSheet.hdr, 'site id');
+        const secId = cellAt(row, joinSheet.hdr, 'sector id');
+        const antId = cellAt(row, joinSheet.hdr, 'antenna id');
+        if (!siteId || !secId) continue;
+        const a = antById[siteId + '\u0000' + antId];
+        if (a) push(secKey(siteId, secId), a);
+      }
+    }
+
+    const ant = Object.create(null);
+    for (const key in antBy) {
+      if (!(key in sectors)) continue;            // an antenna on no sector
+      const list = antBy[key];
+      const row = [agreed(list.map(a => a[0])), agreed(list.map(a => a[1])),
+                   agreed(list.map(a => a[2])), agreed(list.map(a => a[3]))];
+      if (row.some(v => v !== null)) ant[key] = row;
+    }
+
+    // PA Power, in dBm as the workbook states it. Watts are a render-time
+    // conversion (10^((dBm-30)/10)), not a stored number, so the file keeps
+    // what Planet actually said.
+    const pwrBy = Object.create(null);
+    const pwrSheet = sheets.find(isPowerSheet);
+    if (pwrSheet) {
+      for (const row of pwrSheet.rows) {
+        const siteId = cellAt(row, pwrSheet.hdr, 'site id');
+        const secId = cellAt(row, pwrSheet.hdr, 'sector id');
+        if (!siteId || !secId) continue;
+        const v = num(cellAt(row, pwrSheet.hdr, 'pa power (dbm)'));
+        if (typeof v !== 'number') continue;
+        const k = secKey(siteId, secId);
+        (pwrBy[k] || (pwrBy[k] = [])).push(v);
+      }
+    }
+    const pwr = Object.create(null);
+    for (const k in pwrBy) {
+      if (!(k in sectors)) continue;
+      const v = agreed(pwrBy[k]);
+      if (v !== null) pwr[k] = v;
+    }
+
     return { layout: 'multi', sheet: siteSheet.name + ' + ' + secSheet.name,
-             sites, notes, sectors, rows, dupes, dupeExample, composite,
-             unknownBand, bandExample };
+             sites, notes, sectors, coords, ant, pwr,
+             rows, dupes, dupeExample, composite, unknownBand, bandExample };
   }
 
   /* ── inspector ───────────────────────────────────────────────────── */

@@ -315,6 +315,48 @@ def count_dupes(rows, key_of):
     return n, example
 
 
+def is_antenna_sheet(hdr):
+    return ('site id' in hdr and 'antenna id' in hdr and
+            ('azimuth' in hdr or 'height (m)' in hdr or 'antenna file' in hdr))
+
+
+def is_join_sheet(hdr):
+    return ('site id' in hdr and 'sector id' in hdr and 'antenna id' in hdr
+            and not is_antenna_sheet(hdr))
+
+
+def is_power_sheet(hdr):
+    return 'site id' in hdr and 'sector id' in hdr and 'pa power (dbm)' in hdr
+
+
+def is_number(v):
+    """num() returns an int for a whole number and a float otherwise, so a
+    test against float alone drops PA Power 49 and the IDF export's
+    whole-number eastings. bool is excluded because it is an int in Python."""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def agreed(values):
+    """Where the sources agree that is the value; where they DISAGREE, None.
+
+    One sector can be served by several antennas (MIMO) and one antenna by
+    several sectors. A confident wrong azimuth on a slide going to an operator
+    is worse than a visibly missing one -- the rule the Pelephone bandwidth
+    path already follows. Applied per field, so a disagreement about tilt does
+    not blank the height.
+    """
+    out = None
+    seen = False
+    for v in values:
+        if v is None or v == '':
+            continue
+        if not seen:
+            out, seen = v, True
+        elif out != v:
+            return None
+    return out if seen else None
+
+
 def build_multi(sheets):
     """Layout A. Returns (sites, sectors, description) or None."""
     sec_sheet = None
@@ -414,8 +456,101 @@ def build_multi(sheets):
         del sites[k]
         notes.pop(k, None)
 
+    # -- the physical plant ------------------------------------------
+    # Gathered AFTER the key is chosen: all of it is keyed by sector, and the
+    # sector key may be the composite.
+    def sec_key(site_id, sec):
+        return '%s_%s' % (site_id, sec) if composite else sec
+
+    coords = {}
+    if 'longitude' in s_hdr and 'latitude' in s_hdr:
+        for row in s_rows:
+            site_id = cell(row, s_hdr, 'site id')
+            if not site_id or site_id not in sites:
+                continue
+            x = num(cell(row, s_hdr, 'longitude'))
+            y = num(cell(row, s_hdr, 'latitude'))
+            # Planet writes WGS84 degrees in one project and projected metres
+            # in another under these same headers, so nothing converts here.
+            if is_number(x) and is_number(y):
+                coords[site_id] = [x, y]
+
+    ant_by = {}
+    ant_by_id = {}
+    ant_sheet = next((sh for sh in sheets if is_antenna_sheet(sh[1])), None)
+    if ant_sheet:
+        _, a_hdr, a_rows = ant_sheet
+        for row in a_rows:
+            site_id = cell(row, a_hdr, 'site id')
+            if not site_id:
+                continue
+            a = [num(cell(row, a_hdr, 'height (m)')),
+                 num(cell(row, a_hdr, 'azimuth')),
+                 num(cell(row, a_hdr, 'mechanical tilt')),
+                 cell(row, a_hdr, 'antenna file') or None]
+            ant_id = cell(row, a_hdr, 'antenna id')
+            if ant_id not in (None, ''):
+                ant_by_id[(site_id, str(ant_id))] = a
+            # The Antennas sheet names what it serves, and one antenna can
+            # serve several: "1, 3".
+            served = cell(row, a_hdr, 'sectors')
+            if served in (None, ''):
+                continue
+            for one in str(served).split(','):
+                t = one.strip()
+                if t:
+                    ant_by.setdefault(sec_key(site_id, t), []).append(a)
+
+    # Older exports state the join on a sheet of its own instead.
+    join_sheet = next((sh for sh in sheets if is_join_sheet(sh[1])), None)
+    if join_sheet and ant_sheet:
+        _, j_hdr, j_rows = join_sheet
+        for row in j_rows:
+            site_id = cell(row, j_hdr, 'site id')
+            sec = cell(row, j_hdr, 'sector id')
+            ant_id = cell(row, j_hdr, 'antenna id')
+            if not site_id or not sec:
+                continue
+            a = ant_by_id.get((site_id, str(ant_id)))
+            if a:
+                ant_by.setdefault(sec_key(site_id, sec), []).append(a)
+
+    ant = {}
+    for key, lst in ant_by.items():
+        if key not in sectors:                 # an antenna on no sector
+            continue
+        rowv = [agreed([a[i] for a in lst]) for i in range(4)]
+        if any(v is not None for v in rowv):
+            ant[key] = rowv
+
+    # PA Power stays in dBm as the workbook states it; watts are a render-time
+    # conversion, so the file keeps what Planet actually said.
+    pwr_by = {}
+    pwr_sheet = next((sh for sh in sheets if is_power_sheet(sh[1])), None)
+    if pwr_sheet:
+        _, w_hdr, w_rows = pwr_sheet
+        for row in w_rows:
+            site_id = cell(row, w_hdr, 'site id')
+            sec = cell(row, w_hdr, 'sector id')
+            if not site_id or not sec:
+                continue
+            v = num(cell(row, w_hdr, 'pa power (dbm)'))
+            if not is_number(v):
+                continue
+            pwr_by.setdefault(sec_key(site_id, sec), []).append(v)
+    pwr = {}
+    for key, lst in pwr_by.items():
+        if key not in sectors:
+            continue
+        v = agreed(lst)
+        if v is not None:
+            pwr[key] = v
+
     desc = ('multi-sheet: sites=%r (name column %r), sectors=%r'
             % (s_name, name_col, c_name))
+    if ant or pwr or coords:
+        desc += ('\n  plant: %d coords, %d antennas, %d power values'
+                 % (len(coords), len(ant), len(pwr)))
     if composite:
         desc += ('\n  key: Site ID + Sector ID (the Sector ID column '
                  'repeats per site, which is how Planet reports it)')
@@ -435,7 +570,7 @@ def build_multi(sheets):
                  '(e.g. %r).\nThe Sector ID column is not a unique key, so this '
                  'import would silently drop rows.\nExport with a sector code '
                  'unique across the whole network.' % (dupes, rows, dupe_example))
-    return sites, notes, sectors, desc
+    return sites, notes, sectors, coords, ant, pwr, desc
 
 
 def build_flat(sheets):
@@ -475,7 +610,9 @@ def build_flat(sheets):
                      '(e.g. %r).\nThe Sector ID column is not a unique key, so '
                      'this import would silently drop rows.'
                      % (dupes, n_rows, dupe_example))
-        return sites, notes, sectors, desc
+        # Six columns, none of them plant: a legacy workbook imports exactly
+        # as it always did.
+        return sites, notes, sectors, {}, {}, {}, desc
     return None
 
 
@@ -499,7 +636,7 @@ def main():
                  'OR a Planet group export with a Sites sheet (Site ID + a '
                  'name column)\nand a Sectors sheet (Sector ID + Site ID + '
                  'Band Name).' % ' | '.join(WANT))
-    sites, notes, sectors, desc = built
+    sites, notes, sectors, coords, ant, pwr, desc = built
     print('layout: %s' % desc)
 
     out = {
@@ -510,10 +647,12 @@ def main():
         'sites': sites,
         'sectors': sectors,
     }
-    # Optional, and omitted when empty, so a database with no notes stays
-    # byte-identical to one built before this existed.
-    if notes:
-        out['notes'] = notes
+    # Optional, and each omitted when empty, so a database with none of them
+    # stays byte-identical to one built before they existed.
+    for key, val in (('notes', notes), ('coords', coords),
+                     ('ant', ant), ('pwr', pwr)):
+        if val:
+            out[key] = val
     os.makedirs(DATA, exist_ok=True)
     dest = os.path.join(DATA, '%s.json' % network)
     if os.path.exists(dest):                       # the .bak has saved this

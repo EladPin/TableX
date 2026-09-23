@@ -337,15 +337,33 @@ export default async function ({ ev, ok, shot, sleep, send }) {
       ['IDF_Astra',1,'P3M_750LTE.MIMO 9260_10'],
       ['IDF_Astra','3_900','P3M_900LTE.MIMO 3525_5'],
     ]);
+    // The plant: an antenna naming what it serves, and PA Power on a sheet
+    // of its own — the shape the 2026 Planet emits.
+    const ants = XLSX.utils.aoa_to_sheet([
+      ['Site ID','Antenna ID','Antenna File','Height (m)','Azimuth','Mechanical Tilt','Sectors'],
+      ['IDF_Amitay',1,'LNX-6515DS-VTM.pafx',50,60,0,'1'],
+      ['IDF_Amitay',2,'LNX-6515DS-VTM.pafx',38,160,2,'2'],
+      ['IDF_Astra',1,'80010866.pafx',30,245,5,'1'],
+      ['IDF_Astra',2,'80010866.pafx',30,40,0,'3_900'],
+    ]);
+    const pwr = XLSX.utils.aoa_to_sheet([
+      ['Site ID','Sector ID','Carrier Name','PA Power (dBm)'],
+      ['IDF_Amitay',1,'LTE FDD',49.03],
+      ['IDF_Amitay',2,'LTE FDD',46.02],
+      ['IDF_Astra','3_900','LTE FDD',43],
+    ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sites, 'Sites');
     XLSX.utils.book_append_sheet(wb, secs, 'Sectors');
+    XLSX.utils.book_append_sheet(wb, ants, 'Antennas');
+    XLSX.utils.book_append_sheet(wb, pwr, 'LTE_FDD_Sector_Carriers');
     const buf = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' })).buffer;
     const d = self.TableXParse(buf);
     return { composite: d.composite, dupes: d.dupes,
              keys: Object.keys(d.sectors).sort(),
              astra900: d.sectors['IDF_Astra_3_900'],
-             names: d.sites, notes: d.notes || {} };`);
+             names: d.sites, notes: d.notes || {},
+             coords: d.coords || {}, ant: d.ant || {}, pwr: d.pwr || {} };`);
 
   // Without this the import is REFUSED: IDF numbers sectors per site, so the
   // plain Sector ID column collapses the network into a handful of rows.
@@ -367,6 +385,25 @@ export default async function ({ ev, ok, shot, sleep, send }) {
      wbk.notes.IDF_Amitay === 'סקטורים 2,3 הם של ק.ד 235',
      JSON.stringify(wbk.notes));
   ok('a name with no note gets none', !('IDF_Astra' in wbk.notes));
+
+  // The plant. Without the join the site-data slide has no azimuth, no
+  // height and no antenna — the whole reason that view exists.
+  ok('an antenna joins its sector through the Sectors column',
+     JSON.stringify(wbk.ant.IDF_Amitay_1) === '[50,60,0,"LNX-6515DS-VTM.pafx"]',
+     JSON.stringify(wbk.ant.IDF_Amitay_1));
+  ok('the join follows the composite key, not the raw Sector ID',
+     JSON.stringify(wbk.ant.IDF_Astra_3_900) === '[30,40,0,"80010866.pafx"]',
+     JSON.stringify(wbk.ant.IDF_Astra_3_900));
+  ok('PA Power is read off whichever sheet carries it',
+     wbk.pwr.IDF_Amitay_1 === 49.03 && wbk.pwr.IDF_Astra_3_900 === 43,
+     JSON.stringify(wbk.pwr));
+  // 49.03 dBm is 80 W and 46.02 is 40 W — the numbers an operator form prints.
+  ok('dBm converts to the watts the request form shows',
+     Math.round(Math.pow(10, (wbk.pwr.IDF_Amitay_1 - 30) / 10)) === 80 &&
+     Math.round(Math.pow(10, (wbk.pwr.IDF_Amitay_2 - 30) / 10)) === 40);
+  ok('site coordinates are kept as the workbook states them',
+     JSON.stringify(wbk.coords.IDF_Amitay) === '[622321.5,3452921]',
+     JSON.stringify(wbk.coords.IDF_Amitay));
 
   // The three operators whose Sector IDs are already unique must NOT re-key:
   // partner.json was verified sector-for-sector against Planet on that path.

@@ -18,6 +18,11 @@
   // before the commercial operators if a code ever appears in both.
   const NETWORKS = ['idf', 'cellcom', 'partner', 'pelephone'];
 
+  // The optional keys of the file shape, in one place: the import, the backup
+  // and the site editor's Save all have to carry every one of them or a save
+  // silently drops what the import worked to collect.
+  const OPTIONAL = ['notes', 'coords', 'ant', 'pwr'];
+
   // network → { label, sites, sectors, source, built, siteSectors }
   const DB = Object.create(null);
 
@@ -384,7 +389,10 @@
       built: db.built || '—',
       sites: db.sites || {},
       sectors: db.sectors || {},
-      ...(db.notes && Object.keys(db.notes).length ? { notes: db.notes } : {}),
+      ...OPTIONAL.reduce((o, k) => {
+        if (db[k] && Object.keys(db[k]).length) o[k] = db[k];
+        return o;
+      }, {}),
     };
   }
 
@@ -610,10 +618,10 @@
         sites: parsed.sites,
         sectors: parsed.sectors,
       };
-      // Optional, and omitted when empty so a database with no notes stays
-      // shape-identical to one imported before notes existed.
-      if (parsed.notes && Object.keys(parsed.notes).length) {
-        payload.notes = parsed.notes;
+      // Optional, and each omitted when empty, so a database with none of
+      // them stays shape-identical to one imported before they existed.
+      for (const k of ['notes', 'coords', 'ant', 'pwr']) {
+        if (parsed[k] && Object.keys(parsed[k]).length) payload[k] = parsed[k];
       }
 
       // The bands are the cheapest possible check that the import read the
@@ -1602,9 +1610,12 @@
       net: net,
       sites: JSON.parse(JSON.stringify(src.sites || {})),
       // Staged and written back even though nothing here edits them: a Save
-      // posts the whole database, so leaving notes out would silently wipe
-      // every one of them the next time somebody added a sector.
+      // posts the WHOLE database, so leaving any of them out would silently
+      // wipe every one the next time somebody added a sector.
       notes: JSON.parse(JSON.stringify(src.notes || {})),
+      coords: JSON.parse(JSON.stringify(src.coords || {})),
+      ant: JSON.parse(JSON.stringify(src.ant || {})),
+      pwr: JSON.parse(JSON.stringify(src.pwr || {})),
       sectors: JSON.parse(JSON.stringify(src.sectors || {})),
       open: new Set(),
       dirty: 0,
@@ -1735,7 +1746,18 @@
   // retyping its code and name and risking a typo that forks it into a new one.
   // A note belongs to a site, so it goes when the site does — the same rule
   // the parsers apply to a site left with no sectors.
-  function dropNote(siteId) { if (ed.notes) delete ed.notes[siteId]; }
+  function dropNote(siteId) {
+    if (ed.notes) delete ed.notes[siteId];
+    if (ed.coords) delete ed.coords[siteId];
+  }
+
+  // The plant is keyed by SECTOR, so it goes when the sector does — otherwise
+  // a removed sector leaves an antenna behind that nothing can reach and the
+  // file only grows.
+  function dropPlant(secId) {
+    if (ed.ant) delete ed.ant[secId];
+    if (ed.pwr) delete ed.pwr[secId];
+  }
 
   function addSectorTo(siteId) {
     $('edAdd').classList.remove('hidden');
@@ -1753,6 +1775,7 @@
     if (!ed.sectors[secId]) return;
     const siteId = ed.sectors[secId][0];
     delete ed.sectors[secId];
+    dropPlant(secId);
     // A site with no sectors left is unreachable by any lookup, so drop it
     // rather than leave an orphan name in the file.
     if (!Object.keys(ed.sectors).some(k => ed.sectors[k][0] === siteId)) {
@@ -1767,7 +1790,10 @@
 
   function removeSite(siteId) {
     for (const secId in ed.sectors) {
-      if (ed.sectors[secId][0] === siteId) delete ed.sectors[secId];
+      if (ed.sectors[secId][0] === siteId) {
+        delete ed.sectors[secId];
+        dropPlant(secId);
+      }
     }
     delete ed.sites[siteId];
     dropNote(siteId);
@@ -1830,7 +1856,10 @@
       built: new Date().toISOString().slice(0, 10),
       sites: ed.sites,
       sectors: ed.sectors,
-      ...(Object.keys(ed.notes || {}).length ? { notes: ed.notes } : {}),
+      ...OPTIONAL.reduce((o, k) => {
+        if (ed[k] && Object.keys(ed[k]).length) o[k] = ed[k];
+        return o;
+      }, {}),
     };
     try {
       const res = await fetch('api/db/' + ed.net, {

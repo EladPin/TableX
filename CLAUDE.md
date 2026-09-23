@@ -300,12 +300,23 @@ state, not an error — the card renders as "ריק" with a load button.
   "built":   "2026-09-04",
   "sites":   { "MN4610A": "גג בית העם  דישון" },
   "sectors": { "LNN4610Da": ["MN4610A", "Da", 1800, 20] },
-  "notes":   { "IDF_Amitay": "סקטורים 2,3 הם של ק.ד 235" }   // optional
+  "notes":   { "IDF_Amitay": "סקטורים 2,3 הם של ק.ד 235" },      // optional
+  "coords":  { "IDF_Amitay": [622321.5, 3452921] },              // optional
+  "ant":     { "IDF_Amitay_1": [50, 60, 0, "LNX-6515DS.pafx"] }, // optional
+  "pwr":     { "IDF_Amitay_1": 49.03 }                           // optional
 }
 ```
 
-**`notes` is optional and omitted when empty**, so a database with none is
-shape-identical to one built before notes existed.
+**The four optional keys are omitted when empty**, so a database with none of
+them is shape-identical to one built before they existed. `ant` is
+`[height m, azimuth, mechanical tilt, antenna file]` and `pwr` is **PA Power in
+dBm as the workbook states it** — watts are a render-time conversion
+(`10^((dBm-30)/10)`, so 49.03 → 80 W and 46.02 → 40 W), never a stored number.
+
+**Every one of them has to be carried by the import, the backup AND the site
+editor's Save.** A Save posts the whole database, so a key left out of that
+payload silently wipes what the import collected, the next time somebody adds a
+sector. `OPTIONAL` in `app.js` is the one list all three read.
 
 Site names are **deduplicated into `sites`** rather than repeated per sector — a site carries up
 to 12 sectors here and the Hebrew name is by far the longest field. That halves the file
@@ -431,6 +442,33 @@ zero end in one**, and the ENM name list already used this convention on `Asaf_M
 A name that is *only* a parenthetical stays a name. **The note is app-only** — the lookup and the
 site editor show it, `renderTable()` and both PPTX writers never see it, the same rule the network
 chips follow.
+
+**Three more sheets are read when present, all optional and all matched by header.** They carry
+what a site-data slide needs and the sector sheet does not:
+
+| Sheet | Matched by | Gives |
+|-------|------------|-------|
+| `Antennas` | `Site ID` + `Antenna ID` + one of `Azimuth` / `Height (m)` / `Antenna File` | height, azimuth, mechanical tilt, antenna file — and a `Sectors` column naming what each one serves |
+| `Sector_Antennas` | `Site ID` + `Sector ID` + `Antenna ID`, and NOT an antenna sheet | the same join stated separately, in older exports |
+| whichever has it | `Site ID` + `Sector ID` + `PA Power (dBm)` | the power |
+
+**`PA Power (dBm)` moves between sheets across Planet versions** — `LTE_FDD_Sectors` in the 2024
+Partner export, `LTE_FDD_Sector_Carriers` in the Planet the team runs now — which is exactly why it
+is found by header and never by tab name.
+
+**Where two sources disagree the answer is nothing.** One sector can be served by several antennas
+(MIMO) and one antenna by several sectors (`1, 3`), so each field is agreed or blank — the rule the
+Pelephone bandwidth path already follows, because a confident wrong azimuth on a form going to an
+operator is worse than a visibly missing one. Per FIELD, so a disagreement about tilt does not
+blank the height.
+
+`num()` in `build_db.py` returns an **int** for a whole number, so a guard written against `float`
+alone silently drops `PA Power` 49 and the IDF export's whole-number eastings. That bug was caught
+by diffing the two parsers, which is what that check is for.
+
+Verified 2026-09-23 on the Partner group export (`DEMO_DB.xlsx` with its hand-built `DB` tab
+removed): **14,252 of 14,252 sectors carry an antenna and a power value**, `LNN4610Da` reading
+17 m / azimuth 20 / `742270_1800.pafx` / 49 dBm, and both parsers agree on every entry.
 
 An explicit `Frequency (MHz)` / `Bandwidth (MHz)` column on the sectors sheet beats the derived
 value when one is present. Sites carrying no sectors are dropped: a site no sector points at is
