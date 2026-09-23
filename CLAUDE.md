@@ -798,9 +798,30 @@ of the others, and each now has a guard so the failure is loud instead of silent
 **1. IDF's `Sector ID` is not a key.** It numbers sectors `1` / `2` / `3` *per site*, so the same
 value repeats across every site in the network. Keying on it collapses a few hundred sectors into
 about four, and the import would report success. Both parsers now **refuse outright** when any
-sector code repeats, naming the count and an example. The correct key for IDF is presumably
-`Site ID` + `Sector ID`, but which composite Planet's point analysis actually reports is unknown,
-so nothing is joined speculatively.
+sector code repeats, naming the count and an example.
+
+**The composite is now confirmed, 2026-09-23: the key is `<Site ID>_<Sector ID>`, and it IS the
+point-inspect code verbatim.** `IDF_Share.xlsx` was photographed on TS: `Site ID` reads
+`IDF_Amitay`, `Sector ID` reads `1` / `2` / `3`, and concatenating them gives `IDF_Amitay_1` —
+exactly what Planet's point inspect reports. No transformation, no `planetKey()` step.
+
+Checked against the ENM-built `idf.json` rather than assumed: **44 of the 45 site+sector pairs
+legible in that photograph exist as cells in the dump**, and two fingerprints make it more than
+a coincidence of shape — the photo shows `Fares` carrying sectors 1, 3 and 4 with **no 2**, and
+`idf.json` independently holds exactly `Fares_1`, `Fares_3`, `Fares_4`; the photo shows `Astra`
+carrying an odd `3_900`, and the dump holds `Astra_3_900`. Two sources built from different
+systems agree on the same gaps and the same band-suffixed sector. (The 45th, `Cabri`, is in
+Planet and absent from ENM — a real difference between the two, not a misread.)
+
+**`Cell Name` and `E-UTRAN Cell ID` are EMPTY in the IDF export**, so the cell id itself is not
+in the workbook. It does not need to be: the composite reconstructs it.
+
+**This also explains — and retires — the chained-site machinery.** "Planet drops the slot prefix"
+(below) is the wrong description: Planet is not dropping anything, it models `Hadas` as a site in
+its own right, which is precisely the attribution `site_of()` and the hand-confirmed `CHAINED` set
+exist to reconstruct from ENM's node hierarchy. An IDF database built from the Planet export needs
+no `CHAINED` list, no `CHECK :` line and no `aliasIndex()` — the export already says where the
+radio is.
 
 **2. `Band Name` carries an EARFCN for everyone except Partner.** Solved — see "Band Name is three different formats" below.
 
