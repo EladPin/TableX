@@ -116,6 +116,7 @@
     <nav class="nav-links">
       <button class="nav-link" data-goto="home" data-i18n="nav.input"></button>
       <button class="nav-link" data-goto="lookup" data-i18n="nav.lookup"></button>
+      <button class="nav-link" data-goto="site" data-i18n="nav.site"></button>
       <button class="nav-link" data-goto="decks" data-i18n="nav.decks"></button>
       <button class="nav-link" data-goto="db" data-i18n="nav.db"></button>
     </nav>
@@ -348,6 +349,42 @@
 </div>
 
 <!-- ══ TABLE ══ -->
+<!-- ══ SITE DATA ══ -->
+<main class="view hidden" id="viewSite">
+  <section class="section sd-top">
+    <div class="section-head">
+      <p class="eyebrow"><span class="dot"></span><span data-i18n="sd.eyebrow"></span></p>
+      <h2 class="section-title" data-i18n="sd.title"></h2>
+      <p class="section-sub" data-i18n="sd.sub"></p>
+    </div>
+
+    <div class="sd-bar">
+      <input class="lk-search" id="sdSearch" type="search" autocomplete="off"
+             data-i18n-placeholder="sd.search"/>
+    </div>
+    <div class="sd-results" id="sdResults"></div>
+
+    <div class="sd-picked" id="sdPicked"></div>
+
+    <div class="sd-actions" id="sdActions">
+      <div class="seg" id="sdPer" role="group">
+        <button class="seg-btn" data-sd-per="multi" data-i18n="sd.perMulti"></button>
+        <button class="seg-btn" data-sd-per="one" data-i18n="sd.perOne"></button>
+      </div>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="sdClear" data-i18n="sd.clear"></button>
+      <button class="btn btn-ghost btn-sm" id="sdPrint" data-i18n="tbl.print"></button>
+      <button class="btn btn-primary btn-sm" id="sdPptx" data-i18n="tbl.pptx"></button>
+    </div>
+
+    <div class="doc-wrap sd-wrap">
+      <div class="doc-shell">
+        <div class="doc-page" id="sdPage"></div>
+      </div>
+    </div>
+  </section>
+</main>
+
 <main class="view hidden" id="viewTable">
   <div class="toolbar">
     <div class="toolbar-inner">

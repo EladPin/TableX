@@ -421,5 +421,64 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   ok('a unique Sector ID is left alone',
      flat.composite === false && flat.keys.join(',') === 'LNN4610Da,LNN4610Db',
      `composite=${flat.composite} keys=${flat.keys.join(',')}`);
-}
 
+  // ── SITE DATA ─────────────────────────────────────────────────────────
+  // The sheet an operator coverage request needs. Driven through the real
+  // view because picking a site is a click, like everything else here.
+  await ev(`document.querySelector('[data-goto="site"]').click();`);
+  await sleep(300);
+  ok('site-data view opens',
+     await ev(`return !document.getElementById('viewSite').classList.contains('hidden');`));
+  ok('the sheet starts empty and says so',
+     await ev(`return document.querySelectorAll('#sdPage .sd-site').length === 0
+                  && document.querySelector('#sdPage .ed-msg') !== null;`));
+  ok('nothing to export yet', await ev(`
+     return document.getElementById('sdActions').classList.contains('hidden');`));
+
+  const sdSite = await ev(`
+    const d = await (await fetch('data/partner.json')).json();
+    return Object.keys(d.sites)[0];`);
+  await ev(`const e = document.getElementById('sdSearch');
+            e.value = ${JSON.stringify(sdSite)}; e.dispatchEvent(new Event('input'));`);
+  await sleep(350);
+  ok('a site id finds its site', await ev(`return document.querySelectorAll('.sd-hit').length >= 1;`),
+     sdSite);
+
+  await ev(`document.querySelector('.sd-hit').click();`);
+  await sleep(350);
+  const sheet = await ev(`
+    const heads = [...document.querySelectorAll('#sdPage .sd-table th')].map(t => t.textContent);
+    const rows = [...document.querySelectorAll('#sdPage .sd-table tbody tr')]
+                   .map(tr => [...tr.children].map(td => td.textContent));
+    const db = await (await fetch('data/partner.json')).json();
+    const want = Object.entries(db.sectors)
+                   .filter(([, v]) => v[0] === ${JSON.stringify(sdSite)})
+                   .map(([, v]) => v[1]).sort();
+    return { chips: document.querySelectorAll('.sd-chip').length,
+             acts: !document.getElementById('sdActions').classList.contains('hidden'),
+             heads, rows, want };`);
+
+  ok('picking a site puts it on the sheet', sheet.chips === 1 && sheet.acts);
+  ok('the sheet has the seven columns the request form wants',
+     sheet.heads.length === 7 && sheet.heads[0] === 'סקטור' && sheet.heads[6] === 'הספק',
+     sheet.heads.join(' | '));
+  ok('a row per sector', sheet.rows.length === sheet.want.length,
+     `${sheet.rows.length} rows for ${sheet.want.length} sectors`);
+  // sectorLabel() takes the whole sector ARRAY and reads [1] itself. Handing
+  // it the sector STRING silently printed that string's second character —
+  // 'a' for 'Da' — on every row of a commander-facing sheet.
+  ok('the sector column is the sector, not one letter of it',
+     sheet.rows.map(r => r[0]).sort().join(',') === sheet.want.join(','),
+     `got ${sheet.rows.map(r => r[0]).sort().join(',')} want ${sheet.want.join(',')}`);
+  // The shipped partner.json predates the plant, so those columns must read
+  // '-' rather than vanish or throw: a gap in the export has to be visible.
+  ok('a database with no plant shows gaps, not blanks',
+     sheet.rows.every(r => r[3] === '-' && r[4] === '-' && r[5] === '-'),
+     JSON.stringify(sheet.rows[0]));
+  await shot('sd_sheet');
+
+  ok('removing the site empties the sheet again', await ev(`
+     document.querySelector('.sd-chip-x').click();
+     await new Promise(r => setTimeout(r, 250));
+     return document.querySelectorAll('#sdPage .sd-site').length === 0;`));
+}

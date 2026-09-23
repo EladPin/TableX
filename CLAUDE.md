@@ -1294,7 +1294,7 @@ template or a generated table behind would make the next pass for the wrong reas
 
 ## Lookup — the databases as a reference, not only as a step
 
-`חיפוש אתר` in the nav opens a third view (`viewLookup`) that searches **all four databases at
+`חיפוש אתר` in the nav opens its own view (`viewLookup`) that searches **all four databases at
 once**: type a sector code, a site id or a Hebrew name and get the site, its sectors, and each
 sector's frequency and bandwidth.
 
@@ -1355,6 +1355,54 @@ times a day, and the answer was a Planet session.
 - Site names, site ids and sector codes are click-to-copy (`data-copy`, delegated).
 
 ---
+
+## Site data — the sheet a coverage request needs
+
+`נתוני אתר` in the nav. Search sites across all four networks, pick any number of them,
+and get a white RTL sheet of every sector they carry — **סקטור · תדר מרכזי · רוחב פס ·
+אזימוט · גובה · דגם אנטנה · הספק** — under the site's Hebrew name, id, operator and
+coordinates. PPTX or print, same two buttons as the report.
+
+**Why it exists.** A commander who wants better כיסוי in an area files a request with the
+operator, and that form wants the site's whole physical plant. Elad was reading the first
+three columns out of TableX and typing the rest into PowerPoint by hand, off a Planet
+screenshot — the same 20 minutes the point-analysis table already removes, one form over.
+
+- **It is the DELIVERABLE's palette, not the app's.** `.doc-page` and `.data-table`, the
+  purple the report already uses, because this is a thing that gets sent rather than app
+  chrome. The chrome around it is the ordinary Mintlify system. Same split, same reason.
+- **A missing field renders `-`, never blank and never a guess.** The shipped
+  `partner.json` predates the plant, so every azimuth, height and antenna on it reads `-`
+  until someone re-imports the group export. A gap in the export has to be visible; the
+  `app` suite asserts exactly that against the shipped database.
+- **Watts are computed, not stored** — `10^((dBm-30)/10)`, so 49.03 dBm prints 80 W and
+  46.02 prints 40 W, the numbers the request form uses. **Nothing is snapped to a
+  "standard" wattage**: 49 dBm is 79 W and prints 79, because rounding it up to 80 would be
+  inventing a number Planet did not state.
+- **The coordinate unit is decided by the VALUE, not assumed.** Planet writes WGS84 degrees
+  in one project and projected metres in another under the same `Longitude` / `Latitude`
+  headers, so `coordText()` formats 6 decimals when both values are within ±180 and 3
+  otherwise. Nothing converts between them.
+- **`sectorLabel(net, key, sec)` takes the whole sector ARRAY** and reads `sec[1]` itself.
+  Handing it the sector STRING silently printed that string's second character — `a` for
+  `Da` — on every row of a commander-facing sheet. It shipped for about ten minutes and the
+  `app` suite now asserts the column against the database's own sector values.
+- **The site's note rides the screen but not the export.** A trailing parenthetical is
+  RF-team information (see the workbook contract), so it shows while you are building the
+  sheet and is stripped from print and from the PPTX — the rule the network chips and
+  `סקטור משוער` already follow. **The operator chip is NOT stripped**: a request goes *to*
+  an operator, and the source document Elad was copying names it too.
+- **`שקופית לכל אתר` / `כל האתרים בשקופית אחת` is a per-export toggle**, not a setting:
+  one request usually covers an area rather than one mast, but a site with nine sectors
+  wants its own slide.
+- **The columns are reversed by hand in the PPTX**, like every other table here — PowerPoint
+  tables have no RTL column order. Change one, change the other.
+- The network and site id travel as **two data attributes**, never one packed string: a NUL
+  separator does not survive an HTML attribute (the parser turns it into U+FFFD), and
+  nothing about a site id or a network name is then reserved.
+
+**Known gap: it is one table per site with no pagination**, the same limit the report has.
+A site with many carriers runs off the bottom of its slide.
 
 ## Site editor — per-site add/remove
 
@@ -1559,6 +1607,8 @@ the raw key.
 - **A hand-edited cell is marked in the app but not in the PPTX.** Consistent with `סקטור משוער`
   and with the chips, and the toolbar always shows the count — but it does mean an exported slide
   cannot distinguish a Planet-derived value from a typed one.
+- **The site-data sheet has no pagination either** — one table per site, so a site with many
+  carriers runs off the bottom of its slide. Same limit, same unenabled `autoPage`.
 - **No build, no lint** — and the tests only cover what a browser can be driven through. See
   "Tests" above for what they do and do not reach. The manual pass is still worth doing on
   anything visual: `start.bat`, "טען דוגמה", generate, and check the table, the PPTX and the

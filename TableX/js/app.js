@@ -1155,22 +1155,251 @@
     if (cells[i + step]) openCell(cells[i + step]);
   }
 
+  /* ── site data — the sheet an operator request needs ─────────────
+     A commander who wants better כיסוי somewhere has to file a request with
+     the operator, and that form wants the site's whole physical plant: every
+     sector's power, carrier, azimuth, antenna and height, under the site's
+     Hebrew name and its coordinates. Elad was reading the first four columns
+     out of TableX and typing the rest into PowerPoint by hand.
+
+     It is the REPORT's palette, not the app's — same rule the point-analysis
+     table follows, because both are deliverables rather than app chrome. */
+  const SD_CAP = 40;                       // candidates collected per search
+  const sd = { picked: [], per: 'multi' };
+
+  // dBm -> watts. 49.03 -> 80 W and 46.02 -> 40 W, which is the `80WAT` /
+  // `40WAT` an operator request form prints. Nothing is snapped to a
+  // "standard" wattage: the arithmetic is exact on what Planet stored, and
+  // rounding 79.4 up to 80 would be inventing a number.
+  function watts(dbm) {
+    if (typeof dbm !== 'number') return null;
+    const w = Math.pow(10, (dbm - 30) / 10);
+    return w >= 10 ? Math.round(w) : Math.round(w * 10) / 10;
+  }
+
+  // Planet writes WGS84 degrees in one project and projected metres in
+  // another under the SAME two headers, so the unit is decided by the value
+  // rather than assumed — a degree cannot exceed 180.
+  function coordText(xy) {
+    if (!xy) return null;
+    const deg = Math.abs(xy[0]) <= 180 && Math.abs(xy[1]) <= 180;
+    const f = v => deg ? v.toFixed(6) : v.toFixed(3);
+    return f(xy[0]) + ' \\ ' + f(xy[1]);
+  }
+
+  function sdHas(net, id) {
+    return sd.picked.some(p => p.net === net && p.id === id);
+  }
+
+  // Every site of every network whose name or id matches, capped.
+  function sdFind(q) {
+    const out = [];
+    const t = q.trim().toLowerCase();
+    if (!t) return out;
+    for (const net of NETWORKS) {
+      const db = DB[net];
+      if (!db || !db.sites) continue;
+      for (const id in db.sites) {
+        const nm = db.sites[id] || '';
+        if (id.toLowerCase().indexOf(t) < 0 && nm.toLowerCase().indexOf(t) < 0) continue;
+        out.push({ net, id, name: nm });
+        if (out.length >= SD_CAP) return out;
+      }
+    }
+    return out;
+  }
+
+  // One site's rows, in sector order, each carrying whatever plant the
+  // database holds. A missing field renders as `-` rather than vanishing,
+  // so a gap in the export is visible instead of silent.
+  function sdRows(net, id) {
+    const db = DB[net] || {};
+    const keys = (db.siteSectorsAll && db.siteSectorsAll[id]) || [];
+    return keys.slice().sort().map(k => {
+      const v = db.sectors[k] || [];
+      const a = (db.ant && db.ant[k]) || [];
+      const w = watts(db.pwr && db.pwr[k]);
+      return {
+        sector: sectorLabel(net, k, v),
+        freq: v[2] == null ? null : freqText(v[2], net),
+        bw: v[3] == null ? null : v[3] + ' MHz',
+        az: a[1] == null ? null : String(a[1]),
+        height: a[0] == null ? null : String(a[0]),
+        antenna: a[3] ? String(a[3]).replace(/\.pafx$/i, '') : null,
+        power: w == null ? null : w + ' W',
+      };
+    });
+  }
+
+  const SD_COLS = ['sector', 'freq', 'bw', 'az', 'height', 'antenna', 'power'];
+  const SD_HEAD = ['\u05e1\u05e7\u05d8\u05d5\u05e8', '\u05ea\u05d3\u05e8 \u05de\u05e8\u05db\u05d6\u05d9', '\u05e8\u05d5\u05d7\u05d1 \u05e4\u05e1',
+                  '\u05d0\u05d6\u05d9\u05de\u05d5\u05d8', '\u05d2\u05d5\u05d1\u05d4', '\u05d3\u05d2\u05dd \u05d0\u05e0\u05d8\u05e0\u05d4', '\u05d4\u05e1\u05e4\u05e7'];
+
+  function sdBlock(p) {
+    const db = DB[p.net] || {};
+    const rows = sdRows(p.net, p.id);
+    const xy = coordText(db.coords && db.coords[p.id]);
+    const note = siteNote(p.net, p.id);
+    const nm = db.sites && db.sites[p.id];
+    return '<section class="sd-site">' +
+      '<header class="sd-site-head">' +
+        '<h3 class="sd-site-name' + (isLtrText(nm || p.id) ? ' td-ltr' : '') + '">' +
+          esc(nm || p.id) + '</h3>' +
+        '<span class="sd-site-id mono">' + esc(p.id) + '</span>' +
+        '<span class="sd-site-net">' + esc(netTag(p.net)) + '</span>' +
+        (xy ? '<span class="sd-site-xy mono">' + esc(xy) + '</span>' : '') +
+      '</header>' +
+      (note ? '<p class="sd-site-note">' + esc(note) + '</p>' : '') +
+      '<table class="data-table sd-table"><thead><tr>' +
+        SD_HEAD.map(h => '<th>' + h + '</th>').join('') +
+      '</tr></thead><tbody>' +
+      (rows.length
+        ? rows.map((r, i) => '<tr class="' + (i % 2 ? 'rb' : 'ra') + '">' +
+            SD_COLS.map(c => '<td' + (isLtrText(r[c] || '') ? ' class="td-ltr"' : '') +
+              '>' + esc(r[c] == null ? '-' : r[c]) + '</td>').join('') +
+          '</tr>').join('')
+        : '<tr><td colspan="7">-</td></tr>') +
+      '</tbody></table></section>';
+  }
+
+  function renderSite() {
+    // candidates
+    const q = $('sdSearch').value || '';
+    const hits = sdFind(q);
+    $('sdResults').innerHTML = !q.trim()
+      ? ''
+      : hits.length
+        ? hits.map(h => '<button class="sd-hit' + (sdHas(h.net, h.id) ? ' on' : '') +
+            '" data-sd-net="' + esc(h.net) + '" data-sd-id="' + esc(h.id) + '">' +
+            '<span class="sd-hit-name">' + esc(h.name || h.id) + '</span>' +
+            '<span class="sd-hit-id mono">' + esc(h.id) + '</span>' +
+            '<span class="tag tag-net">' + esc(netTag(h.net)) + '</span></button>').join('')
+        : '<p class="ed-msg">' + esc(T('sd.noHits')) + '</p>';
+
+    // the chosen sites
+    $('sdPicked').innerHTML = sd.picked.map(p =>
+      '<span class="sd-chip"><span>' + esc((DB[p.net].sites || {})[p.id] || p.id) + '</span>' +
+      '<button class="sd-chip-x" data-sd-rm data-sd-net="' + esc(p.net) +
+      '" data-sd-id="' + esc(p.id) + '" title="' +
+      esc(T('sd.remove')) + '">\u00d7</button></span>').join('');
+
+    $('sdActions').classList.toggle('hidden', !sd.picked.length);
+    $('sdPage').innerHTML = sd.picked.length
+      ? '<h2 class="tbl-title">\u05e0\u05ea\u05d5\u05e0\u05d9 \u05d0\u05ea\u05e8</h2>' +
+        sd.picked.map(sdBlock).join('')
+      : '<p class="ed-msg">' + esc(T('sd.empty')) + '</p>';
+
+    $('sdPer').querySelectorAll('[data-sd-per]').forEach(b =>
+      b.classList.toggle('on', b.dataset.sdPer === sd.per));
+  }
+
+  $('sdSearch').addEventListener('input', renderSite);
+  $('viewSite').addEventListener('click', e => {
+    // Checked BEFORE the row, because the remove button sits inside a chip.
+    const rm = e.target.closest('[data-sd-rm]');
+    if (rm) {
+      const net = rm.dataset.sdNet, id = rm.dataset.sdId;
+      sd.picked = sd.picked.filter(x => !(x.net === net && x.id === id));
+      return renderSite();
+    }
+    const hit = e.target.closest('.sd-hit');
+    if (hit) {
+      const net = hit.dataset.sdNet, id = hit.dataset.sdId;
+      if (sdHas(net, id)) sd.picked = sd.picked.filter(x => !(x.net === net && x.id === id));
+      else sd.picked.push({ net, id });
+      return renderSite();
+    }
+    const per = e.target.closest('[data-sd-per]');
+    if (per) { sd.per = per.dataset.sdPer; return renderSite(); }
+  });
+
+  $('sdClear').onclick = () => { sd.picked = []; renderSite(); };
+  $('sdPrint').onclick = () => window.print();
+
+  // The PPTX. Same palette and the same hand-reversed column order as the
+  // point-analysis table — PowerPoint tables have no RTL column order, so the
+  // arrays are built with the last Hebrew column first. `sd.per` decides
+  // whether the chosen sites stack onto one slide or take one each.
+  $('sdPptx').onclick = async () => {
+    if (!sd.picked.length) return;
+    if (typeof PptxGenJS === 'undefined') { toast(T('toast.pptxMissing'), true); return; }
+    const btn = $('sdPptx');
+    btn.disabled = true;
+    try {
+      const pptx = new PptxGenJS();
+      pptx.layout = 'LAYOUT_WIDE';
+      const BD = { type: 'solid', pt: TBL.border.pt, color: TBL.border.color };
+      const cell = (t, o) => ({
+        text: t,
+        options: Object.assign({
+          border: BD, fontSize: TBL.size, fontFace: 'Arial',
+          valign: 'middle', align: 'center',
+        }, o || {}),
+      });
+
+      const groups = sd.per === 'one'
+        ? sd.picked.map(x => [x])
+        : [sd.picked];
+
+      for (const group of groups) {
+        const slide = pptx.addSlide();
+        slide.background = { color: 'FFFFFF' };
+        let y = 0.35;
+        for (const pick of group) {
+          const db = DB[pick.net] || {};
+          const nm = (db.sites && db.sites[pick.id]) || pick.id;
+          const xy = coordText(db.coords && db.coords[pick.id]);
+          slide.addText(nm + '   ' + pick.id + (xy ? '   ' + xy : ''), {
+            x: 0.3, y, w: 12.7, h: 0.4, fontSize: 15, bold: true,
+            color: '1a1a2e', align: 'right', rtlMode: !isLtrText(nm),
+            fontFace: 'Arial',
+          });
+          y += 0.45;
+
+          const rows = sdRows(pick.net, pick.id);
+          // reversed by hand, strongest-Hebrew-column-last
+          const head = SD_HEAD.slice().reverse().map(h =>
+            cell(h, { fill: { color: TBL.head }, color: 'FFFFFF', bold: true, rtlMode: true }));
+          const body = rows.map((r, i) => SD_COLS.slice().reverse().map(c =>
+            cell(r[c] == null ? '-' : r[c], {
+              fill: { color: i % 2 ? TBL.rowB : TBL.rowA }, color: '1a1a2e',
+              rtlMode: !isLtrText(r[c] || ''),
+            })));
+          slide.addTable([head].concat(body), {
+            x: 0.3, y, w: 12.7, rowH: TBL.rowH,
+          });
+          y += TBL.rowH * (rows.length + 1) + 0.35;
+        }
+      }
+
+      await pptx.writeFile({ fileName: 'TableX-sites.pptx' });
+      toast(T('toast.pptxDone'));
+    } catch (e) {
+      toast(T('toast.pptxFail', { e: e.message }), true);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
   /* ── views ───────────────────────────────────────────────────────── */
   function show(which) {
     const table = which === 'table', lk = which === 'lookup', dk = which === 'decks';
-    $('viewHome').classList.toggle('hidden', table || lk || dk);
+    const sd = which === 'site';
+    $('viewHome').classList.toggle('hidden', table || lk || dk || sd);
     $('viewLookup').classList.toggle('hidden', !lk);
     $('viewDecks').classList.toggle('hidden', !dk);
+    $('viewSite').classList.toggle('hidden', !sd);
     $('viewTable').classList.toggle('hidden', !table);
     // The nav hides for the TABLE view only — that one is the deliverable
     // and carries its own toolbar. The others are places you leave again, so
     // they keep the nav.
     $('nav').classList.toggle('hidden', table);
-    const at = lk ? 'lookup' : dk ? 'decks' : 'home';
+    const at = lk ? 'lookup' : dk ? 'decks' : sd ? 'site' : 'home';
     document.querySelectorAll('.nav-link[data-goto]').forEach(b =>
       b.classList.toggle('active', b.dataset.goto === at));
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (lk) { renderLookup(); setTimeout(() => $('lkSearch').focus(), 60); }
+    if (sd) { renderSite(); setTimeout(() => $('sdSearch').focus(), 60); }
     // Templates live on the server, so another copy of the app may have
     // added one since this tab loaded.
     if (dk && global.TableXDeck) global.TableXDeck.reload();
@@ -1447,6 +1676,7 @@
 
   document.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => {
     if (b.dataset.goto === 'lookup') return show('lookup');
+    if (b.dataset.goto === 'site') return show('site');
     if (b.dataset.goto === 'decks') return show('decks');
     show('home');
     if (b.dataset.goto === 'db') $('sectionDb').scrollIntoView({ behavior: 'smooth' });
@@ -1914,6 +2144,7 @@
     if (ed) renderEditor();
     if (!$('dbInspect').classList.contains('hidden')) renderInspect();
     if (!$('viewLookup').classList.contains('hidden')) renderLookup();
+    if (!$('viewSite').classList.contains('hidden')) renderSite();
     if (global.TableXDeck) global.TableXDeck.render();
     markActive();
   }
