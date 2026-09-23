@@ -147,11 +147,17 @@ powershell -ExecutionPolicy Bypass -Command "npm run build"
 Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
 ```
 
-Last build 2026-09-10 at commit `7e612e9`: electron 33.4.11 + electron-builder 26.15.3, target `dir`, completed cleanly
-with no winCodeSign symlink error. **`dist\TableX.zip`, 110.8 MB.** The app (`main.js`,
-`server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`. Verified by running the
-packaged exe and pointing the `app` suite at **its** server: 40/40, so the shipped build is checked
-rather than assumed. (Before that, 2026-09-06 at commit `fd7ae0d`, 110.7 MB.)
+Last build **2026-09-23 at commit `a037fa7`**: electron 33.4.11 + electron-builder 26.15.3, target
+`dir`, no winCodeSign symlink error. **`dist\TableX.zip`, 110.8 MB.** Carries the workbook
+inspector, the IDF Planet import (composite key, note split, EARFCN frequency) and the site-data
+sheet. Verified by running the packaged app's own `server.ps1` and pointing all three suites at it:
+**116/116**, and the shipped `data/` holds the real 334-site `idf.json` with no `.bak` and no
+`tpl/`. (Before that, 2026-09-10 at commit `7e612e9`: electron 33.4.11 + electron-builder 26.15.3, target `dir`, completed cleanly
+with no winCodeSign symlink error, 110.8 MB, 40/40; and 2026-09-06 at commit `fd7ae0d`, 110.7 MB.)
+
+The app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`.
+**Point the suites at the PACKAGED server, not the repo one** — that is what makes the shipped
+build checked rather than assumed.
 
 `package.json` — the settings that matter:
 
