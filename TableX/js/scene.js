@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════════════
-   SCENE — the hero's pixel landscape, and the ghost that lives in it.
+   SCENE — the pixel landscape, and the ghost that lives in it.
 
    Adapted from UbiPlus's header lobby (D:\projects\UbiPlus, js/lobby.js),
    which draws a pixel living room and a wandering cat. Same technique —
@@ -8,29 +8,19 @@
    ridge of CELL SITES, which is what TableX is actually about. The cat is
    replaced by the product's own mark, the pixel ghost.
 
-   WHY THIS IS IN THE HERO AND NOWHERE ELSE. DESIGN.md deviation 4 says
-   illustration must not leak into the working UI — the old TableX read as
-   childish and that is what the redesign fixed. But the Mintlify spec also
-   says the hero IS the illustration slot ("a hand-illustrated cloud
-   landscape ... with the documentation product floating in the foreground
-   as living proof"), and TableX's hero was a bare gradient. So the scene
-   is the hero's illustration and stops at its bottom edge. Everything
-   below stays austere white. Not licence to decorate the rest.
+   WHERE IT LIVES. It was the hero's illustration until 2026-09-29, when
+   the hero went and the home page became the paste and nothing else. It
+   spent an afternoon as a half-scale window in the nav, and then moved to
+   where Elad marked: the FLOOR of the home page (#sceneHost), full width,
+   back at full scale, with the sky fading in from the cream above and the
+   footer standing on its ground. Still not licence to illustrate the
+   working UI: it is the bottom of one page, nothing more.
 
-   THE LAYOUT TRICK. `.bridge` pulls the paste card 84px up into the hero.
-   The horizon is placed at exactly that 84px, so the card's top edge IS
-   the ground line: every prop stands ABOVE it and is therefore fully
-   visible at any width, and only bare ground is ever hidden behind the
-   card. That is what lets the scene span the full width instead of packing
-   into the margins the way UbiPlus's furniture does. If the -84px in
-   `.bridge` changes, GROUND_PX here has to change with it.
-
-   Palette: the hero band is dark in BOTH themes (the same reason
-   --hero-fg is not overridden), so one palette serves both with a small
-   dark-theme nudge. Colours live in main.css as custom properties and
-   reach the rects through CLASSES, never a fill="" attribute — that keeps
-   a theme switch a pure token swap with no re-render, and keeps colour in
-   the stylesheet where the rest of the system keeps it.
+   Palette: the floor is night in BOTH themes, so one palette serves both
+   with a small dark-theme nudge. Colours live in main.css as custom properties and reach the
+   rects through CLASSES, never a fill="" attribute — that keeps a theme
+   switch a pure token swap with no re-render, and keeps colour in the
+   stylesheet where the rest of the system keeps it.
    ═══════════════════════════════════════════════════════════════════ */
 (function (global) {
   'use strict';
@@ -40,8 +30,7 @@
   const SCENE = {
     S: 4,             // px per cell — the whole scene is on this one grid
     HZ: 24,           // ground surface row; props stand with their base at HZ-1
-    GROUND_PX: 84,    // must equal the -84px overlap in `.bridge` (see header)
-    MIN_W: 560,       // below this the band is too short to compose — hide it
+    MIN_W: 360,       // below this the floor is too short to compose — draw nothing
 
     el: null, svg: null,
     enabled: true, visible: true, reduced: false,
@@ -49,16 +38,16 @@
     _sites: [], _lamps: [], _stars: [], _stations: [], _at: -1,
     _ghost: null, _bob: null, _skirt: null,
 
-    // +1 row so the lit horizon rim clears the card's top edge and reads
-    // as one unbroken line across the full width, with the card planted
-    // in front of it. Without it the rim lands exactly under the card.
-    get ROWS() { return this.HZ + Math.round(this.GROUND_PX / this.S) + 1; },
+    // Three rows of ground under the horizon: the lit rim, the near shade
+    // and one of solid earth. The footer's own background carries the
+    // ground on down from there (.floor .foot in main.css).
+    get ROWS() { return this.HZ + 3; },
 
     /* ── boot ──────────────────────────────────────────────────────── */
     init() {
       if (this.el) return;
-      const hero = document.querySelector('.hero');
-      if (!hero) return;
+      const host = document.getElementById('sceneHost');
+      if (!host) return;
 
       this.reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
       try { this.enabled = localStorage.getItem(STORE) !== '0'; } catch (e) { /* private mode */ }
@@ -73,9 +62,7 @@
       this.svg.setAttribute('preserveAspectRatio', 'xMidYMax meet');
       this.el.append(haze, this.svg);
 
-      // BEFORE .hero-inner: positioned siblings paint in DOM order, so a
-      // scene appended last would sit on top of the headline.
-      hero.insertBefore(this.el, hero.querySelector('.hero-inner'));
+      host.appendChild(this.el);
 
       this._apply();
       this._render();
@@ -311,7 +298,10 @@
     _render() {
       if (!this.el) return;
       const wpx = this.el.clientWidth;
-      const cells = Math.floor(wpx / this.S);
+      // Rounded UP, and the host clips the spare pixels: rounded down, the
+      // drawing came up to 3px short and the sky showed through as a sliver
+      // at each end of the ground.
+      const cells = Math.ceil(wpx / this.S);
       this._cells = (!this.enabled || wpx < this.MIN_W) ? 0 : cells;
       this._sites = []; this._lamps = []; this._stars = []; this._stations = [];
       this._ghost = this._bob = this._skirt = null;
@@ -323,14 +313,14 @@
 
       const at = f => Math.round(cells * f);
 
-      // sky — stars only; the band itself is the hero gradient showing
+      // sky — stars only; the band itself is the floor's gradient showing
       // through. They stay in the top rows, clear of every crest: a star
       // sitting inside a hill is the tell that a scene was assembled
       // rather than composed.
       const nStars = Math.max(8, Math.round(cells / 11));
       for (let i = 0; i < nStars; i++) {
         const sx = 1 + Math.round(n(i * 3.7) * (cells - 3));
-        const sy = 1 + Math.round(n(i * 9.1 + 4) * 7);
+        const sy = 1 + Math.round(n(i * 9.1 + 4) * (HZ - 17));   // clear of the crests
         out.push(`<g class="sc-star${n(i * 5 + 2) > 0.55 ? ' tw' : ''}">${
           R(sx, sy, 1, 1, 'sc-starc')}</g>`);
       }
@@ -368,9 +358,8 @@
       this._ridge(out, cells, cMid, 'sc-mid', 'sc-rim3');
       this._ridge(out, cells, cNear, 'sc-near', null);
 
-      // ground: solid to the hero's bottom edge, under a lit rim on the
-      // horizon row — the one ground row the paste card never covers, so
-      // it reads as one unbroken line with the card planted in front of it.
+      // ground: solid to the drawing's bottom edge, under a lit rim on the
+      // horizon row; the footer continues it.
       out.push(R(0, HZ, cells, ROWS - HZ, 'sc-ground'));
       out.push(R(0, HZ, cells, 1, 'sc-rim'), R(0, HZ + 1, cells, 1, 'sc-near'));
 

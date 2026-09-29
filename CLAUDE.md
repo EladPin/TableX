@@ -30,7 +30,7 @@ is the whole job this app removes:
 
 - **Planet speaks English codes; the deck must speak Hebrew site names.** A point analysis says
   `LNN4610Da`. The slide has to say `גג בית העם  דישון`, sector `Da`, 1800 MHz, 20 MHz. That
-  mapping lives in a **16,510-sector** Planet network export. Looking up three cells per point,
+  mapping lives in a **14,252-sector** Planet network export. Looking up three cells per point,
   across seven points, is where the time and the mistakes go.
 - **It is 20+ minutes per table, by hand, if you are good.** Reading the points out of Planet,
   translating the names, building the table in PowerPoint, and getting the RTL layout and the
@@ -68,11 +68,20 @@ site names matched byte-for-byte, zero mismatches**, which is the verification t
 survives the xlsx→JSON conversion. If either dataset is refreshed, the other is probably stale;
 re-run that comparison rather than trusting one blindly.
 
-**Interfex's copy is now the stale side.** TableX's `partner.json` was rebuilt on 2026-09-05 from
-the `Partner_May_26_V3` group export (2,899 → 3,129 sites, 14,252 → 16,510 sectors, 558 site
-names changed), so the 2026-09-04 cross-check no longer describes two matching datasets.
-`partner_cells.json` still predates that refresh. Rebuild it from the same workbook before
-relying on the comparison again.
+**Which Partner ships changed twice.** On 2026-09-05 `partner.json` was rebuilt from the
+`Partner_May_26_V3` group export (3,129 sites / 16,510 sectors), which made Interfex's copy the
+stale side. On **2026-09-29 Elad re-imported `Partner_170924_V3.xlsx`** — the 2024 export, the same
+workbook the 2026-09-04 cross-check was run against — because it is the one that carries the
+**physical plant** (antennas, heights, azimuths, tilt, PA power, CRS, coordinates) that the site
+sheet and Stylish need; the May-26 build carried names and carriers only. That is what ships now:
+2,898 sites / 14,252 sectors. **The price, measured against the May-26 file:** 434 of its sites and
+2,502 of its sectors are absent from the 2024 export (and 203 sites of the 2024 export are gone from
+May-26), so a point inspect from today's Planet will hit some codes this database cannot name. The
+cure is not in this repo — `Partner_May_26_V3.xlsx` is not on the dev box (only
+`D:\Downloads\Partner_170924_V3.xlsx` is) — it is `export group` on `Partner_Share` in the current
+Planet, which carries both. `git show cfd7b62:TableX/data/partner.json` is the May-26 build if it
+is ever wanted back. Interfex's `partner_cells.json` is from the 2024 export too, so the two should agree again;
+`c:\projects\interfex` is not on this dev box, so that was not re-checked.
 
 Shared house style: **no internet on the target machines**, so everything is vendored and
 nothing loads from a CDN; Hebrew RTL UI; a PowerShell static server started by a `start.bat`;
@@ -203,6 +212,45 @@ The server child is killed with `taskkill /pid <pid> /f /t` on `window-all-close
 `before-quit`. Verified 2026-09-06: closing the window leaves zero `TableX` processes and releases
 port 8094.
 
+**`main.js` must open the window MAXIMIZED.** Every build up to 2026-09-23 created a fixed
+1440×940 window, which on TS opened as a floating box that had to be maximized by hand on every
+launch — and on a 768px-tall screen did not even fit. Reported 2026-09-29. Create it hidden and
+reveal it already maximized, so it never flashes at the small size first; `width`/`height` are
+only what "restore down" returns to. Maximized, deliberately not `fullscreen`: the title bar and
+taskbar stay, and F11 (Electron's default menu) still gives true fullscreen for a briefing.
+
+```js
+const { app, BrowserWindow, screen } = require('electron');
+
+function createWindow() {
+  const work = screen.getPrimaryDisplay().workAreaSize;
+  win = new BrowserWindow({
+    width: Math.min(1440, work.width),
+    height: Math.min(940, work.height),
+    show: false,
+    backgroundColor: '#f4f1e8',          // the app's cream (--canvas)
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, 'icon.ico'),
+    webPreferences: { nodeIntegration: false, contextIsolation: true },
+  });
+  const reveal = () => {
+    if (!win || win.isVisible()) return;
+    win.maximize();
+    win.show();
+  };
+  win.once('ready-to-show', reveal);
+  setTimeout(reveal, 4000);              // never leave it hidden if the page stalls
+  win.loadURL(URL);
+  win.on('closed', () => { win = null; });
+}
+```
+
+Verified 2026-09-29 against the real Electron 33 binary (the 2026-09-23 `win-unpacked` with this
+`createWindow()` swapped in), by reading the window through `user32`: the unpatched build's first
+visible frame was a 1440×940 window at (240,50); the patched one's was `IsZoomed` true, (−8,−8) →
+(1928,1048) on a 1920×1080 screen. Check it the same way after a rebuild — the fix lives only in
+this recipe until then.
+
 ### The trap that wastes an afternoon: `ELECTRON_RUN_AS_NODE`
 
 **VS Code and Claude Code set `ELECTRON_RUN_AS_NODE=1` in their integrated terminals.** With it
@@ -224,29 +272,32 @@ Diagnose it by running `.\node_modules\.bin\electron.cmd .`, which prints the re
 ```
 start.bat                     launcher (UbiPlus/Interfex pattern)
 server.ps1                    static server + the one DB write route, port 8094
-DESIGN.md                     Mintlify style spec — the design system of record
+DESIGN.md                     "Signal" — the design system of record
 tools/
   build_db.py                 Planet .xlsx → data/<network>.json (stdlib only)
   build_idf.py                ENM CLI dump + name list → data/idf.json (stdlib only)
-  build_fonts.py              downloads + subsets Inter/Heebo into TableX/fonts/
+  build_fonts.py              downloads + subsets Plex (+ Inter/Heebo) into TableX/fonts/
   build_icon.py               the ghost -> .ico / .png / .svg + the nav snippet
   e2e/run.mjs                 the end-to-end suites — see "Tests" (no npm install)
   e2e/cdp.mjs                 shared DevTools-Protocol harness
   e2e/{engine,deck,app}.mjs   one suite each
 TableX/
-  index.html                  whole UI: nav, hero, paste card, DB grid, lookup, table view
-  css/main.css                the Mintlify system, tokens at the top
+  index.html                  whole UI: nav, paste card (+ the floor), DB view, lookup, table view
+  css/main.css                the Signal system: tokens at the top, MOTION at the bottom
   js/app.js                   the entire application, one IIFE
   js/pptx.js                  reads a .pptx and fills it in — the template engine
   js/deck.js                  the Decks view: templates, slots, the build
-  js/scene.js                 the hero's pixel landscape + the ghost that walks it
+  js/scene.js                 the home page's pixel floor + the ghost that walks it
   js/dbparse.js               the workbook contract — runs as a Web Worker
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
+  js/motion.js                press, rings and sliding indicators, for every button
+  js/tour.js                  the "?" on the paste card — Planet -> paste -> table, in 5 steps
   js/xlsx.full.min.js         SheetJS — vendored, reads an uploaded workbook
   js/pptxgen.bundle.js        PptxGenJS 3.12.0 — vendored, writes the deck.
                               ALSO where window.JSZip comes from; pptx.js needs it
-  fonts/                      self-hosted Inter (latin) + Heebo (hebrew), 9 woff2
-  data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors, 767 KB
+  fonts/                      self-hosted, 17 woff2: IBM Plex Sans Hebrew + Plex Mono
+                              (the app), Inter + Heebo (the report preview only)
+  data/partner.json           SHIPPED — 2,898 sites / 14,252 sectors + the plant, 1.8 MB
   data/idf.json               SHIPPED — 334 sites / 792 sectors, from the ENM dump
   data/cellcom.json           empty stub - the real DB is built on TS, cannot ship
   data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
@@ -279,7 +330,7 @@ because that step cost a click on every single use and the whole product is spee
 |------|-------|-------|
 | `idf` | IDF | **shipped**, 334 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
 | `cellcom` | Cellcom | **ships empty**, but the import is proven — 2,575 sites / 18,891 sectors on TS |
-| `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors |
+| `partner` | Partner | **shipped**, 2,898 sites / 14,252 sectors, with the plant — the 2024 export (see "Sibling projects") |
 | `pelephone` | Pelephone | **ships empty**, but the import is proven — 2,383 sites / 18,217 sectors on TS |
 
 `ours` was renamed to `idf` on 2026-09-04 — the key, the file (`data/ours.json` →
@@ -309,20 +360,24 @@ state, not an error — the card renders as "ריק" with a load button.
   "notes":   { "IDF_Amitay": "סקטורים 2,3 הם של ק.ד 235" },      // optional
   "coords":  { "IDF_Amitay": [622321.5, 3452921] },              // optional
   "ant":     { "IDF_Amitay_1": [50, 60, 0, "LNX-6515DS.pafx"] }, // optional
-  "pwr":     { "IDF_Amitay_1": 49.03 }                           // optional
+  "pwr":     { "IDF_Amitay_1": 49.03 },                          // optional
+  "crs":     { "IDF_Amitay_1": 0 }                               // optional
 }
 ```
 
-**The four optional keys are omitted when empty**, so a database with none of
+**The five optional keys are omitted when empty**, so a database with none of
 them is shape-identical to one built before they existed. `ant` is
-`[height m, azimuth, mechanical tilt, antenna file]` and `pwr` is **PA Power in
+`[height m, azimuth, mechanical tilt, antenna file]`, `pwr` is **PA Power in
 dBm as the workbook states it** — watts are a render-time conversion
-(`10^((dBm-30)/10)`, so 49.03 → 80 W and 46.02 → 40 W), never a stored number.
+(`10^((dBm-30)/10)`, so 49.03 → 80 W and 46.02 → 40 W), never a stored number —
+and `crs` is Planet's **`Reference Signal Power Boosting (dB)`**, also as stated.
 
-**Every one of them has to be carried by the import, the backup AND the site
-editor's Save.** A Save posts the whole database, so a key left out of that
-payload silently wipes what the import collected, the next time somebody adds a
-sector. `OPTIONAL` in `app.js` is the one list all three read.
+**Every one of them has to be carried by the import, the backup, the restore AND
+the site editor's Save.** A Save posts the whole database, so a key left out of
+that payload silently wipes what the import collected, the next time somebody
+adds a sector. `OPTIONAL` in `app.js` is the one list all four read. **The
+restore used not to** — until 2026-09-29 restoring a `.json` backup kept only
+`sites` and `sectors` and dropped every coordinate, antenna and power value.
 
 Site names are **deduplicated into `sites`** rather than repeated per sector — a site carries up
 to 12 sectors here and the Hebrew name is by far the longest field. That halves the file
@@ -443,24 +498,34 @@ the key** (`מפתח: Site ID + Sector ID`), for the same reason it names the ba
 **A trailing parenthetical is a NOTE, not part of the name.** The IDF export's `Description` reads
 `אמיתי (סקטורים 2,3 הם של ק.ד 235)` — RF-team information, and שם אתר משרת is the one column a
 commander reads. `splitName()` puts the name in `sites` and the note in `notes`. Safe because it
-was measured: of the 3,129 names in the shipped `partner.json`, **17 contain a parenthesis and
+was measured: of the 3,129 names in the May-26 `partner.json`, **17 contain a parenthesis and
 zero end in one**, and the ENM name list already used this convention on `Asaf_M4` and `Rafah_M5`.
 A name that is *only* a parenthetical stays a name. **The note is app-only** — the lookup and the
 site editor show it, `renderTable()` and both PPTX writers never see it, the same rule the network
 chips follow.
 
-**Three more sheets are read when present, all optional and all matched by header.** They carry
-what a site-data slide needs and the sector sheet does not:
+**Four more columns-or-sheets are read when present, all optional and all matched by header.**
+They carry what a site-data slide needs and the sector sheet does not:
 
 | Sheet | Matched by | Gives |
 |-------|------------|-------|
 | `Antennas` | `Site ID` + `Antenna ID` + one of `Azimuth` / `Height (m)` / `Antenna File` | height, azimuth, mechanical tilt, antenna file — and a `Sectors` column naming what each one serves |
 | `Sector_Antennas` | `Site ID` + `Sector ID` + `Antenna ID`, and NOT an antenna sheet | the same join stated separately, in older exports |
 | whichever has it | `Site ID` + `Sector ID` + `PA Power (dBm)` | the power |
+| whichever has it | `Site ID` + `Sector ID` + `Reference Signal Power Boosting (dB)` | the CRS boost |
 
 **`PA Power (dBm)` moves between sheets across Planet versions** — `LTE_FDD_Sectors` in the 2024
 Partner export, `LTE_FDD_Sector_Carriers` in the Planet the team runs now — which is exactly why it
-is found by header and never by tab name.
+is found by header and never by tab name. **CRS is found on its own, the same way**: it sits beside
+PA Power on `LTE_FDD_Sectors` in the 2024 export (Elad marked the column, 2026-09-29), and a Planet
+version that moves one must not take the other with it. Verified on `Partner_170924_V3.xlsx`
+(commit `24d73ec`): both parsers read **14,252 CRS values, identical** — every one `0` in that
+export.
+
+**CRS here is the BOOST, not the reference-signal power.** `Reference Signal Power Boosting (dB)`
+is the RS power relative to the data REs, so `0 dB` is the normal answer. If a request form ever
+wants the RS power itself (RS EPRE, dBm) it is `PA power − 10·log10(12 × N_RB) + boost` —
+49 dBm on 20 MHz is ~18.2 dBm — a render-time conversion like watts, never a stored number.
 
 **Where two sources disagree the answer is nothing.** One sector can be served by several antennas
 (MIMO) and one antenna by several sectors (`1, 3`), so each field is agreed or blank — the rule the
@@ -810,6 +875,12 @@ emits, confirmed against a real point inspect.
   across two visual lines, which read as an extra row. One point per line also means the
   line count is the point count at a glance. Like the site editor's `EXAMPLES`, these are
   sample **data** — identical in both languages, so they stay out of `i18n.js`.
+- **The column legend reads in the paste's own order** — point, level 1-3, site 1-3, left to
+  right, like the rows it describes. It survived the placeholder fix still listing the retired
+  RTL-Excel layout (sites first, point last), so it labelled every column of a point-inspect
+  paste backwards. Fixed 2026-09-29; the legend and the format note now live in step 3 of the "?"
+  tour rather than over the box. If the input format ever changes, the placeholder, `SAMPLE` and
+  the tour's `pasteBox()` change together.
 
 ### The code shape differs per operator
 
@@ -1044,8 +1115,166 @@ working database from it.
 **Table** (`renderTable`): points ascending, rows by rank, `נק' N` as a `rowspan` over the
 point's rows, group background alternating by **group** index so each point reads as one block.
 
-**Network / approximation chips are app-only.** They are `.tag` spans, `display:none` in print,
-and the PPTX builder never reads them — so the deliverable stays seven clean columns.
+### Output styles — the report: Classic, Clean, Coverage · the site sheet: Classic, Clean, Stylish
+
+Added 2026-09-29 on request. **Two settings, one per deliverable**, each a segmented picker in
+that sheet's own toolbar and each **kept per machine** — `tablex_style` for the point-analysis
+report (`[data-out-style]`), `tablex_site_style` for the site sheet (`[data-site-style]`). They
+were one shared setting for an hour and were split because the two sheets offer different styles:
+Coverage needs RSRP, which only the report has; Stylish needs azimuths, which only the site sheet
+has. Kept per machine for the same reason the rest of this section exists: a commander reads a
+familiar table faster than a correct-but-different one, so whichever style a team settles on has
+to come out the same every time.
+
+| style | what it is |
+|---|---|
+| **Classic** — `קלאסי` | the purple table. **The default, and byte-for-byte what every earlier build wrote** — the `classic` branch of `tableMatrix()` is the old function untouched, and the app suite asserts the purple header survives a round trip through the other two styles. |
+| **Clean** — `נקי` | black on white, no fills. A 1.5pt ink rule under the header, 0.5pt hairlines between rows, a 0.75pt darker rule where a point ends, no vertical lines, the rank in grey. The point label sits on its group's first row and its column draws no line inside the group, so it reads as one merged cell. Title right-aligned, 22pt. |
+| **Coverage** — `כיסוי` | Clean, plus each level cell tinted by the class **Planet 7.10's own RSRP legend** puts it in — the colours on the coverage-map screenshots beside the table in a deck — and that legend under the table, labelled `RSRP חזוי (Planet)`. |
+
+Things that are load-bearing:
+
+- **One definition feeds every renderer.** `outStyle` + `LEAN` + `RSRP_CLASSES` in `app.js`:
+  the HTML reads them through `.out-lean` / `data-style` on the sheet (main.css "OUTPUT STYLES"
+  must say what the matrix says, value for value); both PPTX writers read them through
+  `tableMatrix()` → `leanMatrix()`; the template path gets the legend through
+  `TableXReport.caption()` → `TableXPptx.insertCaption()`.
+- **Borders are per cell** in the lean styles: `bd: {t, r, b, l}`, each a line or `null`. The
+  standalone writer turns that into PptxGenJS's `[top, right, bottom, left]` array (`pgBorder`);
+  `pptx.js cellXml` writes `lnL/lnR/lnT/lnB`. **A null edge is written as an explicit
+  `<a:noFill/>`**, never left out — a missing edge falls back to whatever table style the
+  template's theme carries, and a clean table would come out gridded in someone's deck.
+  Verified 2026-09-29 by reading the written XML edge by edge.
+- **A shared edge is stated by both cells that meet at it, and they must agree** — each cell's
+  `t` is the `b` of the cell above it. Where two cells disagree PowerPoint picks one, and which
+  is not something to leave to chance. The app suite checks every edge of the matrix.
+- **The legend is written LEFT-TO-RIGHT** (its own text box / `dir="ltr"` span), with the Hebrew
+  label in a separate RTL box. A range like `−75…−60` inside an RTL paragraph is exactly the run
+  the bidi algorithm turns around.
+- **Coverage's classes are Interfex's, not new ones**: `interfex_8/js/drivecore.js`, min
+  inclusive / max exclusive — ≥−60, −75…−60, −90…−75, −110…−90, −120…−110, <−120. The cell fill
+  is each legend colour **tinted 35% on white** so black text still reads on it; the pure legend
+  green `#40D63E` would not. If Interfex's legend ever changes, this one follows.
+- **The legend label says PREDICTED** (`חזוי`). Colour makes a level look measured more than a
+  bare number does — the exact confusion the top of this file warns about.
+- **The site sheet's Classic and Clean are the same two looks** as the report's, drawn by the
+  same `LEAN` constants, so the two deliverables cannot drift apart.
+
+### Stylish — the site as it stands, in 2.5D
+
+Elad's sketches, 2026-09-29: a mast, an arrow per sector at its real azimuth, the degrees at the
+tips, the height beside it, trees at the foot; then "almost like 2/3D, be precise — find how the
+antennas are really sized and place them relative to the site." Each picked site becomes a
+**card** (and, in the PPTX, a **slide of its own**): the name large under a short Classic-purple
+bar, id · operator · coordinates under it, the sector table on the right and the drawing on the
+left. Every table row carries its azimuth's colour as a stripe, so the eye goes arrow → row.
+
+**The drawing is an oblique view looking NORTH from 28° above the horizon** (`EL`), so north is
+into the page and an arrow on the ground points the way a map would. Everything above the ground
+is **to scale in one px-per-metre** fitted to the site: a tapered square lattice (about a tenth as
+wide as it is tall at the foot, 1.1 m at the top), a head-frame ring at each mounting height, and
+each antenna as a shaded box **of its datasheet size, at its own height, facing its own azimuth,
+tilted by its own mechanical tilt** (the top leans out — that is what downtilt is). A 1.75 m person
+and a 7 m tree stand at the foot for scale; the dimension line beside the mast gives the heights,
+merged into a range (`25–26 m`) where two are too close to letter apart. **The compass on the
+ground is NOT to scale** — coverage is kilometres and the mast is metres — it carries direction
+only: a wedge per azimuth as wide as the antenna's horizontal beamwidth, an arrow, the degrees and
+that azimuth's carriers at the rim.
+
+**At true scale a 2.7 m antenna on a 40 m mast is a few pixels**, so each tier of antennas (bodies
+within 3 m of each other; up to three tiers) gets an **inset**: a circle in the top-left showing
+the same antennas in the same projection, magnified (`×N` is printed) — a similarity of the main
+drawing about the tier's own centre, framed on the antennas' corners with the box's DIAGONAL fitted
+to the circle so nothing is clipped. Every tall site gets one — under ×1.3 it would say nothing,
+and "sometimes there is a zoom and sometimes not" read as a fault (Elad, 2026-09-29), so the
+threshold is low and the factor is printed to one decimal below ×3.
+
+**The structure follows the heights.** Over 6 m it is the lattice. **A site whose antennas all end
+by 6 m stands on a concrete block (בטונדה)** — Elad's call for the small ones: a New Jersey barrier
+section (0.81 m tall, 0.61 m at the base, 0.15 m at the top, its two slopes breaking at 0.33 m,
+2 m long, laid at an angle so a slope and an end both show) with a 76 mm pipe on it, the antennas
+clamped to the pipe and no head frame. Drawn at up to 95 px/m, so a 2 m site fills the picture
+beside a person of the same scale; no tree there — a 7 m tree beside a 2 m block would become the
+subject — and no inset, since nothing is small. A tall site of omnis only is a thin pole. The SVG
+says which it drew in `data-mount` (`lattice` / `block` / `pole` / `none`) and `data-shapes`,
+which the `app` suite reads.
+
+- **Antenna sizes come from datasheets — `ANT_DIMS` in `app.js`.** Planet's antenna FILE is
+  per band (`EGV465DR6_700.pafx`, `EGV465DR6_1800.pafx`) but is one physical antenna, so the model
+  is the file name upper-cased, hyphens dropped, cut at the first `_`; antennas are grouped by
+  model + height on each azimuth. **A model is matched exactly first, then by the longest entry it
+  STARTS with** (`antSpec`), so `80010892V01`, `LNX6515DSA1M` and a Vega `CC12V` find their line
+  without one per spelling.
+- **IDF's models** (Elad's list, 2026-09-29: 80010866, 80010867, 80010864, CC12V (Vega), ODI032,
+  "and more"; the mock export adds LNX-6515DS-VTM): Kathrein 800 10864 is 1402 × 377 × 169 and
+  800 10867 is 1459 × 377 × 169 (datasheets); LNX-6515DS 2449 × 301 × 181 (CommScope). **The Vega
+  CC12-WB is a parabolic grid dish, not a panel** — 2.0 m aperture, 690–960 MHz, 10.5–13° beam
+  (Comarcom's datasheet) — so `ANT_DIMS` carries a fifth field, `'dish'`, and it draws as a pale
+  mesh disc with its rim in the azimuth's colour: ribs from behind, the feed on three struts from
+  in front, and a 13° wedge on the ground. **The Comba ODI-032R20M-Q is an estimate** (2.6 × 0.6 ×
+  0.2 m, 32°): no published size was found, and 19.5 dBi over 32° in 694–960 MHz needs about the
+  length of CommScope's 2.4–2.7 m low-band panels at twice their width. Its beamwidth is real. Researched 2026-09-29 against Partner's 2024 export (69 models,
+  13,270 physical antennas; the table covers the 15 largest plus 5 beamwidth-only entries):
+  CommScope/Andrew product pages (`andrew.com/products/base-station-antennas/antennas/item…`) for
+  EGV4-65D-R6, RVV65D-C3-3XR, RV4PX306R, RV4PX310R-V2, DBXLH-6565C (TBXLHA-6565C the same body),
+  RVV-33B-R3 (1830 × 640 mm, 33°); EGZV5-65D-R6 from its reseller sheet; RV4-65D-R5 from its V2-V6
+  sheets; Comba ODI-065R17M18JJJJ-GQ; and Kathrein's own datasheets for 800 10866 (2441 × 377 × 169),
+  800 10892, 800 10292, 800 10622 and 742 264. `845 10866` is listed in Kathrein's catalogue as a
+  configuration of `800 10866` and shares its body. **741571 is an indoor ceiling omni** (78 mm ×
+  ⌀210 mm) — Partner's data agrees: 830 of 836 sit at 2 m, azimuth 0 — so it draws as a puck on a
+  pole with a full ring on the ground and the label `Omni`, never an arrow at 0°.
+- **TNA340A33 is an estimate, and says so here.** Two Israeli radiation surveys (Tel Aviv 2017,
+  Akko 2018) give its "maximum dimension" as 0.80 m, but the same surveys give it a 13.4° vertical
+  beamwidth at 900 MHz, which needs about 1.3 m of aperture (λ·50.8/θ) — the size Kathrein's
+  similar 742 264 has. 1.3 m it is. If a datasheet turns up, replace it.
+- **A model with no datasheet entry is drawn at the typical size for what it carries** (`TYPICAL`):
+  2.6 × 0.35 × 0.17 m if any of its carriers is below 1 GHz — the median of the multibands above —
+  else 1.4 × 0.30 × 0.12 m. That covers `80020899` (20% of Partner's antennas, whose datasheet could
+  not be found) until someone adds a line. The size is illustration, never data on the table.
+- **Antennas that would overlap stand side by side** on the mount, as a real head frame carries
+  them — NC0543D has an EGV4-65D-R6 at 25 m and a Kathrein 800 10622 at 26 m on each of two
+  azimuths. **Nothing is guessed**: an antenna without both a height and an azimuth is not stood on
+  the mast; an azimuth without a height still gets its wedge; a site with no plant gets a pale
+  generic 30 m mast with no dimensions and no insets.
+- **Layout goes before paint.** The rim labels, the dimension line and the insets are placed
+  first and recorded as boxes; labels are clamped inside the picture; then the tree tries eleven
+  spots (preferring the left and the front, since the heights are written on the right) and takes
+  the one that covers the fewest labels (weighted hardest — covering words is the worst thing it
+  can do), arrows and the mast. A tree that would hang off the edge is not drawn at all. The
+  person stands at the mast's foot where the tree is not. The painter draws back to front: ground, what stands north of the mast,
+  the back faces of the lattice, antennas facing away, the front faces, antennas facing you.
+- **Arrows are per DISTINCT azimuth, not per sector.** A real site stacks carriers on one azimuth
+  (Cellcom 14196: 700, 1800 and 2600 all on 70°); three arrows on top of each other read as one.
+  The rim lists that azimuth's **carriers**, sorted (`700/1800/2600`, or EARFCNs for IDF).
+- **The drawing is ONE SVG string used twice** — inline on the sheet, and rasterised at 3× to a
+  PNG for the slide (`svgPng`), so the slide shows exactly what the screen showed. A PNG rather
+  than an SVG picture because SVG in PPTX needs PowerPoint 2019+, and the TS machines' Office is
+  unknown. The data stays a **native table** on the slide, so the numbers remain editable.
+  Gradient and clip-path ids are unique per card (`svgSeq`), since every card is inline in one page.
+- **`direction="ltr"` on the SVG is load-bearing.** Inline on an RTL page the SVG inherits `rtl`,
+  which flips `text-anchor`: every label grew back over its own arrow on screen while the
+  rasterised copy (an image, so LTR) did not, and slide and screen disagreed.
+- **The drawing's text is digits, `°`, `m`, `N`, `×` and `Omni` only, in Arial.** An SVG painted as
+  an image cannot reach the page's webfonts, so Hebrew inside it would be the one thing that renders
+  differently on the slide. The Hebrew (name, headers) lives outside the drawing.
+- **"All sites on one slide" steps aside** (`#sdPer` hidden) under Stylish — a card is a slide.
+- **How it is tested without data**: the `app` suite hands the page a seeded Cellcom through
+  `Page.addScriptToEvaluateOnNewDocument` — `fetch('data/cellcom.json')` answers from the seed —
+  so no database file is written, not even a `.bak`. Use the same trick for any view that needs
+  data the shipped databases lack. For LOOKING at it, the shipped `partner.json` (the 2024 export,
+  which carries the plant) is the richer test: SO5949A (one tier), NC0543D (side-by-side pairs), NC4127A and TR0830B (two tiers, 59/41 and
+  36/20 m), SO5320K (four azimuths), SI5505A (the indoor omni).
+- **The output's text never translates**, style or not: the legend label is fixed Hebrew like
+  the headers. Only the picker's labels are in `i18n.js`.
+
+**The network chip rides the export; the other two annotations do not.** Asked for 2026-09-29:
+a slide that mixes operators has to say which row is whose. `NET_CHIP` in `app.js` states the
+app's green `.tag-net` as file colours, and the matrix hands it to both writers as `tag` on the
+site-name cell — **a second, smaller, highlighted run in the SAME cell**, so the table keeps its
+seven columns and the chip wraps with the name instead of floating over it. Print shows it too
+(`.tag:not(.tag-net)` is what print hides). `סקטור משוער` and `לא נמצא` stay app-only. A row that
+resolved to no network gets no chip. `<a:highlight>` is what PowerPoint has for a chip; a version
+too old to draw it still shows the green text.
 
 **Cells are editable in place.** Click (or focus and press Enter on) any of the five value cells
 and it becomes an input; Enter or Tab commits and moves on, Escape cancels, blur commits. This is
@@ -1071,11 +1300,18 @@ is exactly the 20 minutes the app removes. Details that are load-bearing:
   strongest-column-last, mirroring the HTML. Change one, change the other.
 - **The point cell is not merged.** PptxGenJS supports `rowspan`, but the export emits a filled
   purple cell per row with empty text for rows 2–3. It *looks* merged; it isn't.
+- **PptxGenJS 3.12 writes a paragraph's `<a:pPr>` before EVERY run**, so any multi-run paragraph —
+  the chip beside a name, the coverage legend's swatches — carried several, where the schema
+  allows one, first. That is the kind of file PowerPoint offers to "repair". Every presentation is
+  therefore made through `tidyPptx(new PptxGenJS())`, which wraps `exportPresentation` (both
+  `write()` and `writeFile()` go through it) and keeps each paragraph's first `<a:pPr>` only. The
+  runs carry `rtlMode` themselves, so the one that survives still says `rtl="1"`. Found 2026-09-29
+  by reading the chip's XML; the coverage legend had shipped with the same fault that morning.
 
 The slide title is the fixed `טבלת נתונים`, deliberately — the deck supplies mission context.
 
-**Print/PDF**: `window.print()`; `@media print` strips the nav, toolbar, chips and warning
-banner and prints `.doc-page` alone.
+**Print/PDF**: `window.print()`; `@media print` strips the nav, toolbar, app-only tags and
+warning banner and prints `.doc-page` alone.
 
 ---
 
@@ -1110,24 +1346,60 @@ Two traps that already bit once, both commented in the script:
 
 ## Design
 
-**`DESIGN.md` is the design system of record** (Mintlify — white canvas, one mint green, square
-4px/16px/24px geometry, whisper shadows). Read its "How TableX applies this" section before
-touching the UI; it records the three deliberate deviations.
+**`DESIGN.md` is the design system of record** — "Signal", adopted 2026-09-29 in place of the
+Mintlify reference system: a **cream** page (`--canvas`) with lighter cream cards (`--paper`) on
+it, pine ink, one mint, 6/12/20px geometry, the pixel square as the only ornament, the night
+landscape as the home page's floor, and a motion layer in which every button moves. Read its **Invariants** before
+touching the UI.
+
+**The home page is the paste and nothing else** (2026-09-29): no hero, no headline, no format
+note. The databases have their own view (`viewDb`, the nav's Databases link and the status chip
+both go there), and how to get the paste out of Planet is behind the "?" — see below.
+
+**`--canvas` and `--paper` are two tokens on purpose.** The page, the nav, the toolbar and the
+loader sit on `--canvas`; everything ON the page — cards, modals, popovers, inputs, the text on a
+filled button — is `--paper`. The paste box is a well in the canvas colour, so it reads as
+recessed into its card. `.doc-page` stays hardcoded `#ffffff`: the report is a white sheet on the
+cream desk, in both themes.
 
 The one that matters most: **the generated report table is not part of the design system.** Its
-purple palette is the *deliverable's*, matched to what commanders already see. The Mintlify
-system governs the app **around** the document. Do not restyle the table to match the UI.
+purple palette is the *deliverable's*, matched to what commanders already see, and `.doc-page` is
+**pinned to the type it had before the redesign** (Inter + Heebo and the old system mono) so the
+app changing face did not change the document. Do not restyle the table to match the UI.
 
-**Fonts are self-hosted and Hebrew needs its own face** — Inter has no Hebrew glyphs, so Heebo
-carries Hebrew via `unicode-range`. Regenerate with `python tools/build_fonts.py` (needs
+**Fonts are self-hosted.** The app is IBM Plex Sans Hebrew (it carries Plex's Latin too, so one
+family serves both scripts) with Plex Mono for codes; Inter + Heebo ship only for the report
+preview, routed by `unicode-range`. Regenerate with `python tools/build_fonts.py` (needs
 internet; run it on the dev box, commit the result).
+
+**Every button moves, through `js/motion.js` — never by inserting anything into a button.**
+`app.js` and `i18n.js` rewrite button text freely, so a child span added for an effect would be
+wiped, or would leak into a `textContent` read. Three shared behaviours, all delegated from the
+document:
+
+- **The press** is a Web Animation with `composite: 'add'`, so it stacks on whatever transform a
+  component carries. That is what lets one rule cover every kind of button without editing twenty
+  transition lists — keep component hover motion on the individual `translate` / `rotate` /
+  `scale` properties, never `transform`, or the two will fight.
+- **The rings** — a click transmits two thin mint rings from the press point, the scene's coverage
+  arcs — are drawn in one fixed `.fx-layer`. List rows (`.sd-hit`, `.ins-head`) and the tiny
+  thumbnail controls are `QUIET`: they press but do not transmit.
+- **The sliding markers** (the nav's active bar, every `.seg` thumb) are pseudo-elements placed
+  from `--ind-x` / `--ind-w`. A MutationObserver on `class` moves them; a ResizeObserver re-measures
+  when a language switch, the fonts, or a popover opening from `display:none` changes geometry.
+  `place()` guards its `classList.remove` — removing an absent class still queues a mutation
+  record, which would otherwise re-trigger the observer every frame while a control is hidden.
+
+The **theme** change is a view transition that sweeps from the pressed button (`setTheme()` in
+`app.js`, `themeSweep` in `main.css`); the **language** switch cross-fades. Both fall back to an
+instant swap without `startViewTransition` or under reduced motion.
 
 Animation is restrained and everything respects `prefers-reduced-motion`: staggered entrances,
 a count-up on the DB numbers, a per-row table reveal **capped at 18 rows** so a long table never
 makes anyone wait for decoration.
 
 **The loader** (`#loader`) covers the async DB fetch. It is determinate — the bar fills as each
-database lands, then once more when `document.fonts.ready` resolves, so the hero does not
+database lands, then once more when `document.fonts.ready` resolves, so the page does not
 repaint under the user as the loader lifts. Three deliberate properties, all load-bearing:
 a **620 ms minimum** on screen (a loader that flashes for 80 ms reads as a glitch), the font
 wait **raced with a 2.5 s timeout** (fonts are cosmetic and must never hold the app hostage),
@@ -1154,34 +1426,31 @@ stays on the ground.
 
 ---
 
-## The hero scene
+## The floor — the network at night, under the home page
 
-`js/scene.js` draws a **pixel landscape of cell sites at night** across the bottom 184px of the
-hero — hills, lattice towers, a rooftop site, an analysis-point pin, coverage arcs, and the
-**ghost mark itself** drifting between them. Technique lifted from UbiPlus's header lobby
-(`D:\projects\UbiPlus`, `js/lobby.js`): inline SVG rects on one integer grid, no assets, nothing
-from a CDN. The *subject* is not: a living room says nothing about this app, so it became the
-thing TableX is actually about.
+`js/scene.js` draws a **pixel landscape of cell sites at night** — hills, lattice towers, a rooftop
+site, an analysis-point pin, coverage arcs, and the **ghost mark itself** drifting between them.
+Technique lifted from UbiPlus's header lobby (`D:\projects\UbiPlus`, `js/lobby.js`): inline SVG
+rects on one integer grid, no assets, nothing from a CDN. The *subject* is not: a living room says
+nothing about this app, so it became the thing TableX is actually about.
 
-**It is in the hero because that is where the spec puts illustration** — the Mintlify reference
-hero IS a hand-illustrated landscape with the product floating in front of it, and TableX's hero
-was a bare gradient. DESIGN.md deviation 4 has been rewritten accordingly. It does **not** licence
-illustration anywhere below the hero.
+**Where it lives changed on 2026-09-29, twice.** It was the hero's bottom 184px, with the paste
+card planted on its horizon. Elad wanted the home page clear — no headline, no explanation — so
+the hero went. The scene spent an afternoon as a half-scale window in the nav, and then moved to
+where he marked it: the **floor of the home page** (`.floor` → `#sceneHost`), full width, back at
+**full scale** (`S` 4, `HZ` 24, three ground rows), under a 48px sky that fades down from the
+cream into night. **The footer stands on its ground** — `.floor .foot` takes `--sc-ground`, which
+is why the scene palette lives on `.floor` rather than on `#scene`. The old coupling — `.bridge`
+−84px ↔ `GROUND_PX` — went with the hero; nothing binds the floor's height but `.scene-host`.
 
-**The layout trick, and the one number that binds it.** `.bridge` pulls the paste card 84px up
-into the hero. The horizon is placed at exactly that 84px, so **the card's top edge IS the ground
-line**: every prop stands *above* it and is therefore fully visible at any width, and only bare
-ground is ever hidden behind the card. That is what lets the scene span the full width instead of
-packing into the side margins the way UbiPlus's furniture does — and it is why the card looks
-planted in the landscape rather than laid over it. **If the `-84px` in `.bridge` ever changes,
-`GROUND_PX` in `scene.js` has to change with it.**
+It is on the home page only, and it is still bounded: the bottom of one page (DESIGN.md
+invariant 2).
 
 Things worth not re-breaking:
 
 - **Colour lives in `main.css`, reached through CLASSES, never a `fill=""` attribute.** A theme
   switch then costs nothing — no re-render, no MutationObserver (UbiPlus needs one; this does
-  not). The hero band is dark in *both* themes, same reason `--hero-fg` is not overridden, so one
-  palette serves both with a small dark nudge.
+  not). The window is dark in *both* themes, so one palette serves both with a small dark nudge.
 - **Opacity that the tick animates is set as an ATTRIBUTE, and must not also be declared in CSS**
   — a CSS property wins over a presentation attribute and would silently freeze the pulse. That
   applies to `.sc-arc`, `.sc-star` and `.sc-lamp`; `.sc-site`'s base opacity is CSS because the
@@ -1189,23 +1458,54 @@ Things worth not re-breaking:
 - **The ghost is the mark, cell for cell** — the same 14×14 grid as the nav SVG, the `.ico` and
   the loader, with the loader's two skirt phases read off its CSS grid areas. It is not a
   lookalike, and it must not become one: if `build_icon.py` changes the mark, `GH` changes too.
-- **Crest wavelengths are 220–870px on purpose.** The first attempt used ~0.02 rad/cell, whose
-  period is wider than the viewport, and every ridge came out a dead-flat slab. Each crest also
-  carries a ~70px ripple term, without which `round()` holds one row for fifty columns and the lit
-  rim reads as a ruled line rather than a ridge.
+- **Crest wavelengths are in CELLS, and were tuned to 220–870px at 4px a cell** (110–435px now).
+  The first attempt used ~0.02 rad/cell, whose period is wider than the viewport, and every ridge
+  came out a dead-flat slab. Each crest also carries a ripple term, without which `round()` holds
+  one row for fifty columns and the lit rim reads as a ruled line rather than a ridge.
 - **Four ranges, not three.** Three read as stacked bands; the fourth is what turns them into
   distance. Value carries it — the most distant is lightest (it sits in the horizon haze) and each
   nearer layer steps darker, down to a near-black foreground.
-- **The horizon glow is a CSS radial, not pixels.** A dithered pixel gradient costs ~1,400 rects
-  for what one gradient does better, and `.hero-glow` already puts a radial in the system.
-- **The tick parks itself** off-screen (IntersectionObserver), in a background tab
+- **The horizon glow is a CSS radial, not pixels.** A dithered pixel gradient costs a thousand
+  rects for what one gradient does better.
+- **The tick parks itself** off-screen (IntersectionObserver — which is also what parks it on
+  every view but home, where the floor is `display:none`), in a background tab
   (`visibilitychange`), under `prefers-reduced-motion`, and when the scene is switched off. Under
-  reduced motion `_render()` pins one still frame with a site lit, or the coverage arcs — the
-  point of the picture — would simply be missing.
-- **Hidden below 900px** in CSS. `display:none` zeroes `clientWidth`, which makes `scene.js` stand
-  down and kill its own timer with no JS branch for it. `.hero:has(#scene.off)` likewise returns
-  the hero to its old 132px padding when the scene is switched off, so JS gets no second say in
-  how tall the hero is.
+  reduced motion `_render()` pins one still frame with a site lit, or the coverage arcs would
+  simply be missing.
+- **`cells` is rounded UP** and the host clips the spare pixels. Rounded down, the drawing came
+  up to 3px short of a full-bleed host and the sky showed through as a sliver at each end of the
+  ground.
+- **The sky fade is interpolated in oklch from `--canvas`.** Mixed as plain transparency, cream
+  into pine went through a dead grey. Under 360px wide nothing is drawn (`MIN_W`); a phone gets
+  the ghost and one mast.
+- **Switched off in settings, the night goes with the landscape**: `.floor:has(#scene.off)`
+  collapses the sky and returns the footer to the page's own cream, so a scene-less page does not
+  end in a dark slab with nothing on it.
+
+---
+
+## The "?" — how to get the data out of Planet
+
+The home page carries no explanation any more: a card, a box, a button. The column legend and the
+format note that used to sit over the paste box, and the hero's headline, all went behind a **"?"**
+on the paste card (`js/tour.js`): five steps, Planet → copy → paste → generate → fix and export,
+each with a small markup drawing of what that step is about.
+
+- **The drawings are markup, not screenshots.** Nothing to go stale in a second place, and they
+  theme with the app — except step 4's, which is the report's purple and white and fixed Hebrew
+  headers, because it IS the report (invariant 1): it does not translate, like the real one.
+- **The sample rows in them are DATA** — the first rows of `SAMPLE` — so they live in `tour.js`,
+  not `i18n.js`, the same rule the paste placeholder and the site editor's `EXAMPLES` follow.
+- **The last button does the thing**: it presses `#btnSample` (so `app.js` stays the one owner of
+  `SAMPLE`), closes, and hands focus to generate, which answers with a mint cue.
+- **First visit only**, the "?" transmits twice once the loader lifts (`.nudge`), and never again
+  after the tour has been opened once (`tablex_tour_seen`).
+- **Escape is caught at the document in the capture phase**, so the tour answers it before
+  `app.js`'s own Escape chain (on `window`) can close something beneath it.
+- **Steps 1-2 are written from what this file records about point inspect** — the tool's name,
+  its seven columns, and that Planet renders its grid RTL so a code read by eye comes out reversed.
+  The exact Planet menu path to open it was never recorded. If a soldier reports a step that does
+  not match Planet, the words are `tour.*` in `i18n.js`, both dictionaries.
 
 ---
 
@@ -1283,7 +1583,7 @@ two-maps-per-slide layout therefore just works.
 
 ```
 .\server.ps1 -NoLaunch            # in one window
-node tools/e2e/run.mjs            # in another — 91 checks, ~45 s
+node tools/e2e/run.mjs            # in another — 144 checks, ~70 s
 node tools/e2e/run.mjs deck       # one suite
 node tools/e2e/run.mjs --keep-shots
 ```
@@ -1297,7 +1597,7 @@ server, `TABLEX_VERBOSE=1` prints passing checks too.
 |-------|----------------|
 | `engine` | `js/pptx.js` — parse a package, insert a picture, clone/reorder/delete slides, then **re-open the output** and assert on it, including that no relationship dangles |
 | `deck`   | the whole Decks flow — upload a template, mark slots, mark a slide repeating, save to the server, drop images, build, re-open, and confirm the report table came out as a native `<a:tbl>` |
-| `app`    | the lookup view, in-table editing, the site editor's add form, and that a chained cell resolves under BOTH its ENM and its Planet spelling, to the same site |
+| `app`    | the lookup view, in-table editing, the site editor's add form, that a chained cell resolves under BOTH its ENM and its Planet spelling, the site-data sheet, the databases view, and the "?" tour end to end |
 
 **Why a browser and not unit tests.** Everything worth testing here is interactive — clicking a
 slot onto a slide, dragging it, typing into a table cell, feeding a `.pptx` through a file input.
@@ -1381,7 +1681,7 @@ times a day, and the answer was a Planet session.
   The "these databases are empty on this machine" line belongs INSIDE that panel rather
   than as a second orphaned paragraph. Deliberately not `.ed-msg`: `deck.js` styles its own
   empty states with that class and has no reason to change. **No illustration here** — that
-  stays in the hero and the loader.
+  stays on the home page's floor and in the loader.
 - Site names, site ids and sector codes are click-to-copy (`data-copy`, delegated).
 
 ---
@@ -1390,8 +1690,9 @@ times a day, and the answer was a Planet session.
 
 `נתוני אתר` in the nav. Search sites across all four networks, pick any number of them,
 and get a white RTL sheet of every sector they carry — **סקטור · תדר מרכזי · רוחב פס ·
-אזימוט · גובה · דגם אנטנה · הספק** — under the site's Hebrew name, id, operator and
-coordinates. PPTX or print, same two buttons as the report.
+אזימוט · גובה · דגם אנטנה · הספק · CRS** — under the site's Hebrew name, id, operator and
+coordinates. PPTX or print, same two buttons as the report. CRS was added 2026-09-29 (see the
+workbook contract: it is the boost in dB, printed as `0 dB`).
 
 **Why it exists.** A commander who wants better כיסוי in an area files a request with the
 operator, and that form wants the site's whole physical plant. Elad was reading the first
@@ -1400,11 +1701,12 @@ screenshot — the same 20 minutes the point-analysis table already removes, one
 
 - **It is the DELIVERABLE's palette, not the app's.** `.doc-page` and `.data-table`, the
   purple the report already uses, because this is a thing that gets sent rather than app
-  chrome. The chrome around it is the ordinary Mintlify system. Same split, same reason.
-- **A missing field renders `-`, never blank and never a guess.** The shipped
-  `partner.json` predates the plant, so every azimuth, height and antenna on it reads `-`
-  until someone re-imports the group export. A gap in the export has to be visible; the
-  `app` suite asserts exactly that against the shipped database.
+  chrome. The chrome around it is the ordinary Signal system. Same split, same reason.
+- **A missing field renders `-`, never blank and never a guess.** Partner ships with the plant
+  (every one of its 14,252 sectors has antenna, power and CRS); IDF's ENM-built `idf.json` has
+  none, so its columns read `-` until the `IDF_Share` export is imported. A gap in the export has
+  to be visible; the `app` suite asserts the plant columns against the database's OWN values, `-`
+  where it has none — so it holds for a database with the plant and one without alike.
 - **Watts are computed, not stored** — `10^((dBm-30)/10)`, so 49.03 dBm prints 80 W and
   46.02 prints 40 W, the numbers the request form uses. **Nothing is snapped to a
   "standard" wattage**: 49 dBm is 79 W and prints 79, because rounding it up to 80 would be
@@ -1476,7 +1778,7 @@ Behaviour worth preserving:
 - **Removing a site's last sector drops the site too.** A site with no sectors is unreachable by
   any lookup, so leaving its name behind would be an orphan record that only grows the file.
   Verified both ways on 2026-09-04.
-- **`ED_ROW_CAP = 150`.** Partner has 3,129 sites; rendering them all janks the modal. Search
+- **`ED_ROW_CAP = 150`.** Partner has about 3,000 sites; rendering them all janks the modal. Search
   narrows, the cap holds, and a footer line says how many of how many are shown.
 - Save posts to the **same `api/db/<network>` route** the xlsx import uses, then refreshes the
   cards and the nav chip in place.
@@ -1504,7 +1806,7 @@ async. Four details worth keeping:
 Four prompts use it: `db.clearConfirm`, `db.shrink`, `db.unknownBand` and `ed.discard`. Adding a
 fifth means a string in **both** dictionaries, as always.
 
-## Settings: theme, language and the hero scene
+## Settings: theme, language and the scene
 
 A gear in the nav opens a popover with three segmented controls. Theme and language persist in
 `localStorage` (`tablex_theme`, `tablex_lang`) and are applied by an **inline script in
@@ -1513,8 +1815,9 @@ user and an RTL→LTR jump for an English one. That script only touches `<html>`
 everything else waits for `js/i18n.js`.
 
 **Theme** is a pure token swap under `:root[data-theme="dark"]`; no component has a
-second definition. First run seeds from `prefers-color-scheme`. See DESIGN.md deviation 5 for
-the two tokens the swap must never touch (`--hero-fg`, `.doc-page`).
+second definition. First run seeds from `prefers-color-scheme`. See DESIGN.md invariant 3 for
+the two tokens the swap must never touch (`--hero-fg`, `.doc-page`). The dark theme is the
+hero's night carried down the page — pine, not neutral black.
 
 **Language translates the app chrome ONLY. The generated report does not translate, ever.**
 `renderTable()` and the PPTX builder hardcode their Hebrew column headers. That table is the
@@ -1526,7 +1829,7 @@ explicit setting, separate from this one. The settings popover says so in `set.n
 
 **The scene** is the third control (`tablex_scene`, key read in `SCENE.init()`, not in the
 head script — it is decoration, so a flash of it is not a defect worth a third inline read).
-See "The hero scene" below.
+See "The floor" below.
 
 `js/i18n.js` holds both dictionaries. Markup uses `data-i18n` (textContent),
 `data-i18n-html` (innerHTML, only for strings carrying markup), `data-i18n-placeholder` and
@@ -1543,6 +1846,11 @@ the raw key.
   a throwaway payload to all four networks to test the whitelist. When testing that route, post
   to a stub network or restore from `.bak` immediately afterwards; `data/*.bak` is gitignored and
   is the only copy, since the source workbooks are no longer in the repo.
+  **It is one deep, and it backs up whatever is there — including nothing.** On 2026-09-29 Partner
+  was empty just before the 16:50 re-import, so `partner.json.bak` is now a 90-byte empty
+  database and the real rollback it held is gone (the tests were checked: none writes or clears a
+  database). Git is the rollback for a shipped network; `גבה` before any clear or import is the
+  rollback for one that is not.
 - **PowerShell comparison operators are case-INSENSITIVE by default.** The DB write route
   originally used `-match '^api/db/([a-z]+)$'` and `-notcontains`, so `POST /api/db/Partner`
   matched, passed the whitelist, and — on Windows' case-insensitive filesystem — wrote
@@ -1589,6 +1897,32 @@ the raw key.
 - **Verifying Hebrew in a terminal is useless here** — the console codepage mangles it and it
   looks like corruption when the data is fine. Verify by *comparing against a known-good
   source* (that is what the Interfex cross-check is for), not by eyeballing console output.
+
+## Open threads — where 2026-09-29 left off
+
+Things raised with Elad and not settled. Each is small; none is a defect in what shipped.
+
+- **Partner is the 2024 export**, 434 sites short of today's network — see "Sibling projects". The
+  next Partner refresh should be a current `Partner_Share` group export, which the importer reads
+  plant and all.
+- **Levels show their minus on the right in the Hebrew report** — `72.42-`, in all three styles
+  and in the old table too. It is the bidi algorithm placing a neutral `-` in an RTL cell. Offered
+  and not changed, because it changes the deliverable; the fix is to isolate the level cell as LTR
+  the way `td-ltr` does for codes. Check the PPTX cell as well as the HTML before calling it done.
+- **CRS is Planet's BOOST** (`0 dB` on every sector of the 2024 export). If the operator's request
+  form turns out to want the RS power itself, it is the render-time conversion under the workbook
+  contract — ask which the form wants before building it.
+- **`80020899` has no datasheet** — about 20% of Partner's antennas, drawn at the `TYPICAL` size.
+  One `ANT_DIMS` line when someone finds its dimensions.
+- **IDF's real `Antenna File` spellings have not been seen.** Elad's list (80010866, 80010867,
+  80010864, CC12V (Vega), ODI032, "and more") is in `ANT_DIMS` and prefix matching should catch
+  the variants, but the `IDF_Share` Antennas sheet has only been seen as the mock. A `בדיקת קובץ`
+  photo of it settles the spellings and names the rest. ODI-032R20M-Q's size is an estimate.
+- **ENM power and CRS for Partner exist, unread**: `D:\Downloads\PARTNER DB 19052026\Book1-O.xlsx`
+  is an ENM dump from 2026-05-19 — `configuredMaxTxPower [mW]` per sector carrier and
+  `crsGain [dB]` per cell, ~26.6k rows each — beside `Book1.xlsx` (cell id, EARFCN, eNB id). Not a
+  Planet export and no importer reads it; noted only as a possible source for sectors the 2024
+  export lacks, if that is ever wanted.
 
 ## Known gaps
 
@@ -1661,11 +1995,16 @@ the raw key.
   standalone PPTX slide (`btnPptx`), the table injected into a template slot
   (`TableXPptx.insertTable`, via `js/deck.js`), and the print CSS. The two PPTX writers both read
   `tableMatrix()`, so for a column or colour change that is the one place to edit — but the row
-  markup, the print rules and the reversed column order still live in three files.
+  markup, the print rules and the reversed column order still live in three files. **And in all
+  THREE output styles** — `tableMatrix()`'s classic branch and `leanMatrix()` build the same
+  columns separately, and main.css's "OUTPUT STYLES" block is the lean styles' HTML half.
 - **Never `window.confirm()` / `alert()`** — use `ask()`, so a prompt speaks in the app's voice
   rather than the browser's (or Electron's).
-- **Illustration stays in the hero and the loader.** If you touch the hero scene, keep colour in
-  `main.css` and animated opacity in attributes — see "The hero scene".
+- **A new button gets its press and its rings from `motion.js` for free.** A new button KIND gets
+  at most one hover move of its own, saying what it does, on `translate` / `rotate` / `scale` —
+  never `transform`, and never by adding an element inside the button. See DESIGN.md "Motion".
+- **Illustration stays on the home page's floor and in the loader.** If you touch the scene, keep
+  colour in `main.css` and animated opacity in attributes — see "The floor".
 - When you touch the workbook contract, **touch both parsers**: `js/dbparse.js` and
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`

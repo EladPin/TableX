@@ -76,7 +76,7 @@ export default async function ({ ev, ok, shot, sleep, send }) {
 
   // The ORIGINAL value must come from the input (which is filled from
   // lastRows), not from textContent — the site cell also carries the network
-  // tag span, so its text is "name" + "PARTNER".
+  // tag span, so its text is "name" + "Partner".
   const origSite = await ev(`
     const td = document.querySelector('#docPage [data-e$=":site"]');
     td.click();
@@ -352,11 +352,21 @@ export default async function ({ ev, ok, shot, sleep, send }) {
       ['IDF_Amitay',2,'LTE FDD',46.02],
       ['IDF_Astra','3_900','LTE FDD',43],
     ]);
+    // CRS on a sheet of its own, found by its header like power. Two carrier
+    // rows that disagree about one sector give no answer at all.
+    const crs = XLSX.utils.aoa_to_sheet([
+      ['Site ID','Sector ID','Reference Signal Power Boosting (dB)'],
+      ['IDF_Amitay',1,0],
+      ['IDF_Amitay',2,-3],
+      ['IDF_Astra','3_900',0],
+      ['IDF_Astra','3_900',3],
+    ]);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sites, 'Sites');
     XLSX.utils.book_append_sheet(wb, secs, 'Sectors');
     XLSX.utils.book_append_sheet(wb, ants, 'Antennas');
     XLSX.utils.book_append_sheet(wb, pwr, 'LTE_FDD_Sector_Carriers');
+    XLSX.utils.book_append_sheet(wb, crs, 'LTE_FDD_Sectors');
     const buf = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' })).buffer;
     const d = self.TableXParse(buf);
     // IDF stores the raw EARFCN in the frequency slot, not the band label.
@@ -367,7 +377,7 @@ export default async function ({ ev, ok, shot, sleep, send }) {
              keys: Object.keys(d.sectors).sort(),
              astra900: d.sectors['IDF_Astra_3_900'],
              names: d.sites, notes: d.notes || {},
-             coords: d.coords || {}, ant: d.ant || {}, pwr: d.pwr || {} };`);
+             coords: d.coords || {}, ant: d.ant || {}, pwr: d.pwr || {}, crs: d.crs || {} };`);
 
   // Without this the import is REFUSED: IDF numbers sectors per site, so the
   // plain Sector ID column collapses the network into a handful of rows.
@@ -401,6 +411,9 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   ok('PA Power is read off whichever sheet carries it',
      wbk.pwr.IDF_Amitay_1 === 49.03 && wbk.pwr.IDF_Astra_3_900 === 43,
      JSON.stringify(wbk.pwr));
+  ok('CRS is read off its own header, and a disagreement gives no answer',
+     wbk.crs.IDF_Amitay_1 === 0 && wbk.crs.IDF_Amitay_2 === -3 && !('IDF_Astra_3_900' in wbk.crs),
+     JSON.stringify(wbk.crs));
   // 49.03 dBm is 80 W and 46.02 is 40 W — the numbers an operator form prints.
   ok('dBm converts to the watts the request form shows',
      Math.round(Math.pow(10, (wbk.pwr.IDF_Amitay_1 - 30) / 10)) === 80 &&
@@ -465,17 +478,23 @@ export default async function ({ ev, ok, shot, sleep, send }) {
     const rows = [...document.querySelectorAll('#sdPage .sd-table tbody tr')]
                    .map(tr => [...tr.children].map(td => td.textContent));
     const db = await (await fetch('data/partner.json')).json();
-    const want = Object.entries(db.sectors)
-                   .filter(([, v]) => v[0] === ${JSON.stringify(sdSite)})
-                   .map(([, v]) => v[1]).sort();
+    const mine = Object.entries(db.sectors).filter(([, v]) => v[0] === ${JSON.stringify(sdSite)});
+    const want = mine.map(([, v]) => v[1]).sort();
+    // what each row's plant columns must say: the database's value, or '-'
+    const plant = mine.sort(([a], [b]) => a < b ? -1 : 1).map(([k]) => {
+      const a = (db.ant || {})[k] || [], c = (db.crs || {})[k];
+      return [a[1] == null ? '-' : String(a[1]), a[0] == null ? '-' : String(a[0]),
+              a[3] ? String(a[3]).replace(/\\.pafx$/i, '') : '-',
+              typeof c === 'number' ? c + ' dB' : '-'].join('|');
+    });
     return { chips: document.querySelectorAll('.sd-chip').length,
              acts: !document.getElementById('sdActions').classList.contains('hidden'),
-             heads, rows, want };`);
+             heads, rows, want, plant };`);
 
   ok('picking a site puts it on the sheet', sheet.chips === 1 && sheet.acts);
-  ok('the sheet has the seven columns the request form wants',
-     sheet.heads.length === 7 && sheet.heads[0] === 'סקטור' && sheet.heads[6] === 'הספק',
-     sheet.heads.join(' | '));
+  ok('the sheet has the eight columns the request form wants, CRS last',
+     sheet.heads.length === 8 && sheet.heads[0] === 'סקטור' && sheet.heads[6] === 'הספק' &&
+     sheet.heads[7] === 'CRS', sheet.heads.join(' | '));
   ok('a row per sector', sheet.rows.length === sheet.want.length,
      `${sheet.rows.length} rows for ${sheet.want.length} sectors`);
   // sectorLabel() takes the whole sector ARRAY and reads [1] itself. Handing
@@ -484,15 +503,250 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   ok('the sector column is the sector, not one letter of it',
      sheet.rows.map(r => r[0]).sort().join(',') === sheet.want.join(','),
      `got ${sheet.rows.map(r => r[0]).sort().join(',')} want ${sheet.want.join(',')}`);
-  // The shipped partner.json predates the plant, so those columns must read
-  // '-' rather than vanish or throw: a gap in the export has to be visible.
-  ok('a database with no plant shows gaps, not blanks',
-     sheet.rows.every(r => r[3] === '-' && r[4] === '-' && r[5] === '-'),
-     JSON.stringify(sheet.rows[0]));
+  // Azimuth, height, antenna and CRS are exactly what the database holds,
+  // and '-' where it holds nothing — never blank, never a guess. (The
+  // committed partner.json predates the plant; a re-imported one carries it.)
+  ok('the plant columns say what the database says, and "-" for a gap',
+     sheet.rows.map(r => [r[3], r[4], r[5], r[7]].join('|')).join(',') === sheet.plant.join(','),
+     JSON.stringify(sheet.rows[0]) + ' want ' + sheet.plant[0]);
   await shot('sd_sheet');
 
   ok('removing the site empties the sheet again', await ev(`
      document.querySelector('.sd-chip-x').click();
      await new Promise(r => setTimeout(r, 250));
      return document.querySelectorAll('#sdPage .sd-site').length === 0;`));
+
+  // ── OUTPUT STYLES ─────────────────────────────────────────────────────
+  // One setting (tablex_style) feeding every renderer. classic must stay the
+  // table commanders know; clean and coverage must put the same ink in the
+  // PPTX matrix that the sheet shows; coverage's classes are Planet's legend.
+  await ev(`localStorage.removeItem('tablex_style');
+            document.querySelector('[data-goto="home"]').click();
+            document.getElementById('btnSample').click();
+            document.getElementById('btnGenerate').click();`);
+  await sleep(700);
+  const st = await ev(`
+    const pick = s => { document.querySelector('#styleTable [data-out-style="' + s + '"]').click(); };
+    const m = () => TableXReport.matrix();
+    const res = {};
+    // Selected, not assumed: suites share a browser profile, so a style left
+    // behind by another suite would otherwise decide this one's result.
+    pick('classic');
+    res.classic = { head: m()[0][0].fill, bd: !!m()[1][0].bd, lean: document.getElementById('docPage').classList.contains('out-lean') };
+    pick('clean');
+    res.clean = { head: m()[0][0].fill, headLine: m()[0][0].bd && m()[0][0].bd.b && m()[0][0].bd.b.pt,
+                  side: m()[1][0].bd && m()[1][0].bd.l, lean: document.getElementById('docPage').classList.contains('out-lean'),
+                  // a shared edge is stated identically by both cells that meet at it
+                  agree: m().slice(1).every((row, r) => row.every((c, k) => c.bd.t === m()[r][k].bd.b)),
+                  cap: TableXReport.caption() };
+    pick('coverage');
+    const rows = m().slice(1);
+    res.coverage = { level: rows[0][0].t, fill: rows[0][0].fill, legend: document.querySelectorAll('.tbl-legend .lg-item').length,
+                     cap: !!TableXReport.caption(), kept: localStorage.getItem('tablex_style'),
+                     synced: [...document.querySelectorAll('[data-out-style].on')].every(b => b.dataset.outStyle === 'coverage') };
+    pick('classic');
+    res.back = { head: m()[0][0].fill, legend: document.querySelectorAll('.tbl-legend').length };
+    return res;`);
+  ok('classic is the purple table, untouched', st.classic.head === '4A3F8C' && !st.classic.bd && !st.classic.lean,
+     JSON.stringify(st.classic));
+  ok('clean: no fills, a heavy header rule, no side lines', st.clean.head === 'FFFFFF' && st.clean.headLine === 1.5
+     && st.clean.side === null && st.clean.lean && st.clean.cap === null, JSON.stringify(st.clean));
+  ok('clean: every shared edge agrees between the two cells', st.clean.agree);
+  // -72.42 sits in Planet's magenta class, -75 <= x < -60
+  ok('coverage tints a level by Planet class, with the legend', st.coverage.level === '-72.42'
+     && st.coverage.fill === 'F5BEE0' && st.coverage.legend === 6 && st.coverage.cap, JSON.stringify(st.coverage));
+  ok('the style is kept, and the picker follows', st.coverage.kept === 'coverage' && st.coverage.synced);
+  ok('back to classic restores the purple and drops the legend', st.back.head === '4A3F8C' && st.back.legend === 0);
+
+  // The network chip rides the export now (asked for 2026-09-29): a smaller,
+  // highlighted run beside the site name in the PPTX, and visible in print.
+  // `סקטור משוער` and `לא נמצא` stay app-only.
+  const chip = await ev(`
+    PptxGenJS.prototype.writeFile = async function () { window.__pptx = await this.write({ outputType: 'arraybuffer' }); };
+    window.__pptx = null;
+    document.getElementById('btnPptx').click();
+    for (let i = 0; i < 50 && !window.__pptx; i++) await new Promise(r => setTimeout(r, 100));
+    const res = { tags: TableXReport.matrix().slice(1).filter(r => r[4].tag).length,
+                  html: document.querySelectorAll('#docPage .tag-net').length };
+    if (window.__pptx) {
+      const z = await JSZip.loadAsync(window.__pptx);
+      const x = await z.file('ppt/slides/slide1.xml').async('string');
+      res.hl = (x.match(/<a:highlight>/g) || []).length;
+      res.partner = x.includes('Partner');
+    }
+    return res;`);
+  ok('the network chip rides the standalone PPTX, one per resolved row',
+     chip.tags === chip.html && chip.tags > 0 && chip.hl === chip.tags && chip.partner, JSON.stringify(chip));
+  await send('Emulation.setEmulatedMedia', { media: 'print' });
+  const pr = await ev(`
+    const vis = sel => [...document.querySelectorAll('#docPage ' + sel)].filter(e => getComputedStyle(e).display !== 'none').length;
+    return { net: vis('.tag-net'), miss: vis('.tag-miss'), warn: vis('.tag-warn'),
+             nets: document.querySelectorAll('#docPage .tag-net').length };`);
+  await send('Emulation.setEmulatedMedia', { media: '' });
+  ok('print shows the network chip and hides the other tags',
+     pr.net === pr.nets && pr.net > 0 && pr.miss === 0 && pr.warn === 0, JSON.stringify(pr));
+  await ev(`localStorage.removeItem('tablex_style'); document.getElementById('btnBack').click();`);
+  await sleep(300);
+
+  // ── DATABASES VIEW + THE "?" TOUR ─────────────────────────────────────
+  // Since 2026-09-29 the databases are their own view rather than a section
+  // under the paste card, and the paste card's explanation lives behind a
+  // "?" that walks Planet -> paste -> table. Its last button DOES the thing:
+  // loads the sample into the real box and hands focus to generate.
+  await ev(`document.querySelector('[data-goto="db"]').click();`);
+  await sleep(300);
+  ok('databases are a view of their own', await ev(`
+     return !document.getElementById('viewDb').classList.contains('hidden')
+         && document.getElementById('viewHome').classList.contains('hidden')
+         && document.querySelectorAll('#dbGrid .db-card').length === 4;`));
+  ok('home carries no database section', await ev(`
+     return !document.querySelector('#viewHome #dbGrid');`));
+
+  await ev(`document.querySelector('[data-goto="home"]').click();`);
+  await sleep(300);
+  await ev(`document.getElementById('inputArea').value = '';
+            document.getElementById('inputArea').dispatchEvent(new Event('input', { bubbles: true }));`);
+  await ev(`document.getElementById('btnTour').click();`);
+  await sleep(300);
+  const tour = await ev(`
+     const steps = [];
+     for (let i = 0; i < 5; i++) {
+       steps.push(document.getElementById('tourTitle').textContent.trim());
+       if (i < 4) document.getElementById('tourNext').click();
+     }
+     return { steps, open: !document.getElementById('tourOverlay').classList.contains('hidden'),
+              segs: document.querySelectorAll('#tourBar .tour-seg.on').length };`);
+  ok('the tour opens and walks five distinct steps',
+     tour.open && new Set(tour.steps).size === 5 && tour.steps.every(Boolean), tour.steps.join(' | '));
+  ok('progress fills to the last step', tour.segs === 5, `${tour.segs} segments on`);
+  const fin = await ev(`
+     document.getElementById('tourNext').click();
+     await new Promise(r => setTimeout(r, 250));
+     return { closed: document.getElementById('tourOverlay').classList.contains('hidden'),
+              lines: document.getElementById('inputArea').value.trim().split(String.fromCharCode(10)).length,
+              focus: document.activeElement && document.activeElement.id };`);
+  ok('its last button loads the sample and hands focus to generate',
+     fin.closed && fin.lines > 1 && fin.focus === 'btnGenerate', JSON.stringify(fin));
+  ok('Escape closes the tour without closing anything under it', await ev(`
+     document.getElementById('btnTour').click();
+     await new Promise(r => setTimeout(r, 150));
+     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+     await new Promise(r => setTimeout(r, 150));
+     return document.getElementById('tourOverlay').classList.contains('hidden')
+         && !document.getElementById('viewHome').classList.contains('hidden');`));
+
+  // ── STYLISH: the site drawn from above ────────────────────────────────
+  // No shipped database carries azimuths yet, so a seeded Cellcom is handed
+  // to the page IN THE BROWSER — fetch() answers data/cellcom.json from the
+  // seed — and nothing on disk is touched. Cellcom 14196 is the site from
+  // CLAUDE.md: 700/1800/2600 stacked on each of 70/160/270; one more sector
+  // has no antenna row, so no azimuth.
+  const seed = { network: 'cellcom', label: 'Cellcom', source: 'e2e', built: '2026-09-29',
+    sites: { '14196': 'אתר בדיקה' }, sectors: {}, coords: { '14196': [35.214, 32.7031] }, ant: {}, pwr: {} };
+  [[70, 97], [160, 98], [270, 99]].forEach(([az, c]) => [[0, 700, 10], [10, 1800, 20], [50, 2600, 20]]
+    .forEach(([o, f, bw]) => {
+      const k = `${3634100 + c + o}_${az}`;
+      seed.sectors[k] = ['14196', String(az), f, bw];
+      seed.ant[k] = [32, az, 2, '742270_' + f + '.pafx'];
+      seed.pwr[k] = 49.03;
+    }));
+  seed.sectors['3634290_0'] = ['14196', '0', 700, 10];
+  seed.sites['15002'] = 'אתר נמוך';
+  seed.sectors['3840271_0'] = ['15002', '0', 1800, 20];
+  seed.ant['3840271_0'] = [2, 0, 0, '741571_1800.pafx'];
+  seed.sites['15003'] = 'אתר צלחת';
+  [['3840371_60', 60, 4, '80010867V01.pafx', 1800], ['3840372_300', 300, 4.5, 'CC12V.pafx', 700]]
+    .forEach(([k, az, h, f, fq]) => { seed.sectors[k] = ['15003', String(az), fq, 10]; seed.ant[k] = [h, az, 0, f]; });
+  seed.crs = {};
+  Object.keys(seed.ant).forEach((k, i) => { seed.crs[k] = i % 3 ? 0 : -3; });
+  const inject = await send('Page.addScriptToEvaluateOnNewDocument', { source: `
+    (() => { const real = window.fetch, seed = ${JSON.stringify(JSON.stringify(seed))};
+      window.fetch = (u, o) => String(u).endsWith('data/cellcom.json')
+        ? Promise.resolve(new Response(seed, { headers: { 'Content-Type': 'application/json' } }))
+        : real(u, o); })();` });
+  await send('Page.reload');
+  await sleep(3000);
+  const sty = await ev(`
+    PptxGenJS.prototype.writeFile = async function () { window.__pptx = await this.write({ outputType: 'arraybuffer' }); };
+    document.querySelector('[data-goto="site"]').click();
+    await new Promise(r => setTimeout(r, 300));
+    const q = document.getElementById('sdSearch');
+    q.value = '14196'; q.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 300));
+    document.querySelector('#sdResults .sd-hit').click();
+    await new Promise(r => setTimeout(r, 200));
+    document.querySelector('[data-site-style="stylish"]').click();
+    await new Promise(r => setTimeout(r, 300));
+    const svg = document.querySelector('#sdPage .sd-card svg');
+    const rows = [...document.querySelectorAll('#sdPage .st-table tbody tr')];
+    const res = {
+      cards: document.querySelectorAll('#sdPage .sd-card').length,
+      ltr: svg && svg.getAttribute('direction'),
+      labels: svg ? [...svg.querySelectorAll('text')].map(t => t.textContent).filter(t => t.endsWith('°')) : [],
+      rows: rows.length,
+      noAz: rows.filter(r => r.querySelector('.st-az').textContent === '-').length,
+      perHidden: document.getElementById('sdPer').classList.contains('hidden'),
+      tableStyle: document.querySelector('[data-out-style].on') && document.querySelector('[data-out-style].on').dataset.outStyle,
+      crsHead: [...document.querySelectorAll('#sdPage .st-table th')].pop().textContent,
+      crs: rows.map(r => r.lastElementChild.textContent),
+      heights: svg ? [...svg.querySelectorAll('text')].map(t => t.textContent).filter(t => / m$/.test(t)) : [],
+      insets: svg ? svg.querySelectorAll('clipPath').length : 0,
+      boxes: svg ? svg.querySelectorAll('path[stroke-linejoin="round"]').length : 0,
+    };
+    window.__pptx = null;
+    document.getElementById('sdPptx').click();
+    for (let i = 0; i < 60 && !window.__pptx; i++) await new Promise(r => setTimeout(r, 100));
+    if (window.__pptx) {
+      const z = await JSZip.loadAsync(window.__pptx);
+      const x = await z.file('ppt/slides/slide1.xml').async('string');
+      res.pptx = { slides: Object.keys(z.files).filter(n => /^ppt\\/slides\\/slide\\d+\\.xml$/.test(n)).length,
+                   pics: Object.keys(z.files).filter(n => n.startsWith('ppt/media/') && !n.endsWith('/')).length,
+                   trs: x.split('<a:tr ').length - 1 };
+    }
+    localStorage.removeItem('tablex_site_style');
+    return res;`);
+  ok('stylish: one card per site, its drawing set left-to-right',
+     sty.cards === 1 && sty.ltr === 'ltr', JSON.stringify(sty));
+  ok('stylish: one arrow per DISTINCT azimuth, degrees at the tips',
+     sty.labels.join(',') === '70°,160°,270°', sty.labels.join(','));
+  ok('stylish: every sector a row, the one without an azimuth left at "-"',
+     sty.rows === 10 && sty.noAz === 1, `${sty.rows} rows, ${sty.noAz} without azimuth`);
+  ok('stylish: the one-slide toggle steps aside; the table keeps its own style',
+     sty.perHidden && sty.tableStyle === 'classic');
+  ok('stylish: CRS is the last column, "-" where the database has none',
+     sty.crsHead === 'CRS' && sty.crs.filter(t => /^-?\d+ dB$/.test(t)).length === 9 &&
+     sty.crs.filter(t => t === '-').length === 1, sty.crs.join(','));
+  // nine sectors on three azimuths at one height: three antennas per azimuth
+  // stood on the mast, dimensioned, and magnified in an inset
+  ok('stylish: the mast is dimensioned and its antennas magnified in an inset',
+     sty.heights.join(',') === '32 m' && sty.insets === 1 && sty.boxes > 0,
+     JSON.stringify({ h: sty.heights, i: sty.insets, b: sty.boxes }));
+  ok('stylish PPTX: a slide per site, the drawing as a picture, a native table',
+     sty.pptx && sty.pptx.slides === 1 && sty.pptx.pics === 1 && sty.pptx.trs === 11, JSON.stringify(sty.pptx));
+
+  // The structure follows the heights, and a model is found by its prefix:
+  // a 2 m omni stands on a concrete block rather than a 3 m "tower", and a
+  // site whose antennas all end by 6 m does too — with the Vega CC12 drawn
+  // as the grid dish it is, not a panel.
+  const mount = await ev(`
+    const pick = q => { const i = document.getElementById('sdSearch'); i.value = q;
+      i.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('#sdResults .sd-hit').click(); };
+    document.querySelector('[data-site-style="stylish"]').click();
+    pick('15002'); pick('15003');
+    await new Promise(r => setTimeout(r, 300));
+    const svgs = [...document.querySelectorAll('#sdPage .sd-card svg')];
+    const res = svgs.map(v => ({ mount: v.dataset.mount, shapes: v.dataset.shapes,
+                                 insets: v.querySelectorAll('clipPath').length }));
+    localStorage.removeItem('tablex_site_style');
+    return res;`);
+  ok('stylish: a tall site is a lattice, the small ones stand on a block',
+     mount.length === 3 && mount[0].mount === 'lattice' && mount[1].mount === 'block' && mount[2].mount === 'block',
+     JSON.stringify(mount));
+  ok('stylish: a Vega CC12 is a dish, an 80010867V01 a panel, a 741571 an omni',
+     mount[1] && mount[1].shapes === 'omni' && mount[2] && mount[2].shapes.split(' ').sort().join(',') === 'dish,panel',
+     JSON.stringify(mount.map(m => m.shapes)));
+  ok('stylish: a small site needs no magnifier', mount[1] && mount[1].insets === 0 && mount[2].insets === 0);
+  await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: inject.result.identifier });
+  await send('Page.reload');
+  await sleep(2500);
 }

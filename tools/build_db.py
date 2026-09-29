@@ -362,6 +362,16 @@ def is_power_sheet(hdr):
     return 'site id' in hdr and 'sector id' in hdr and 'pa power (dbm)' in hdr
 
 
+# CRS -- `Reference Signal Power Boosting (dB)`. Beside PA Power on
+# LTE_FDD_Sectors in the 2024 Partner export; found by header on its own, like
+# power, so a Planet version that moves one does not take the other with it.
+CRS_COL = 'reference signal power boosting (db)'
+
+
+def is_crs_sheet(hdr):
+    return 'site id' in hdr and 'sector id' in hdr and CRS_COL in hdr
+
+
 def is_number(v):
     """num() returns an int for a whole number and a float otherwise, so a
     test against float alone drops PA Power 49 and the IDF export's
@@ -579,11 +589,33 @@ def build_multi(sheets, mode=None):
         if v is not None:
             pwr[key] = v
 
+    # CRS boost in dB, agreed or nothing -- the same rule as power.
+    crs_by = {}
+    crs_sheet = next((sh for sh in sheets if is_crs_sheet(sh[1])), None)
+    if crs_sheet:
+        _, r_hdr, r_rows = crs_sheet
+        for row in r_rows:
+            site_id = cell(row, r_hdr, 'site id')
+            sec = cell(row, r_hdr, 'sector id')
+            if not site_id or not sec:
+                continue
+            v = num(cell(row, r_hdr, CRS_COL))
+            if not is_number(v):
+                continue
+            crs_by.setdefault(sec_key(site_id, sec), []).append(v)
+    crs = {}
+    for key, lst in crs_by.items():
+        if key not in sectors:
+            continue
+        v = agreed(lst)
+        if v is not None:
+            crs[key] = v
+
     desc = ('multi-sheet: sites=%r (name column %r), sectors=%r'
             % (s_name, name_col, c_name))
-    if ant or pwr or coords:
-        desc += ('\n  plant: %d coords, %d antennas, %d power values'
-                 % (len(coords), len(ant), len(pwr)))
+    if ant or pwr or coords or crs:
+        desc += ('\n  plant: %d coords, %d antennas, %d power values, %d CRS values'
+                 % (len(coords), len(ant), len(pwr), len(crs)))
     if composite:
         desc += ('\n  key: Site ID + Sector ID (the Sector ID column '
                  'repeats per site, which is how Planet reports it)')
@@ -603,7 +635,7 @@ def build_multi(sheets, mode=None):
                  '(e.g. %r).\nThe Sector ID column is not a unique key, so this '
                  'import would silently drop rows.\nExport with a sector code '
                  'unique across the whole network.' % (dupes, rows, dupe_example))
-    return sites, notes, sectors, coords, ant, pwr, desc
+    return sites, notes, sectors, coords, ant, pwr, crs, desc
 
 
 def build_flat(sheets):
@@ -645,7 +677,7 @@ def build_flat(sheets):
                      % (dupes, n_rows, dupe_example))
         # Six columns, none of them plant: a legacy workbook imports exactly
         # as it always did.
-        return sites, notes, sectors, {}, {}, {}, desc
+        return sites, notes, sectors, {}, {}, {}, {}, desc
     return None
 
 
@@ -670,7 +702,7 @@ def main():
                  'OR a Planet group export with a Sites sheet (Site ID + a '
                  'name column)\nand a Sectors sheet (Sector ID + Site ID + '
                  'Band Name).' % ' | '.join(WANT))
-    sites, notes, sectors, coords, ant, pwr, desc = built
+    sites, notes, sectors, coords, ant, pwr, crs, desc = built
     print('layout: %s' % desc)
 
     out = {
@@ -684,7 +716,7 @@ def main():
     # Optional, and each omitted when empty, so a database with none of them
     # stays byte-identical to one built before they existed.
     for key, val in (('notes', notes), ('coords', coords),
-                     ('ant', ant), ('pwr', pwr)):
+                     ('ant', ant), ('pwr', pwr), ('crs', crs)):
         if val:
             out[key] = val
     os.makedirs(DATA, exist_ok=True)

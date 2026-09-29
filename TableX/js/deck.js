@@ -162,8 +162,12 @@
           // rows their natural height and let the frame be the taller of
           // the two.
           const natural = m.length * 0.32 * EMU;
-          await P.insertTable(work, o.part, { ...box, h: Math.max(box.h, natural) },
-                              m, R.TBL.frac, R.TBL.border);
+          const th = Math.max(box.h, natural);
+          await P.insertTable(work, o.part, { ...box, h: th }, m, R.TBL.frac, R.TBL.border);
+          // The coverage style's legend rides under the table, as it does on
+          // the standalone slide — colour without its key means nothing.
+          const cap = R.caption && R.caption();
+          if (cap) await P.insertCaption(work, o.part, { x: box.x, y: box.y + th, w: box.w }, cap);
         } else if (f.img != null && D.imgs[f.img]) {
           const im = D.imgs[f.img];
           await P.insertPicture(work, o.part, box, im.bytes, im.ext, { w: im.w, h: im.h });

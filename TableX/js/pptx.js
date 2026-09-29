@@ -474,12 +474,35 @@
 
   const PT = 12700;                              // EMU per point
 
+  // One cell edge. A null line is written as an explicit noFill rather than
+  // left out: a missing edge would fall back to whatever table style the
+  // template's theme carries, and the lean output styles depend on the
+  // edges they leave empty staying empty.
+  const lnXml = (tag, l) => l
+    ? `<a:${tag} w="${Math.round((l.pt || 0.5) * PT)}" cap="flat" cmpd="sng">` +
+      `<a:solidFill><a:srgbClr val="${l.color.toUpperCase()}"/></a:solidFill></a:${tag}>`
+    : `<a:${tag} w="0"><a:noFill/></a:${tag}>`;
+  // schema order inside tcPr is lnL, lnR, lnT, lnB, then the fill
+  const linesXml = bd => lnXml('lnL', bd.l) + lnXml('lnR', bd.r) + lnXml('lnT', bd.t) + lnXml('lnB', bd.b);
+
   function cellXml(c, line) {
     const run = c.t === '' || c.t == null ? `<a:endParaRPr lang="he-IL"/>` :
       `<a:r><a:rPr lang="he-IL" sz="${c.sz || 1000}"${c.bold ? ' b="1"' : ''} dirty="0">` +
       `<a:solidFill><a:srgbClr val="${(c.color || '000000').toUpperCase()}"/></a:solidFill>` +
       `<a:latin typeface="Arial"/><a:cs typeface="Arial"/></a:rPr>` +
       `<a:t>${xesc(c.t)}</a:t></a:r>`;
+    // The network chip (app.js NET_CHIP): a gap, then a smaller highlighted
+    // run in the same paragraph. rPr's schema order puts highlight after the
+    // fill and before the fonts; a PowerPoint too old to draw highlights still
+    // shows the green text.
+    const tag = !c.tag || c.t === '' || c.t == null ? '' :
+      `<a:r><a:rPr lang="he-IL" sz="${c.sz || 1000}" dirty="0"><a:latin typeface="Arial"/>` +
+      `<a:cs typeface="Arial"/></a:rPr><a:t>  </a:t></a:r>` +
+      `<a:r><a:rPr lang="en-US" sz="${Math.round((c.tag.sz || 8) * 100)}" dirty="0">` +
+      `<a:solidFill><a:srgbClr val="${c.tag.color.toUpperCase()}"/></a:solidFill>` +
+      `<a:highlight><a:srgbClr val="${c.tag.hl.toUpperCase()}"/></a:highlight>` +
+      `<a:latin typeface="Arial"/><a:cs typeface="Arial"/></a:rPr>` +
+      `<a:t>${xesc('\u00a0' + c.tag.t + '\u00a0')}</a:t></a:r>`;
     // rtl="1" on the paragraph is what puts Hebrew the right way round
     // INSIDE a cell; it says nothing about column order (see the note in
     // app.js — the columns are reversed by hand, in both writers).
@@ -487,9 +510,11 @@
     // under rtl="1" PowerPoint reorders `13207_3381063_90` to
     // `90_3381063_13207`, the same reversal app.js guards in the HTML table.
     return `<a:tc><a:txBody><a:bodyPr/><a:lstStyle/>` +
-      `<a:p><a:pPr algn="${c.align || 'ctr'}" rtl="${c.ltr ? '0' : '1'}"/>${run}</a:p></a:txBody>` +
+      `<a:p><a:pPr algn="${c.align || 'ctr'}" rtl="${c.ltr ? '0' : '1'}"/>${run}${tag}</a:p></a:txBody>` +
       // schema order inside tcPr is lnL, lnR, lnT, lnB, then the fill
-      `<a:tcPr marL="45720" marR="45720" marT="0" marB="0" anchor="ctr">${line}` +
+      // A cell carrying its own `bd` (the clean / coverage output styles)
+      // draws exactly those edges; otherwise every edge is the table's line.
+      `<a:tcPr marL="45720" marR="45720" marT="0" marB="0" anchor="ctr">${c.bd ? linesXml(c.bd) : line}` +
       `<a:solidFill><a:srgbClr val="${(c.fill || 'FFFFFF').toUpperCase()}"/></a:solidFill>` +
       `</a:tcPr></a:tc>`;
   }
@@ -498,9 +523,7 @@
     const w = Math.round(box.w), h = Math.round(box.h);
     const cols = colFrac.map(f => Math.round(w * f));
     const rowH = Math.round(h / Math.max(1, matrix.length));
-    const ln = ['lnL', 'lnR', 'lnT', 'lnB'].map(t =>
-      `<a:${t} w="${Math.round((border.pt || 0.5) * PT)}" cap="flat" cmpd="sng">` +
-      `<a:solidFill><a:srgbClr val="${border.color.toUpperCase()}"/></a:solidFill></a:${t}>`).join('');
+    const ln = linesXml({ l: border, r: border, t: border, b: border });
 
     return `<p:graphicFrame xmlns:p="${NS.p}" xmlns:a="${NS.a}" xmlns:r="${NS.r}">` +
       `<p:nvGraphicFramePr><p:cNvPr id="${id}" name="TableX table"/>` +
@@ -523,6 +546,41 @@
     const frag = parseXml(tableXml(++uid, box, matrix, colFrac,
                                    border || { color: 'BBB5E0', pt: 0.5 }));
     tree.appendChild(doc.importNode(frag.documentElement, true));
+    deck.zip.file(slidePath, serialize(doc));
+  }
+
+  /* The coverage style's legend, as two plain text boxes under the table:
+     the Hebrew label at the right edge, right-to-left, and the swatches and
+     ranges to its left, LEFT-to-right — a range like −75…−60 inside an RTL
+     paragraph is exactly the run the bidi algorithm turns around. `at` is
+     the table's left edge, its bottom and its width, in EMU. */
+  function textBox(id, x, y, w, h, rtl, runs) {
+    const run = r => `<a:r><a:rPr lang="he-IL" sz="${r.sz || 900}"${r.bold ? ' b="1"' : ''} dirty="0">` +
+      `<a:solidFill><a:srgbClr val="${(r.color || '444444').toUpperCase()}"/></a:solidFill>` +
+      `<a:latin typeface="Arial"/><a:cs typeface="Arial"/></a:rPr><a:t>${xesc(r.t)}</a:t></a:r>`;
+    return `<p:sp xmlns:p="${NS.p}" xmlns:a="${NS.a}">` +
+      `<p:nvSpPr><p:cNvPr id="${id}" name="TableX legend"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr>` +
+      `<p:spPr><a:xfrm><a:off x="${Math.round(x)}" y="${Math.round(y)}"/>` +
+      `<a:ext cx="${Math.round(w)}" cy="${Math.round(h)}"/></a:xfrm>` +
+      `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>` +
+      `<p:txBody><a:bodyPr wrap="none" lIns="0" tIns="0" rIns="0" bIns="0" anchor="t"/><a:lstStyle/>` +
+      `<a:p><a:pPr algn="r" rtl="${rtl ? '1' : '0'}"/>${runs.map(run).join('')}</a:p></p:txBody></p:sp>`;
+  }
+
+  async function insertCaption(deck, slidePath, at, cap) {
+    const IN = 914400, gap = 0.12 * IN, h = 0.3 * IN;
+    const labelW = Math.min(2.7 * IN, at.w / 3);
+    const y = at.y + gap;
+    const items = cap.items.flatMap((it, i) => [
+      { t: '\u25a0 ', color: it.tint, sz: 1200 },
+      { t: it.text + (i < cap.items.length - 1 ? '     ' : ''), color: '444444' },
+    ]);
+    const doc = await readXml(deck.zip, slidePath);
+    const tree = first(first(doc, NS.p, 'cSld'), NS.p, 'spTree');
+    for (const xml of [
+      textBox(++uid, at.x + at.w - labelW, y, labelW, h, true, [{ t: cap.label, bold: true, color: '1A1A1A' }]),
+      textBox(++uid, at.x, y, at.w - labelW, h, false, items),
+    ]) tree.appendChild(doc.importNode(parseXml(xml).documentElement, true));
     deck.zip.file(slidePath, serialize(doc));
   }
 
@@ -628,7 +686,7 @@
   global.TableXPptx = {
     EMU_IN, NS, REL,
     open, slideModel, release, cloneDeck,
-    insertPicture, insertTable, cloneSlide, setSlideOrder, deleteSlide,
+    insertPicture, insertTable, insertCaption, cloneSlide, setSlideOrder, deleteSlide,
     addRel, addOverride, ensureDefault, readXml, serialize, parseXml,
     first, all, relsPathFor, nextFree, toBlob, centreCrop,
   };

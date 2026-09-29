@@ -195,6 +195,14 @@
   const isPowerSheet = sh =>
     'site id' in sh.hdr && 'sector id' in sh.hdr && 'pa power (dbm)' in sh.hdr;
 
+  // CRS — `Reference Signal Power Boosting (dB)`. It sits beside PA Power on
+  // LTE_FDD_Sectors in the 2024 Partner export, and is found by header on its
+  // own for the same reason power is: a Planet version that moves one of the
+  // two must not take the other with it.
+  const CRS_COL = 'reference signal power boosting (db)';
+  const isCrsSheet = sh =>
+    'site id' in sh.hdr && 'sector id' in sh.hdr && CRS_COL in sh.hdr;
+
   // A sheet with a Sector ID is a sector sheet, never the site list.
   const isSiteSheet = sh =>
     !('sector id' in sh.hdr) && NAME_COLS.some(k => k in sh.hdr);
@@ -215,7 +223,7 @@
     // and the site-data slide simply shows nothing for those columns rather
     // than inventing them.
     const extra = heads.filter(sh => isAntennaSheet(sh) || isJoinSheet(sh) ||
-                                     isPowerSheet(sh)).map(sh => sh.name);
+                                     isPowerSheet(sh) || isCrsSheet(sh)).map(sh => sh.name);
     return { layout: 'multi',
              names: [sec.name].concat(sites.map(s => s.name)).concat(extra) };
   }
@@ -314,7 +322,7 @@
       // The flat sheet carries six columns and none of them is plant, so a
       // legacy workbook imports exactly as it always did.
       return { layout: 'flat', sheet: sh.name, sites, notes, sectors,
-               coords: {}, ant: {}, pwr: {},
+               coords: {}, ant: {}, pwr: {}, crs: {},
                rows, dupes, dupeExample, composite: false,
                unknownBand: 0, bandExample: null };
     }
@@ -506,8 +514,30 @@
       if (v !== null) pwr[k] = v;
     }
 
+    // CRS boost, in dB as the workbook states it — agreed or nothing, the
+    // same as power, since one sector can carry several carrier rows.
+    const crsBy = Object.create(null);
+    const crsSheet = sheets.find(isCrsSheet);
+    if (crsSheet) {
+      for (const row of crsSheet.rows) {
+        const siteId = cellAt(row, crsSheet.hdr, 'site id');
+        const secId = cellAt(row, crsSheet.hdr, 'sector id');
+        if (!siteId || !secId) continue;
+        const v = num(cellAt(row, crsSheet.hdr, CRS_COL));
+        if (typeof v !== 'number') continue;
+        const k = secKey(siteId, secId);
+        (crsBy[k] || (crsBy[k] = [])).push(v);
+      }
+    }
+    const crs = Object.create(null);
+    for (const k in crsBy) {
+      if (!(k in sectors)) continue;
+      const v = agreed(crsBy[k]);
+      if (v !== null) crs[k] = v;
+    }
+
     return { layout: 'multi', sheet: siteSheet.name + ' + ' + secSheet.name,
-             sites, notes, sectors, coords, ant, pwr,
+             sites, notes, sectors, coords, ant, pwr, crs,
              rows, dupes, dupeExample, composite, unknownBand, bandExample };
   }
 

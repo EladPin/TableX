@@ -1,254 +1,261 @@
-# Mintlify — Style Reference
-> Cloud garden over a glass desk. A hand-illustrated sky and a documentation product share the same frame — the only place color and concept collide before the page settles into monastic white.
+# Signal — TableX's design system
 
-**Theme:** light
+> A cream desk with one card on it, and under it the network at night: the sky fades down
+> into pixel hills, lattice masts, coverage arcs, and the ghost walking between them. Pine
+> ink, one mint — and every press answers the way the sites do: it transmits.
 
----
-
-## How TableX applies this  *(read this part first)*
-
-TableX was redesigned onto this system on 2026-09-04. The tokens below are the
-source of truth and live in `TableX/css/main.css` as CSS custom properties.
-Five deliberate deviations, all forced by the app's context:
-
-1. **Heebo carries Hebrew.** Inter is the system's only family, but it has **no
-   Hebrew glyphs** — an all-Hebrew UI would silently fall back to whatever the OS
-   offers, which is exactly the kind of drift this system exists to prevent.
-   Heebo (a neutral grotesque, same skeleton logic as Inter) is loaded alongside
-   it and routed by `unicode-range`, so each script picks its own face with no
-   markup or class switching. Both are **self-hosted** in `TableX/fonts/` —
-   never a CDN, because the machines this runs on have no internet.
-   Regenerate with `python tools/build_fonts.py`.
-
-2. **The hero teal is defined here, not taken from the spec.** The spec's
-   `--surface-hero-teal: #0c8c5` is a five-digit hex — not a valid color. TableX
-   uses a dark teal gradient, `#07281e → #0b4d37`, which is what the reference
-   hero actually reads as. Mint `#0c8c5e` stays an accent only, per the rules.
-
-3. **The generated report table is NOT restyled.** Its purple
-   (`#4a3f8c` / `#6b5fb5` / `#f0eeff`) is the *deliverable's* palette — it has to
-   match what commanders already see in the deck. The Mintlify system governs the
-   **app around** the document, not the document itself. Do not "fix" the table
-   to match the UI; see CLAUDE.md.
-
-4. **Illustration lives in exactly two places: the hero, and the loader.**
-   The spec says "do not use illustration style outside the hero".
-
-   **The hero is not a deviation — it is the spec.** The reference hero *is*
-   a hand-illustrated landscape with the product floating in front of it, and
-   TableX's hero was a bare gradient until 2026-09-06. It now carries a 184px
-   pixel landscape of cell sites at night (`TableX/js/scene.js`), drawn in
-   nothing but the hero's own teal ramp and one mint, with the paste card
-   planted on its horizon line. Subject matter is the point: hilltop lattice
-   towers, a rooftop site, an analysis-point pin and the coverage arcs that
-   answer it — the app's own data, not decoration borrowed from elsewhere.
-
-   **The loader is the deviation**: a pixel ghost in mint on white, for the
-   2.5 s before the app appears. It is *transient* — the app it uncovers stays
-   austere.
-
-   Both are bounded. Do not take either as licence to illustrate the working
-   UI below the hero; the whole reason this redesign happened is that the old
-   UI read as childish. The scene has a settings switch (**תפאורה / Hero
-   scene**) so anyone who disagrees can turn it off, and turning it off
-   returns the hero to exactly the height it had before.
-
-5. **There is a dark theme.** The spec is explicit: "Do not set page background
-   to anything other than white — no off-white canvas, no dark mode surfaces in
-   the content sections." TableX has one anyway, on request. It is implemented
-   as a token swap only (`:root[data-theme="dark"]`), so every component still
-   has exactly one definition and the light theme remains the reference.
-
-   Two things the swap must never touch, both learned by breaking them:
-   - **`--hero-fg`** — the hero band is dark in *both* themes, so text on it
-     cannot follow `--paper`. It did at first, and in dark mode the headline
-     turned near-black and vanished into the gradient.
-   - **`.doc-page`** — hardcoded `#ffffff`, never `var(--paper)`. It is a
-     preview of a white PowerPoint slide; in dark mode the chrome inverts
-     around it but the sheet stays white, the way a PDF viewer works.
-
-   `--ink` and `--paper` deliberately *swap* roles rather than both darkening:
-   `--ink` is the filled-button surface, `--paper` the text on it, so swapping
-   inverts the button correctly with no per-component rule.
-
-6. **The template preview renders somebody else's design.** The Decks editor draws
-   a wireframe of the user's own uploaded PowerPoint — their background colour,
-   their pictures, their type. That is deliberately outside this system, and it
-   has to be: the whole point is showing the deck as it actually is so someone
-   can point at a place on it. The system governs the frame around it (the card,
-   the rail, the toolbar, the mint slot rectangles); inside the frame, whatever
-   colours come out of the `.pptx` are the ones that belong there. Do not
-   "correct" them toward the palette.
-
-Everything else follows the spec as written: white canvas (in light theme), one
-green, 4px controls / 16px cards / 24px large containers, whisper shadows, no
-gradients or glassmorphism outside the hero.
+**Theme:** light (cream), with a dark theme that is the floor's night carried up the page.
+**Adopted:** 2026-09-29, replacing the Mintlify reference system of 2026-09-04. Revised the
+same day on Elad's review: the hero came out, the scene became the home page's floor, the
+databases got their own view, the page's explanation moved behind a "?", and white became cream.
+**Lives in:** `TableX/css/main.css` (tokens at the top, MOTION at the bottom) and
+`TableX/js/motion.js`.
 
 ---
 
-Mintlify operates on a near-total monochrome discipline: white canvas, near-black text, and a single vivid green as the only chromatic spark across the entire interface. The hero is the deliberate exception — a hand-illustrated cloud landscape on a dark teal gradient, with the documentation product floating in the foreground as living proof. Everything downstream reverts to austere white surfaces, tight Inter typography, and component geometry that stays square (4px button radii, 16–24px card radii) rather than pill-shaped or overly rounded. Color appears as functional punctuation: green for active states, brand links, and decorative icons; black for the sole filled button variant. Elevation is whispered, never declared — shadows sit at 0.03–0.05 opacity and are felt more than seen.
+## Why it changed
 
-## Tokens — Colors
+The Mintlify system made the app quiet, and that part was right. It was also
+recognisably *somebody else's* quiet: a pure-grey canvas that had nothing to do with the
+teal hero above it, an all-caps tracked eyebrow over every heading, four identical
+floating cards for the four databases, and buttons that changed colour and did nothing
+else. Signal keeps the quiet and makes it TableX's own:
 
-| Name | Value | Token | Role |
-|------|-------|-------|------|
-| Mint Green | `#0c8c5e` | `--color-mint-green` | Brand links, active nav state, feature icons, decorative dots in eyebrow labels, the thin underline on inline code references — the only chromatic accent in a monochrome system, applied sparingly to make functional moments feel switched on |
-| Ink Black | `#08090a` | `--color-ink-black` | Dark supporting neutral for text, icons, and strong contrast. Do not promote it to the primary CTA color |
-| True Black | `#000000` | `--color-true-black` | Body text, link defaults before hover, icon strokes, and footer rules — the workhorse neutral that carries most of the typography load |
-| Paper White | `#ffffff` | `--color-paper-white` | Page canvas, card surfaces, button text on dark fills, input fields — the base layer everything else sits on |
-| Mist Gray | `#f2f2f2` | `--color-mist-gray` | Subtle dividers, hairline strokes on cards, low-emphasis backgrounds, and the faintest hover wash |
-| Cloud Gray | `#dddddd` | `--color-cloud-gray` | Input borders, card outlines on hover states, secondary divider lines that need a step more visibility than Mist |
+- **The page is cream, not white** (by request): a warm desk with lighter cream cards on
+  it, which is also what lets a card read as a card without a heavy shadow. The report sheet
+  stays pure white, so it is the one piece of paper on the desk.
+- **The clearer the screen, the better.** Home is one card. Explanation lives behind a "?";
+  the databases live on their own page; the illustration is the floor the page stands on.
+- **The pixel is the one unit of ornament.** The ghost, the scene and the icon are all
+  drawn on a pixel grid, so every status marker — eyebrow, DB state, paste hint, chip,
+  bullet — is a small square, never a dot.
+- **Every button moves, and the move says what it does.** See Motion.
 
-## Tokens — Typography
+## Tokens — colour
 
-### Inter — Universal typeface · `--font-inter`
-- **Substitute:** Inter (Google Fonts) — also try IBM Plex Sans or General Sans.
-- **Weights:** 400, 500, 600
-- **Sizes:** 13, 14, 15, 16, 18, 20, 24, 40, 57
-- **Line height:** 1.10, 1.15, 1.30, 1.33, 1.50, 1.71
-- **Letter spacing:** Tight at large sizes: -0.02em at 57px, -0.01em at 40px down through 16px, neutral at 13–14px, +0.05em on the smallest uppercase eyebrow labels
-- **OpenType features:** `"ss01" on, "cv11" on`
-- **Role:** Universal typeface — headlines, body, nav, buttons, inputs, and code. No display face, no mono override.
+The old token *names* are kept so no component had to be renamed; read `--mist` as
+"field" and `--cloud` as "rule-strong".
 
-### Type Scale
+| Token | Light | Dark | Role |
+|-------|-------|------|------|
+| `--canvas` | `#f4f1e8` | `#08110e` | The page: body, nav, toolbar, loader, the paste well — and the top of the floor's sky |
+| `--paper` | `#fbf9f3` | `#0c1713` | Everything ON the page: cards, modals, inputs, the text on a filled button |
+| `--mist` (field) | `#ece8dc` | `#111e19` | Tracks, hover washes, the report's surround |
+| `--rule` | `#e2ddd0` | `#182822` | Hairlines, card and ledger borders |
+| `--cloud` (rule-strong) | `#cbc4b3` | `#26392f` | Input borders, hover outlines, empty counts |
+| `--ink` (pine) | `#0f1f1a` | `#e8f2ee` | Headings, the filled button |
+| `--black` | `#1e2a23` | `#d5e2dc` | Body text |
+| `--muted` | `#676657` | `#8aa097` | Secondary text |
+| `--mint` (signal) | `#0b7d53` | `#2fd393` | The one accent: active state, focus, rings, loaded |
+| `--err` | `#a3302a` | `#f08c84` | Destructive actions only |
 
-| Role | Size | Line Height | Letter Spacing | Token |
-|------|------|-------------|----------------|-------|
-| caption | 13px | 1.5 | 0.65px | `--text-caption` |
-| body | 16px | 1.5 | -0.16px | `--text-body` |
-| subheading | 20px | 1.3 | -0.2px | `--text-subheading` |
-| heading-sm | 24px | 1.33 | -0.24px | `--text-heading-sm` |
-| heading | 40px | 1.15 | -0.4px | `--text-heading` |
-| display | 57px | 1.1 | -1.14px | `--text-display` |
+Light-mode mint is a shade deeper than the ghost's `#0c8c5e` so 14px mint text still clears
+4.5:1 on cream. `--ink` and `--paper` **swap** in dark rather than both darkening: `--ink` is the
+filled-button surface and `--paper` the text on it, so the button inverts correctly with
+no per-component rule.
 
-## Tokens — Spacing & Shapes
+Shadows are tinted with the pine (`rgba(15, 31, 26, …)`), never neutral grey, and stay
+small: `--sh-card` is a 1px lift, `--sh-float` is reserved for things that actually float
+(the paste card, popovers, modals, the toast, a lifted primary button).
 
-**Density:** comfortable
+**Mint is never a large surface.** It is a line, a square, a ring, a word — the moment
+something is switched on. A second accent colour is never introduced for the app chrome.
 
-Spacing scale: 4, 5, 6, 7, 8, 10, 12, 16, 24, 28, 32, 48, 64, 72, 96, 201 px.
+## Tokens — type
 
-### Border Radius
+| Face | Role |
+|------|------|
+| **IBM Plex Sans Hebrew** | The app, in both scripts — it carries Plex Sans' Latin |
+| **IBM Plex Mono** | Codes: cell ids, EARFCNs, the paste box, the column legend |
+| Inter + Heebo | **The report preview only** (`.doc-page`) — see invariant 1 |
 
-| Element | Value |
-|---------|-------|
-| tags | 4px |
-| cards | 16px |
-| inputs | 4px |
-| buttons | 4px |
-| largeContainers | 24px |
+Plex is an engineered face for an engineering tool, and it has a real Hebrew design rather
+than a borrowed one. The mono is not decoration here: half of this app's content is codes,
+and codes have to line up and must never be mistaken for words.
 
-### Shadows
+Scale (Bringhurst's): **12 · 14 · 16 · 18 · 21 · 24 · 36 · 60**. Weights 400 / 500 / 600.
 
-| Name | Value | Token |
-|------|-------|-------|
-| sm | `lab(2.42579 -0.165291 -0.470081 / 0.03) 0px 2px 4px 0px` | `--shadow-sm` |
-| sm-2 | `lab(100 0 0 / 0.05) 0px 2px 4px 0px` | `--shadow-sm-2` |
+| Role | Size | Notes |
+|------|------|-------|
+| Hero | 60 | 600, −0.02em, `text-wrap: balance` (40 → 34 on small screens) |
+| Section title | 36 | 600, −0.015em |
+| Modal title | 24 | 600 |
+| Card title | 21 | 600 |
+| Body | 16 | line-height 1.5–1.7 |
+| UI / buttons | 14–15 | 500 |
+| Captions, meta | 12–13 | |
 
-### Layout
+**No all-caps and no letter-spacing on labels, anywhere.** Hebrew has no case, and a
+tracked Latin label shouting above a Hebrew heading was the loudest thing on every page.
+Network names print as the proper nouns they are (`Partner`, not `PARTNER`).
 
-- **Page max-width:** 1200px
-- **Section gap:** 80px
-- **Card padding:** 24px
-- **Element gap:** 12px
+All self-hosted in `TableX/fonts/`, built by `python tools/build_fonts.py` (needs internet
+once; commit the result). Nothing loads from a CDN.
 
-## Components
+## Geometry
 
-### Primary Filled Button
-**Role:** Highest-weight action — the single dark filled button variant in the system.
-4px radius, Ink Black (#08090a) background, Paper White text, Inter 14–15px weight 500, padding 8px 16px, the 0.03-opacity shadow.
+Three radii, chosen by the size of the thing, never one radius on everything:
 
-### Ghost Navigation Button
-Transparent background, True Black text, no border, 14px weight 500, hover adds a subtle Mist Gray wash.
+| Token | Value | For |
+|-------|-------|-----|
+| `--r-btn` / `--r-input` | 6px | buttons, inputs, chips |
+| `--r-card` | 12px | cards, the ledger, modals, search bars |
+| `--r-lg` | 20px | the document sheet |
 
-### Documentation Product Card
-16px radius, white surface, the 0.05-opacity shadow, ~24px internal padding. The product UI rendered as a floating card that bridges the hero into the white page below.
+Status squares are 6px with a 1px radius. No pills, no circles — except the rings, which
+are the one round thing in the system because they are the one thing that is a signal.
 
-### Feature Capability Card
-16px radius, light Mint-tinted background wash, 24px padding, eyebrow label in small-caps Mint Green at 13px letter-spacing +0.05em, body copy in Ink Black at 16px.
-
-### Top Navigation Bar
-White background, no bottom border — the nav reads as floating on the page. Logo far left (Mint mark + black wordmark), links in Inter 14px weight 500, ghost + filled buttons right-aligned.
-
-### Eyebrow Label
-13px Inter weight 500, Mint Green, letter-spacing +0.05em, uppercase. A category tag, not a heading — always paired with a larger heading below.
-
-## Do's and Don'ts
-
-### Do
-- Use Inter for everything — there is no display face or mono override in the system.
-- Apply Mint Green (#0c8c5e) only for active states, brand links, decorative icons, and eyebrow labels — never as a large surface fill or button background.
-- Set button radius to 4px and card radius to 16px — the system is square, not pill-shaped.
-- Tighten letter-spacing to -0.02em at 57px and -0.01em at 40–16px; loosen to +0.05em only on uppercase 13px eyebrow labels.
-- Use Ink Black (#08090a) for the filled button background and true black (#000000) for body text — keep these two neutrals in their separate roles.
-- Let the hero be the only colorful moment on the page — revert to white surfaces and black text for everything below the fold.
-- Limit shadows to 2px offset at 3–5% opacity; if a component needs more separation, use a 1px #dddddd border instead.
-
-### Don't
-- Do not introduce pill buttons, 9999px radii, or rounded avatars — the system commits to 4px / 16px / 24px.
-- Do not place Mint Green on button fills, large backgrounds, or hero text — it loses identity when used at scale.
-- Do not use a second accent color — the monochrome-plus-one-green rule is the brand's anchor.
-- Do not set body text below 14px or use a line-height looser than 1.5 — readability is non-negotiable.
-- Do not add gradients, glassmorphism, or colored shadows — the elevation language is flat and forensic.
-- Do not use illustration style outside the hero — the rest of the site is pure UI.
-- Do not set page background to anything other than white — no off-white canvas, no dark mode surfaces in the content sections.
-
-## Surfaces
-
-| Level | Name | Value | Purpose |
-|-------|------|-------|---------|
-| 0 | Paper White | `#ffffff` | Page canvas and the dominant background for all content sections after the hero |
-| 1 | Mist Gray | `#f2f2f2` | Faint card wash and subtle section separators |
-| 2 | Hero Teal | `#07281e → #0b4d37` | The dark hero band — the only colored surface (see deviation 2 above) |
-| 3 | Ink Black | `#08090a` | Filled button surface and the darkest UI element |
+Page max-width 1200px; section gap 96px; 32px side gutter, 20px under 900px, 16px under 560px.
 
 ## Layout
 
-The page opens with a dark hero (teal gradient) carrying a centered headline stack, with a large floating card that overlaps the hero's bottom edge into the white section below — the card acts as the visual bridge between the expressive hero and the austere content sections. Below, a 1200px max-width centered container with 80px section gaps: centered headline + paragraph + card grids (3-column). Navigation is a single horizontal top bar, sticky on scroll, white. The page is spacious — comfortable density, generous breathing room.
+- **Nav** — brand, links, status chip, gear. Nothing in between.
+- **Home** — one card: title, *load sample*, the **"?"**, the paste box (a well in the canvas
+  colour that comes up to paper when you are in it), the hint (a square that lights when the
+  paste parses) and the one filled button.
+- **The floor** — the bottom of the home page, full width: a sky that fades down from the
+  cream into night (interpolated in oklch — mixed as plain transparency it went grey), the
+  pixel landscape at full scale with the ghost walking between the sites, and the footer
+  standing on its ground. It is the one bold thing on the page. Switched off in settings, the
+  night goes with it and the footer returns to the cream.
+- **The "?"** — a five-step walkthrough, Planet → copy → paste → generate → export, each
+  step with a small drawing of its subject (the Planet grid, the keys, the paste box with its
+  column legend, the report, the export buttons). Steps slide in from the side you are
+  reading towards. The last button loads the sample and hands focus to *generate*.
+- **Databases** — their own view. The four networks are one instrument, so they sit in ONE ruled
+  panel (`.db-ledger`), not four floating cards. Rules are each cell's own end/bottom
+  border and the panel clips the outermost ones, which keeps them right at every reflow
+  (4 → 2 → 1 columns). A loaded network is marked by a filled mint square, an empty one
+  by a hollow one.
+- **Views** (databases, lookup, site data, decks) — section head, then the tool.
 
-## Quick Start — CSS Custom Properties
+## Motion
 
-```css
-:root {
-  --color-mint-green:  #0c8c5e;
-  --color-ink-black:   #08090a;
-  --color-true-black:  #000000;
-  --color-paper-white: #ffffff;
-  --color-mist-gray:   #f2f2f2;
-  --color-cloud-gray:  #dddddd;
+One vocabulary (`--ease-out` to settle, `--spring` for one small overshoot, `--t-fast`
+140ms, `--t-med` 260ms), and one signature.
 
-  --font-inter: 'Inter', ui-sans-serif, system-ui, -apple-system,
-                BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+### The signature: a press transmits
 
-  --text-caption: 13px;    --leading-caption: 1.5;    --tracking-caption: 0.65px;
-  --text-body: 16px;       --leading-body: 1.5;       --tracking-body: -0.16px;
-  --text-subheading: 20px; --leading-subheading: 1.3; --tracking-subheading: -0.2px;
-  --text-heading-sm: 24px; --leading-heading-sm: 1.33;--tracking-heading-sm: -0.24px;
-  --text-heading: 40px;    --leading-heading: 1.15;   --tracking-heading: -0.4px;
-  --text-display: 57px;    --leading-display: 1.1;    --tracking-display: -1.14px;
+Every click on a button sends two thin mint rings out from the point you pressed — the
+same coverage arcs the floor's sites emit. Red for a destructive button. A keyboard press
+transmits from the button's centre. Rings are drawn in one fixed layer above everything
+(`.fx-layer`), **never inside the button**: `app.js` and `i18n.js` rewrite button text
+freely, and a child element of ours would be wiped or would leak into a `textContent` read.
 
-  --font-weight-regular: 400;
-  --font-weight-medium: 500;
-  --font-weight-semibold: 600;
+List rows and the tiny on-thumbnail controls press but do not transmit — rings off every
+search result would be noise, not an answer.
 
-  --page-max-width: 1200px;
-  --section-gap: 80px;
-  --card-padding: 24px;
-  --element-gap: 12px;
+### The press
 
-  --radius-tags: 4px;
-  --radius-cards: 16px;
-  --radius-inputs: 4px;
-  --radius-buttons: 4px;
-  --radius-largecontainers: 24px;
+Anything pressable gives ~5px under the pointer and springs back on release. It is a Web
+Animation with `composite: 'add'`, so it stacks on whatever transform a component already
+carries — which is what lets one rule in `motion.js` cover every kind of button without
+touching every component's transition list.
 
-  --shadow-sm:   lab(2.42579 -0.165291 -0.470081 / 0.03) 0px 2px 4px 0px;
-  --shadow-sm-2: lab(100 0 0 / 0.05) 0px 2px 4px 0px;
-}
-```
+### Each kind of button's own hover — one move, saying what it does
 
-## Similar Brands
+| Button | Hover |
+|--------|-------|
+| Primary (pine) | lifts 1px; a mint line draws across its foot from the centre; the arrow steps forward in reading direction |
+| Ghost | a field wash grows out from the middle |
+| Outline | the border tightens to ink and the button rises to meet it |
+| ✕ (every close / remove) | turns a quarter |
+| + (add sector, new template, add site) | turns a quarter — it is about to add |
+| Gear | turns 45°; open, 90° and mint |
+| Brand ghost | lifts off the ground, as the loader's ghost does |
+| Chips, credit, template cards | rise with a spring |
 
-- **Linear** — same single-accent discipline, Inter typography, square-cornered buttons, forensic shadows
-- **Vercel** — same near-black ink on pure white, single chromatic moment per page, 4px button radii
-- **Resend** — same monochrome-plus-one-accent pattern, product-as-hero composition
-- **Notion** — same clean white sections and restrained use of color for functional states only
+**Arrows point the way the page reads** — left in Hebrew, right in English — and step that
+way. Hover motion uses the individual `translate` / `rotate` / `scale` properties, never
+`transform`, so it composes with a component's own transform and with the press.
+
+### Selection glides
+
+The nav's active link is marked by one mint bar, and every segmented control by one paper
+thumb, that **slide** to the new choice (`motion.js` measures; CSS draws from `--ind-x` /
+`--ind-w`). A marker that jumps says "you are here"; one that slides also says where you
+came from. Until the script has measured, `.on` paints its own tile, so the control is
+never wrong, only still.
+
+### Arrivals
+
+- Views rise 8px and fade in; modals rise with a spring from 97%; the scrim fades.
+- The report sheet is laid down once, like paper on a desk.
+- The theme **sweeps** out as a circle from the button that asked for it (a view
+  transition); the language switch cross-fades, because the page is mirroring and a sweep
+  across a mirroring page reads as a glitch.
+- Copying a value flashes the value you clicked, not only the toast.
+- On a first visit the "?" transmits twice once the loader lifts — never again once the
+  tour has been opened.
+
+### Restraint
+
+The only motion nobody asked for is the floor's scene, the one page-load entrance and the
+first-visit "?" nudge. Nothing
+else animates on its own. Under `prefers-reduced-motion` there is no press, no ring, no
+sweep, and the markers jump instead of sliding.
+
+## Components
+
+- **Primary button** — pine fill, paper text, 6px, 15/500 (14 small). One per context.
+- **Ghost button** — text only until hovered. Destructive ghosts carry `--err`.
+- **Outline button** — 1px `--cloud`, for "update / load" beside a ghost.
+- **Input / well** — field background and a rule border at rest; paper, a mint border and a
+  4px mint-wash ring when focused. The search bars are wells at card radius.
+- **Segmented control** — a field track with a sliding paper thumb.
+- **Eyebrow** — 14px mint, sentence case, a 6px square before it. Where you are, not a
+  category shout.
+- **Toast** — pine, 8px radius, springs up from the bottom centre.
+- **Focus** — one treatment for every control: a 2px mint outline offset 2px, so it never
+  fights a button's own fill.
+
+## Invariants — what this system must never touch
+
+1. **The report is not restyled by the app's design.** Its looks are its OWN three output
+   styles, chosen by the user and kept per machine (CLAUDE.md "Output styles"):
+   **Classic** — the purple (`#4a3f8c` / `#6b5fb5` / `#f0eeff`) commanders already know, the
+   default, unchanged; **Clean** — black on white, rules only; **Coverage** — Clean with the
+   levels tinted in Planet's RSRP legend; and, for the site sheet only, **Stylish** — each site
+   drawn as it stands, in 2.5D and to scale (the mast, its antennas at their datasheet sizes, a
+   wedge and arrow per azimuth on the ground) beside its colour-matched table. None of them
+   borrows the app's cream, pine or mint, and none changes with the app's theme. **One
+   exception, asked for by name:** the network chip beside a site name (`.tag-net`'s green,
+   `NET_CHIP` in app.js) rides the report into print and both PPTX writers. Stylish's tree and
+   person are scale references in a diagram of the site's data, not illustration — invariant 2
+   is about decorating the working UI. `.doc-page` is also
+   **pinned to the type it had before this redesign** — Inter + Heebo, their OpenType
+   features, the old system mono for its codes — because the sheet is the deliverable and
+   the chrome changing face is no reason for the document to. The PPTX writers use Arial
+   and are untouched.
+
+2. **Illustration lives in exactly two places: the home page's floor and the loader.** The
+   scene is drawn in nothing but its own teal ramp and one mint, and stays in the floor.
+   Neither is licence to illustrate the working UI. (The tour's drawings are diagrams of the
+   UI and the data, not illustration.) The scene has a settings switch (תפאורה / Night
+   scene).
+
+3. **The dark theme is a token swap only** (`:root[data-theme="dark"]`); every component
+   has exactly one definition. Two things the swap must never touch:
+   - **The floor's night** (`--hero-top` / `--hero-bot` and the `--sc-*` ramp on `.floor`)
+     — dark in *both* themes; the dark theme only deepens it.
+   - **`.doc-page`** — hardcoded `#ffffff`, never `var(--paper)`. It previews a white
+     PowerPoint slide; the chrome goes cream or pine around it and the sheet stays white,
+     the way a PDF viewer works.
+
+4. **The template preview renders somebody else's design.** The Decks editor draws a
+   wireframe of the user's own `.pptx` — their background, pictures, type. The system
+   governs the frame around it (card, rail, toolbar, mint slot rectangles); inside it,
+   whatever colours come out of the file are the ones that belong there.
+
+5. **Nothing is inserted into a button** for motion. See "The signature".
+
+## Do / don't
+
+**Do** keep mint to lines, squares, rings and words · use the pixel square for every
+status marker · give each new button kind exactly one hover move that says what it does ·
+use `translate` / `rotate` / `scale` for hover motion · put every string in `i18n.js`.
+
+**Don't** add all-caps or tracked labels · add a second accent colour to the chrome · put
+a gradient or a blur anywhere outside the floor · put explanation on the home page
+(it goes behind the "?") · animate something nobody pressed · restyle the report or the
+template preview · append elements to a button to animate it.

@@ -222,15 +222,23 @@ export default async function ({ ev, ok, shot, sleep, send }) {
       if (s.includes('<a:tbl>')) {
         found = { part: n, rows: (s.match(/<a:tr /g) || []).length,
                   cols: (s.match(/<a:gridCol /g) || []).length,
-                  hasHeader: s.includes('4A3F8C'), hasHeb: s.includes('עוצמה') };
+                  hasHeader: s.includes('4A3F8C'), hasHeb: s.includes('עוצמה'),
+                  // the network chip: a highlighted run beside the site name
+                  chips: (s.match(/<a:highlight><a:srgbClr val="E3F1EA"\\/><\\/a:highlight>/g) || []).length,
+                  partner: /<a:t>.Partner.<\\/a:t>/.test(s) };
       }
     }
+    if (found) found.want = TableXReport.matrix().slice(1).filter(r => r[4].tag).length;
     return found;`);
   ok('a native <a:tbl> was written, not a picture', !!tbl, tbl && tbl.part);
   ok('table has 7 columns and header+rows', tbl && tbl.cols === 7 && tbl.rows === 22,
      tbl ? `${tbl.rows} rows x ${tbl.cols} cols` : '');
   ok('table carries the report palette and Hebrew headers',
      tbl && tbl.hasHeader && tbl.hasHeb);
+  // a row that resolved to no network gets no chip
+  ok('every resolved row carries its network chip into the template',
+     tbl && tbl.want > 0 && tbl.chips === tbl.want && tbl.partner,
+     tbl ? `${tbl.chips} chips for ${tbl.want} resolved rows` : '');
 
   // no dangling relationships in the built file
   const bad = await ev(`
@@ -254,6 +262,38 @@ export default async function ({ ev, ok, shot, sleep, send }) {
     }
     return out;`);
   ok('built deck has no dangling relationships', bad.length === 0, bad.slice(0, 3).join(' | '))
+
+  // ── the coverage output style, through the template path ─────────────
+  // The injected table must carry the same ink as the standalone slide:
+  // tinted levels, edges left EMPTY rather than defaulted to the theme's
+  // table style, and the legend under it — colour without its key means
+  // nothing. The style is one setting, so the toolbar's picker is used.
+  await ev(`document.querySelector('[data-out-style="coverage"]').click();
+            window.__dl = null;
+            document.querySelector('[data-goto="decks"]').click();`);
+  await sleep(500);
+  await ev(`document.getElementById('dkBuild').click();`);
+  await sleep(3000);
+  const cov = await ev(`
+    if (!window.__dl) return null;
+    const buf = await (await fetch(window.__dl.href)).arrayBuffer();
+    const z = await JSZip.loadAsync(buf);
+    for (const n of Object.keys(z.files)) {
+      if (!/^ppt\\/slides\\/slide\\d+\\.xml$/.test(n)) continue;
+      const s = await z.file(n).async('string');
+      if (!s.includes('<a:tbl>')) continue;
+      const d = await TableXPptx.open(buf, 'cov.pptx');
+      return { purple: s.includes('4A3F8C'), noFill: s.split('<a:noFill/>').length - 1,
+               tint: s.includes('F5BEE0') && s.includes('BCF1BB'),
+               legend: s.includes('TableX legend') && s.includes('Planet'),
+               opens: d.slides.length };
+    }
+    return null;`);
+  ok('coverage: the injected table drops the purple and leaves its edges empty',
+     cov && !cov.purple && cov.noFill > 100, JSON.stringify(cov));
+  ok('coverage: levels tinted by Planet class, legend under the table',
+     cov && cov.tint && cov.legend && cov.opens === 5, JSON.stringify(cov));
+  await ev(`localStorage.removeItem('tablex_style'); return 1;`);
 
   // Leave the server as we found it. Without this the next run sees two
   // templates and 'template persisted to the server' fails for the wrong

@@ -114,7 +114,7 @@
     </a>
 
     <nav class="nav-links">
-      <button class="nav-link" data-goto="home" data-i18n="nav.input"></button>
+      <button class="nav-link active" data-goto="home" data-i18n="nav.input"></button>
       <button class="nav-link" data-goto="lookup" data-i18n="nav.lookup"></button>
       <button class="nav-link" data-goto="site" data-i18n="nav.site"></button>
       <button class="nav-link" data-goto="decks" data-i18n="nav.decks"></button>
@@ -169,40 +169,19 @@
 <!-- ══ HOME ══ -->
 <main class="view" id="viewHome">
 
-  <section class="hero">
-    <div class="hero-glow" aria-hidden="true"></div>
-    <div class="hero-inner">
-      <p class="eyebrow eyebrow-on-dark reveal" style="--d:0ms">
-        <span class="dot"></span><span dir="ltr">PLANET 7.10 → PPTX</span>
-      </p>
-      <h1 class="hero-title reveal" style="--d:60ms" data-i18n-html="hero.title"></h1>
-      <p class="hero-sub reveal" style="--d:120ms" data-i18n="hero.sub"></p>
-    </div>
-  </section>
-
-  <!-- paste card bridges the dark hero into the white page below -->
+  <!-- Home is the paste and nothing else. How to get the paste out of
+       Planet lives behind the "?" (js/tour.js), not on the page. -->
   <section class="bridge">
-    <div class="card paste-card reveal" style="--d:180ms">
+    <div class="card paste-card reveal" style="--d:60ms">
       <div class="paste-head">
-        <div>
-          <h2 class="card-title" data-i18n="paste.title"></h2>
-          <p class="card-sub" data-i18n="paste.sub"></p>
-        </div>
+        <h2 class="card-title" data-i18n="paste.title"></h2>
+        <span class="grow"></span>
         <button class="btn btn-ghost btn-sm" id="btnSample" data-i18n="paste.sample"></button>
+        <button class="icon-btn help-btn" id="btnTour" aria-haspopup="dialog"
+                data-i18n-title="tour.open" aria-label="?">?</button>
       </div>
 
-      <div class="schema" dir="ltr">
-        <span class="schema-cell" data-i18n="col.site3"></span>
-        <span class="schema-cell" data-i18n="col.site2"></span>
-        <span class="schema-cell" data-i18n="col.site1"></span>
-        <span class="schema-cell" data-i18n="col.pwr3"></span>
-        <span class="schema-cell" data-i18n="col.pwr2"></span>
-        <span class="schema-cell" data-i18n="col.pwr1"></span>
-        <span class="schema-cell schema-pt" data-i18n="col.point"></span>
-      </div>
-      <p class="schema-note" data-i18n-html="paste.note"></p>
-
-      <textarea id="inputArea" class="ta" spellcheck="false" dir="ltr" rows="9" wrap="off"
+      <textarea id="inputArea" class="ta" spellcheck="false" dir="ltr" rows="10" wrap="off"
         placeholder="1&#9;-72.4245&#9;-78.8269&#9;-84.1238&#9;NS3373B_LNS3373Da&#9;JW1038J_LJW1038Da&#9;SO5093C_LSO5093Da&#10;2&#9;-76.2232&#9;-82.6274&#9;-88.9477&#9;WE6261D_LWE6261Da&#9;EA2362A_LEA2362Da&#9;EI2402A_LEI2402Da"></textarea>
 
       <div class="paste-foot">
@@ -218,8 +197,24 @@
     </div>
   </section>
 
-  <!-- ══ DATABASES ══ -->
-  <section class="section" id="sectionDb">
+  <!-- The page's floor: the network at night, full width, with the footer
+       standing on its ground. Drawn by js/scene.js. -->
+  <div class="floor">
+    <div class="scene-host" id="sceneHost" aria-hidden="true"></div>
+    <footer class="foot">
+      <span>TableX</span>
+      <span class="foot-sep">·</span>
+      <span data-i18n="foot.tag"></span>
+      <span class="grow"></span>
+      <button class="credit" id="btnAbout" data-i18n="foot.credit" data-i18n-title="foot.creditTitle"></button>
+    </footer>
+  </div>
+</main>
+
+<!-- ══ DATABASES ══ its own view: the paste is a thing you do every time,
+     the databases a thing you look after now and then. ══ -->
+<main class="view hidden" id="viewDb">
+  <section class="section db-top" id="sectionDb">
     <div class="section-head">
       <p class="eyebrow"><span class="dot"></span><span data-i18n="db.eyebrow"></span></p>
       <h2 class="section-title" data-i18n="db.title"></h2>
@@ -227,16 +222,11 @@
       <button class="btn btn-outline btn-sm ins-open" id="btnInspect"
               data-i18n="ins.open"></button>
     </div>
-    <div class="db-grid" id="dbGrid"><!-- rendered by app.js --></div>
+    <!-- one ruled panel; .db-ledger clips the outermost rules (main.css) -->
+    <div class="db-ledger">
+      <div class="db-grid" id="dbGrid"><!-- rendered by app.js --></div>
+    </div>
   </section>
-
-  <footer class="foot">
-    <span>TableX</span>
-    <span class="foot-sep">·</span>
-    <span data-i18n="foot.tag"></span>
-    <span class="grow"></span>
-    <button class="credit" id="btnAbout" data-i18n="foot.credit" data-i18n-title="foot.creditTitle"></button>
-  </footer>
 </main>
 
 <!-- ══ LOOKUP ══ the databases as a reference tool, not only as a step in
@@ -371,6 +361,12 @@
         <button class="seg-btn" data-sd-per="multi" data-i18n="sd.perMulti"></button>
         <button class="seg-btn" data-sd-per="one" data-i18n="sd.perOne"></button>
       </div>
+      <!-- the site sheet's own style setting (app.js siteStyle) -->
+      <div class="seg out-style" id="styleSite" role="group" data-i18n-title="style.title">
+        <button class="seg-btn" data-site-style="classic" data-i18n="style.classic" data-i18n-title="style.classicTitle"></button>
+        <button class="seg-btn" data-site-style="clean" data-i18n="style.clean" data-i18n-title="style.cleanTitle"></button>
+        <button class="seg-btn" data-site-style="stylish" data-i18n="style.stylish" data-i18n-title="style.stylishTitle"></button>
+      </div>
       <span class="grow"></span>
       <button class="btn btn-ghost btn-sm" id="sdClear" data-i18n="sd.clear"></button>
       <button class="btn btn-ghost btn-sm" id="sdPrint" data-i18n="tbl.print"></button>
@@ -398,6 +394,12 @@
       <span class="toolbar-meta" id="tableMeta"></span>
       <span class="toolbar-edit hidden" id="editNote"></span>
       <span class="grow"></span>
+      <!-- output style: one setting, kept per machine (app.js "output styles") -->
+      <div class="seg out-style" id="styleTable" role="group" data-i18n-title="style.title">
+        <button class="seg-btn" data-out-style="classic" data-i18n="style.classic" data-i18n-title="style.classicTitle"></button>
+        <button class="seg-btn" data-out-style="clean" data-i18n="style.clean" data-i18n-title="style.cleanTitle"></button>
+        <button class="seg-btn" data-out-style="coverage" data-i18n="style.coverage" data-i18n-title="style.coverageTitle"></button>
+      </div>
       <button class="btn btn-ghost btn-sm hidden" id="btnRevert" data-i18n="tbl.revert"></button>
       <button class="btn btn-ghost btn-sm" id="btnPrint" data-i18n="tbl.print"></button>
       <button class="btn btn-primary btn-sm" id="btnPptx" data-i18n="tbl.pptx"></button>
@@ -526,7 +528,7 @@
       </div>
       <div>
         <p class="eyebrow ab-eyebrow"><span class="dot"></span>
-          <span dir="ltr">TABLEX · RF PLANNING · PLANET 7.10</span>
+          <span dir="ltr">TableX · RF planning · Planet 7.10</span>
         </p>
         <h2 class="ab-name" id="abName" dir="ltr">Elad Pinhasov</h2>
         <p class="ab-role" data-i18n="about.role"></p>
@@ -542,6 +544,24 @@
       <span class="ab-stat"><strong>~20</strong> <span data-i18n="about.stat2"></span></span>
       <span class="ab-stat"><strong data-i18n="about.stat3n"></strong> <span data-i18n="about.stat3"></span></span>
     </div>
+  </div>
+</div>
+
+<!-- ══ TOUR ══ the "?" on the paste card: Planet -> paste -> table, one
+     step at a time. Filled by js/tour.js. ══ -->
+<div class="ed-overlay hidden" id="tourOverlay">
+  <div class="tour-modal" role="dialog" aria-modal="true" aria-labelledby="tourTitle">
+    <header class="tour-head">
+      <div class="tour-bar" id="tourBar"></div>
+      <button class="ab-x" id="tourClose" data-i18n-title="ed.close" aria-label="Close">✕</button>
+    </header>
+    <div class="tour-stage" id="tourStage"></div>
+    <footer class="tour-foot">
+      <span class="tour-count" id="tourCount"></span>
+      <span class="grow"></span>
+      <button class="btn btn-ghost btn-sm" id="tourPrev" data-i18n="tour.prev"></button>
+      <button class="btn btn-primary btn-sm" id="tourNext"></button>
+    </footer>
   </div>
 </div>
 
@@ -574,5 +594,9 @@
 <script src="js/app.js"></script>
 <!-- after app.js: deck.js uses the TableXUI / TableXReport bridges it exposes -->
 <script src="js/deck.js"></script>
+<!-- the shared press / rings / sliding-indicator layer; depends on nothing -->
+<script src="js/motion.js"></script>
+<!-- the "?" walkthrough; reads I18N and presses #btnSample, nothing else -->
+<script src="js/tour.js"></script>
 </body>
 </html>

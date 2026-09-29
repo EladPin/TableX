@@ -21,7 +21,7 @@
   // The optional keys of the file shape, in one place: the import, the backup
   // and the site editor's Save all have to carry every one of them or a save
   // silently drops what the import worked to collect.
-  const OPTIONAL = ['notes', 'coords', 'ant', 'pwr'];
+  const OPTIONAL = ['notes', 'coords', 'ant', 'pwr', 'crs'];
 
   // Networks whose תדר מרכזי is the raw EARFCN rather than MHz. IDF only:
   // requested 2026-09-06 because the team reads ENM and the EARFCN is the
@@ -566,6 +566,13 @@
           built: d.built || new Date().toISOString().slice(0, 10),
           sites: d.sites,
           sectors: d.sectors,
+          // The plant rides the restore too. It used to be left out, so
+          // restoring a backup silently dropped every coordinate, antenna,
+          // power and CRS value the import had collected.
+          ...OPTIONAL.reduce((o, k) => {
+            if (d[k] && typeof d[k] === 'object' && Object.keys(d[k]).length) o[k] = d[k];
+            return o;
+          }, {}),
         }, T('toast.restored', {
           label: label(net),
           n: fmt(Object.keys(d.sectors).length),
@@ -640,7 +647,7 @@
       };
       // Optional, and each omitted when empty, so a database with none of
       // them stays shape-identical to one imported before they existed.
-      for (const k of ['notes', 'coords', 'ant', 'pwr']) {
+      for (const k of OPTIONAL) {
         if (parsed[k] && Object.keys(parsed[k]).length) payload[k] = parsed[k];
       }
 
@@ -1022,7 +1029,24 @@
 
   // Derived from LABELS rather than a second map: the old one still said
   // `ours` (renamed to `idf`) and had no cellcom, so those chips rendered blank.
-  const netTag = net => (LABELS[net] || net).toUpperCase();
+  // Printed as the proper noun it is (Partner, not PARTNER): the chip is app
+  // chrome, and capitals were the loudest thing in every table row.
+  const netTag = net => LABELS[net] || net;
+
+  // The sheet carries the style as classes; main.css ("output styles")
+  // turns them into the same ink the PPTX writers put in the file.
+  function styleSheet(page) {
+    page.classList.toggle('out-lean', lean());
+    page.dataset.style = outStyle;
+  }
+  function legendHtml() {
+    const cap = legendCaption();
+    if (!cap) return '';
+    return '<div class="tbl-legend"><span class="lg-label">' + esc(cap.label) + '</span>' +
+      '<span class="lg-items" dir="ltr">' + cap.items.map(it =>
+        '<span class="lg-item"><i style="background:#' + it.tint + '"></i>' + esc(it.text) + '</span>'
+      ).join('') + '</span></div>';
+  }
 
   function renderTable(groups) {
     const keys = Object.keys(groups).map(Number).sort((a, b) => a - b);
@@ -1048,8 +1072,9 @@
       const rows = groups[nk];
       const cls = gi % 2 === 0 ? 'row-a' : 'row-b';
       rows.forEach((r, ri) => {
-        // Annotations are app-only: .tag is display:none in print and is never
-        // read by the PPTX builder, so the deliverable stays seven clean columns.
+        // The network chip rides the export (NET_CHIP, below): print shows it
+        // and both PPTX writers add it as a run beside the name. The other two
+        // annotations stay app-only, and the table stays seven columns.
         let tag = '';
         if (r.net === null && r.exact === null) {
           tag = `<span class="tag tag-miss">לא נמצא</span>`;
@@ -1062,20 +1087,22 @@
         // Editable cell. The address travels in data-e so a commit can find
         // its row again after the table is rebuilt; `td-edited` marks a
         // hand-typed value and, like every .tag, is app-only.
-        const ec = (f, v, extra) =>
+        const ec = (f, v, extra, st) =>
           `<td class="${extra || ''} td-ed${r.edited && r.edited[f] ? ' td-edited' : ''}` +
           `${f === 'site' && isLtrText(v) ? ' td-ltr' : ''}"` +
+          (st ? ` style="${st}"` : '') +
           ` data-e="${nk}:${ri}:${f}" tabindex="0">${esc(v)}`;
+        const lv = outStyle === 'coverage' ? rsrpClass(r.power) : null;
 
-        h += `<tr class="${cls}" style="--i:${Math.min(i++, 18)}">`;
+        h += `<tr class="${cls}${ri === rows.length - 1 ? ' g-end' : ''}" style="--i:${Math.min(i++, 18)}">`;
         if (ri === 0) h += `<td class="nk-cell" rowspan="${rows.length}">נק' ${nk}</td>`;
         h += `
-          <td>${r.rank}</td>
+          <td class="td-rank">${r.rank}</td>
           ${ec('site', r.site, 'td-site')}${tag}</td>
           ${ec('sector', r.sector)}</td>
           ${ec('freq', r.freq)}</td>
           ${ec('bw', r.bw)}</td>
-          ${ec('power', r.power)}</td>
+          ${ec('power', r.power, '', lv ? `background:#${lv.tint}` : '')}</td>
         </tr>`;
       });
     });
@@ -1083,7 +1110,8 @@
     // The stagger belongs to the arrival of a NEW table. Re-running it on
     // every cell commit would make the whole table flicker on each edit.
     if (!tableAnim) h = h.replace('class="data-table"', 'class="data-table no-anim"');
-    $('docPage').innerHTML = h + `</tbody></table>`;
+    $('docPage').innerHTML = h + `</tbody></table>` + legendHtml();
+    styleSheet($('docPage'));
     tableAnim = false;
     $('tableMeta').textContent = T('tbl.meta', { p: keys.length, r: i });
 
@@ -1239,6 +1267,7 @@
       const v = db.sectors[k] || [];
       const a = (db.ant && db.ant[k]) || [];
       const w = watts(db.pwr && db.pwr[k]);
+      const crs = db.crs && db.crs[k];
       return {
         sector: sectorLabel(net, k, v),
         freq: v[2] == null ? null : freqText(v[2], net),
@@ -1247,13 +1276,21 @@
         height: a[0] == null ? null : String(a[0]),
         antenna: a[3] ? String(a[3]).replace(/\.pafx$/i, '') : null,
         power: w == null ? null : w + ' W',
+        // Planet's `Reference Signal Power Boosting (dB)`, as the workbook
+        // states it — a boost relative to the data REs, not the RS power.
+        crs: typeof crs === 'number' ? crs + ' dB' : null,
+        // The numbers behind the text, for the Stylish drawing: it stands
+        // each antenna at its real height, facing its real azimuth, tilted
+        // by its real mechanical tilt.
+        raw: { h: a[0], az: a[1], tilt: a[2], file: a[3],
+               mhz: v[2] == null ? null : EARFCN_NETS.has(net) ? mhzOf(v[2]) : v[2] },
       };
     });
   }
 
-  const SD_COLS = ['sector', 'freq', 'bw', 'az', 'height', 'antenna', 'power'];
+  const SD_COLS = ['sector', 'freq', 'bw', 'az', 'height', 'antenna', 'power', 'crs'];
   const SD_HEAD = ['\u05e1\u05e7\u05d8\u05d5\u05e8', '\u05ea\u05d3\u05e8 \u05de\u05e8\u05db\u05d6\u05d9', '\u05e8\u05d5\u05d7\u05d1 \u05e4\u05e1',
-                  '\u05d0\u05d6\u05d9\u05de\u05d5\u05d8', '\u05d2\u05d5\u05d1\u05d4', '\u05d3\u05d2\u05dd \u05d0\u05e0\u05d8\u05e0\u05d4', '\u05d4\u05e1\u05e4\u05e7'];
+                  '\u05d0\u05d6\u05d9\u05de\u05d5\u05d8', '\u05d2\u05d5\u05d1\u05d4', '\u05d3\u05d2\u05dd \u05d0\u05e0\u05d8\u05e0\u05d4', '\u05d4\u05e1\u05e4\u05e7', 'CRS'];
 
   function sdBlock(p) {
     const db = DB[p.net] || {};
@@ -1278,8 +1315,661 @@
             SD_COLS.map(c => '<td' + (isLtrText(r[c] || '') ? ' class="td-ltr"' : '') +
               '>' + esc(r[c] == null ? '-' : r[c]) + '</td>').join('') +
           '</tr>').join('')
-        : '<tr><td colspan="7">-</td></tr>') +
+        : '<tr><td colspan="' + SD_COLS.length + '">-</td></tr>') +
       '</tbody></table></section>';
+  }
+
+  /* ── STYLISH — the site drawn as it stands, with its data beside it ────
+     Elad's sketches (2026-09-29): a mast, an arrow per sector at its real
+     azimuth, the degrees at the tips, the height beside it, and the sector
+     lines to one side. So each site becomes a card: the site in 2.5D — the
+     mast, its antennas to scale, a wedge and an arrow per DISTINCT azimuth on
+     the ground — and the sector table beside it, each row carrying its
+     wedge's colour so the eye goes arrow -> row.
+
+     Grouped by azimuth, not by sector, because a real site stacks carriers
+     on one azimuth (Cellcom 14196: 700, 1800 and 2600 all at 70°) and three
+     arrows drawn on top of each other read as one arrow anyway.
+
+     The diagram is ONE SVG string, used twice: inline on the sheet, and
+     rasterised (svgPng) into the PPTX, so the slide shows exactly what the
+     screen showed. Its text is digits, ° and N only, set in Arial — an SVG
+     painted as an image cannot reach the page's webfonts, and Hebrew inside
+     it would be the one thing that renders differently on the slide.
+     A sector with no azimuth is not guessed at: it gets no arrow and a grey
+     '-' row, the same rule every other missing field follows. */
+  const BEAM = ['4A3F8C', '0E7C66', 'D9480F', '1C7ED6', 'AE3EC9', '5C940D'];
+  const BEAM_NONE = '8A8A99';
+
+  function azGroups(rows) {
+    const m = new Map();
+    rows.forEach(r => {
+      const n = r.az == null ? NaN : ((parseFloat(r.az) % 360) + 360) % 360;
+      const k = isFinite(n) ? String(n) : 'x';
+      if (!m.has(k)) m.set(k, { az: isFinite(n) ? n : null, rows: [] });
+      m.get(k).rows.push(r);
+    });
+    const gs = [...m.values()].sort((a, b) =>
+      (a.az == null) - (b.az == null) || (a.az || 0) - (b.az || 0));
+    let ci = 0;
+    gs.forEach(g => { g.color = g.az == null ? BEAM_NONE : BEAM[ci++ % BEAM.length]; });
+    return gs;
+  }
+
+  /* The drawing — the site as it stands, in 2.5D (second pass, 2026-09-29).
+     An oblique view looking NORTH from the south, 28° above the horizon, so
+     north is "into the page" and an arrow on the ground points the way a map
+     would: 90° to the right, 180° towards you.
+
+     Everything above the ground is TO SCALE, in one px-per-metre `s` fitted
+     to the site: the lattice, each antenna at its own height, facing its own
+     azimuth, tilted by its own mechanical tilt and sized from its datasheet
+     (ANT_DIMS), a 1.75 m person and a 7 m tree at the foot for scale. The
+     compass on the ground is NOT to scale — coverage is kilometres and the
+     mast is metres — it carries direction only: a wedge per azimuth, as
+     wide as the antenna's horizontal beamwidth, with the degrees at its rim.
+
+     Nothing is guessed. An antenna without both a height and an azimuth is
+     not stood on the mast; an azimuth without a height still gets its wedge;
+     a site with no plant at all gets a pale generic mast and no dimensions. */
+  const SV = { W: 620, H: 600 };
+  const EL = 28 * Math.PI / 180, SE = Math.sin(EL), CE = Math.cos(EL);
+  const VIEW = [0, CE, -SE];                  // into the page, looking down
+  const LIGHT = (v => v.map(x => x / Math.hypot(...v)))([-0.5, -0.45, 0.74]);
+  const GR = 188;                             // the ground compass, px
+  let svgSeq = 0;                             // gradient ids, unique per card
+
+  // Real antenna bodies, metres: [length, width, depth, horizontal beamwidth].
+  // From the manufacturers' datasheets — sources in CLAUDE.md ("Stylish").
+  // Keyed by the model as Planet's pattern file names it: upper-case, no
+  // hyphens, band suffix cut, because `EGV465DR6_700.pafx` and
+  // `EGV465DR6_1800.pafx` are ONE physical EGV4-65D-R6 modelled once per band.
+  // A model without a length here is drawn at the typical size for what it
+  // carries (TYPICAL); a beamwidth alone still narrows its wedge. A fifth
+  // field names a shape other than a panel: 'dish'. 360° is an omni.
+  const ANT_DIMS = {
+    EGV465DR6:          [2.688, 0.350, 0.208],        // CommScope EGV4-65D-R6
+    EGZV565DR6:         [2.688, 0.395, 0.228],        // CommScope EGZV5-65D-R6
+    RV465DR5:           [2.688, 0.350, 0.208],        // CommScope RV4-65D-R5
+    RV4PX310R:          [2.533, 0.350, 0.208],        // CommScope RV4PX310R
+    RV4PX306R:          [1.599, 0.353, 0.209],        // CommScope RV4PX306R
+    RVV65DC33XR:        [2.645, 0.301, 0.180],        // CommScope RVV65D-C3-3XR
+    RVV33BR3:           [1.830, 0.640, 0.235, 33],    // CommScope RVV-33B-R3
+    DBXLH6565C:         [2.577, 0.269, 0.132],        // CommScope DBXLH-6565C
+    TBXLHA6565C:        [2.577, 0.269, 0.132],        // CommScope TBXLHA-6565C
+    ODI065R17M18JJJJGQ: [2.680, 0.380, 0.138],        // Comba ODI-065R17M18JJJJ-GQ
+    '80010866':         [2.441, 0.377, 0.169],        // Kathrein 800 10866
+    '84510866':         [2.441, 0.377, 0.169],        //   the same panel, 845 config
+    '80010864':         [1.402, 0.377, 0.169],        // Kathrein 800 10864 (IDF)
+    '80010867':         [1.459, 0.377, 0.169],        // Kathrein 800 10867 (IDF)
+    LNX6515DS:          [2.449, 0.301, 0.181],        // CommScope LNX-6515DS (-VTM, -A1M)
+    ODI032R20M:         [2.600, 0.600, 0.200, 32],    // Comba ODI-032R20M-Q, estimated
+    CC12:               [2.000, 2.000, 0.550, 13, 'dish'], // Vega CC12-WB: 2.0 m grid dish
+    '80010892':         [2.691, 0.377, 0.169],        // Kathrein 800 10892
+    '80010292':         [2.694, 0.262, 0.149],        // Kathrein 800 10292
+    '80010622':         [1.415, 0.323, 0.071],        // Kathrein 800 10622
+    '742264':           [1.334, 0.261, 0.146],        // Kathrein 742 264
+    '741571':           [0.078, 0.210, 0.210, 360],   // Kathrein indoor ceiling omni
+    TNA340A33:          [1.300, 0.300, 0.150],        // estimated, see CLAUDE.md
+    HBXX3319DS: [0, 0, 0, 33], HBX3319DS: [0, 0, 0, 33],
+    HBX4517DS:  [0, 0, 0, 45], HBX4517DS1: [0, 0, 0, 45], DBXLH9090C: [0, 0, 0, 90],
+  };
+  // No datasheet: the median of the ones above for what it carries — a
+  // panel with a low band (700-900) is a long multiband, one without is not.
+  const TYPICAL = { low: [2.6, 0.35, 0.17], mid: [1.4, 0.30, 0.12] };
+  const antModel = f => String(f || '').toUpperCase().replace(/\.PAFX$/, '')
+    .replace(/_.*$/, '').replace(/[-\s]/g, '');
+  // Exact first, then the longest known model the name STARTS with, so that
+  // `80010892V01`, `LNX6515DSA1M` and a Vega `CC12V` all find their entry.
+  const antSpec = model => ANT_DIMS[model] || ANT_DIMS[Object.keys(ANT_DIMS)
+    .filter(k => k.length >= 4 && model.startsWith(k))
+    .sort((a, b) => b.length - a.length)[0]] || [];
+
+  // The physical antennas of a site: one per model per height on each
+  // azimuth. Where two on one azimuth would overlap in height they stand
+  // side by side on the mount, as a real head frame carries them.
+  function siteAntennas(groups) {
+    const out = [];
+    groups.forEach(g => {
+      g.hpbw = 65; g.omni = false;
+      if (g.az == null) return;
+      const m = new Map();
+      g.rows.forEach(r => {
+        const a = r.raw || {};
+        if (typeof a.h !== 'number') return;
+        const model = antModel(a.file);
+        const k = model + '\u0000' + a.h;
+        if (!m.has(k)) m.set(k, { g, h: a.h, tilt: typeof a.tilt === 'number' ? a.tilt : 0,
+                                  model, mhz: [] });
+        if (a.mhz) m.get(k).mhz.push(a.mhz);
+      });
+      const list = [...m.values()].sort((a, b) => a.h - b.h);
+      list.forEach(a => {
+        const d = antSpec(a.model);
+        const t = a.mhz.some(f => f < 1000) ? TYPICAL.low : TYPICAL.mid;
+        Object.assign(a, { L: d[0] || t[0], W: d[1] || t[1], D: d[2] || t[2],
+                           hpbw: d[3] || 65, omni: d[3] === 360, dish: d[4] === 'dish', off: 0 });
+      });
+      const tiers = [];
+      list.forEach(a => {
+        const tier = tiers.find(ti => ti.some(b => Math.abs(a.h - b.h) < (a.L + b.L) / 2));
+        if (tier) tier.push(a); else tiers.push([a]);
+      });
+      tiers.forEach(ti => {
+        let x = -(ti.reduce((n, a) => n + a.W, 0) + 0.15 * (ti.length - 1)) / 2;
+        ti.forEach(a => { a.off = x + a.W / 2; x += a.W + 0.15; });
+      });
+      if (list.length) {
+        g.omni = list.every(a => a.omni);
+        g.hpbw = Math.max(...list.map(a => a.omni ? 0 : a.hpbw)) || 65;
+      }
+      out.push(...list);
+    });
+    return out;
+  }
+
+  const hexRgb = h => [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16));
+  // `k` darkens (light falling on the face), `w` mixes towards white.
+  const tone = (hex, k, w) => '#' + hexRgb(hex).map(c =>
+    Math.max(0, Math.min(255, Math.round((c + (255 - c) * (w || 0)) * k)))
+      .toString(16).padStart(2, '0')).join('');
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+  const angDist = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+
+  function siteSvg(groups) {
+    const { W, H } = SV;
+    const id = 'st' + (++svgSeq);
+    const cx = W / 2, gy = H - GR * SE - 54;
+    const rad = d => d * Math.PI / 180;
+    const f = n => n.toFixed(1);
+    const INK = '#1A1A2E', STEEL = '#4B4963', DIM = '#6B6B7B';
+
+    const ants = siteAntennas(groups);
+    const lit = groups.filter(g => g.az != null);
+    const known = ants.length > 0;
+    const pole = known && ants.every(a => a.omni);
+    const bodyTop = known ? Math.max(...ants.map(a => a.h + a.L / 2)) : 30;
+    // A site whose antennas all end by 6 m is not a tower: a pipe on a
+    // concrete block (בטונדה), Elad's call for the small ones (2026-09-29).
+    // Drawn larger, since there is no mast to fit.
+    const low = known && bodyTop <= 6;
+    // The structure clears the highest antenna body; a site with no plant
+    // gets a nominal 30 m, drawn pale and without dimensions.
+    const top = known ? bodyTop + (low ? 0 : 0.4) : 30;
+    const s = Math.min(low ? 95 : 26, (gy - 44) / (CE * (top + (low ? 0.4 : 1.8))));
+    // a lattice about a tenth as wide as it is tall at the foot, 1.1 m at the
+    // top; a 76 mm pipe for a pole or on a block
+    const r0 = pole || low ? 0.04 : Math.min(3.4, 0.5 + 0.055 * top) * Math.SQRT2;
+    const r1 = pole || low ? 0.04 : 0.55 * Math.SQRT2;
+    const rAt = z => r0 + (r1 - r0) * Math.max(0, Math.min(1, z / top));
+    const mountR = z => rAt(z) + (low ? 0.18 : 0.45);
+    // what the structure covers on the ground: the block is 2 m long
+    const BLOCK = { half: 1.0, h: 0.81, axis: 62 };
+    const foot = low ? BLOCK.half : r0;
+    // one oblique projection, at any scale and centred on any height
+    const proj = (ox, oy, k, z0) => (x, y, z) => [ox + k * x, oy - k * (y * SE + (z - z0) * CE)];
+    const P = proj(cx, gy, s, 0);
+    const pt = p => f(p[0]) + ' ' + f(p[1]);
+    const G = (az, r) => [cx + r * Math.sin(rad(az)), gy - r * Math.cos(rad(az)) * SE];
+    const line = (a, b, st, w, extra) =>
+      `<line x1="${f(a[0])}" y1="${f(a[1])}" x2="${f(b[0])}" y2="${f(b[1])}" stroke="${st}" ` +
+      `stroke-width="${f(w)}"${extra || ''}/>`;
+    const steel = known ? STEEL : '#C4C2D3';
+
+    // One antenna's frame in the world: its facing (n), its up (u, leaning
+    // out by the mechanical tilt), its width axis (w), and its corners.
+    const antFrame = a => {
+      const az = rad(a.g.az), tl = rad(a.tilt);
+      const nv = [Math.sin(az) * Math.cos(tl), Math.cos(az) * Math.cos(tl), -Math.sin(tl)];
+      const uv = [Math.sin(az) * Math.sin(tl), Math.cos(az) * Math.sin(tl), Math.cos(tl)];
+      const wv = [Math.cos(az), -Math.sin(az), 0];
+      const R = mountR(a.h) + a.D / 2 + 0.06;
+      const c = [Math.sin(az) * R + wv[0] * a.off, Math.cos(az) * R + wv[1] * a.off, a.h];
+      const V = (su, sw, sn) => [0, 1, 2].map(i =>
+        c[i] + uv[i] * su * a.L / 2 + wv[i] * sw * a.W / 2 + nv[i] * sn * a.D / 2);
+      return { az, nv, uv, wv, V };
+    };
+    const antCorners = a => {
+      if (a.omni) {
+        const r = a.W / 2;
+        return [[-r, -r, a.h - a.L / 2], [r, r, a.h + a.L / 2], [-r, r, a.h + a.L / 2], [r, -r, a.h - a.L / 2]];
+      }
+      const { V } = antFrame(a), out = [];
+      [1, -1].forEach(su => [1, -1].forEach(sw => [1, -1].forEach(sn => out.push(V(su, sw, sn)))));
+      return out;
+    };
+
+    // The mast and everything on it, for a given projection: drawn once to
+    // scale, and once more magnified inside each inset. `k` is px per metre,
+    // `wk` thickens the strokes to suit it, `list` is the antennas to hang.
+    function rig(P, k, wk, list) {
+      const C3 = (c, z) => {
+        const r = rAt(z), q = [[0, -r], [r, 0], [0, r], [-r, 0]][c];   // S, E, N, W
+        return P(q[0], q[1], z);
+      };
+      const n = Math.max(2, Math.round(top / 4));
+      const zs = Array.from({ length: n + 1 }, (_, i) => top * i / n);
+      const face = (k1, k2, col, w) => {
+        let t = '';
+        for (let i = 0; i < n; i++) {
+          t += line(C3(k1, zs[i]), C3(k2, zs[i]), col, w * wk);
+          t += line(C3(k1, zs[i]), C3(k2, zs[i + 1]), col, w * wk * 0.8);
+          t += line(C3(k2, zs[i]), C3(k1, zs[i + 1]), col, w * wk * 0.8);
+        }
+        return t + line(C3(k1, top), C3(k2, top), col, w * wk);
+      };
+      const leg = (c, col, w) => line(C3(c, 0), C3(c, top), col, w * wk, ' stroke-linecap="round"');
+      const pale = known ? '#B9B7CC' : '#E1E0EA';
+      // The block: a New Jersey barrier section — 0.81 m tall, 0.61 m at the
+      // base, 0.15 m at the top, its two slopes breaking at 0.33 m — laid at an
+      // angle so both a slope and an end show. Faces painted far to near.
+      const block = () => {
+        const th = rad(BLOCK.axis), ax = [Math.sin(th), Math.cos(th), 0], bx = [Math.cos(th), -Math.sin(th), 0];
+        const prof = [[-0.305, 0], [0.305, 0], [0.305, 0.075], [0.2, 0.33], [0.075, 0.81],
+                      [-0.075, 0.81], [-0.2, 0.33], [-0.305, 0.075]];
+        const X = (l, q) => [l * ax[0] + q[0] * bx[0], l * ax[1] + q[0] * bx[1], q[1]];
+        const L = BLOCK.half, faces = [];
+        prof.forEach((q0, i) => {
+          const q1 = prof[(i + 1) % prof.length], ey = q1[0] - q0[0], ez = q1[1] - q0[1], el = Math.hypot(ey, ez);
+          const m = [0, 1, 2].map(j => (ez / el) * bx[j] + (j === 2 ? -ey / el : 0));
+          faces.push({ m, q: [X(-L, q0), X(-L, q1), X(L, q1), X(L, q0)] });
+        });
+        faces.push({ m: ax, q: prof.map(q => X(L, q)) });
+        faces.push({ m: ax.map(v => -v), q: prof.map(q => X(-L, q)) });
+        const dep = fc => fc.q.reduce((n, v) => n + v[1] * CE - v[2] * SE, 0) / fc.q.length;
+        return faces.filter(fc => dot(fc.m, VIEW) < 0).sort((a, b) => dep(b) - dep(a)).map(fc => {
+          const lum = 0.6 + 0.4 * Math.max(0, dot(fc.m, LIGHT));
+          return `<path d="M ${fc.q.map(v => pt(P(...v))).join(' L ')} Z" fill="${tone('C2BEB5', lum)}" ` +
+                 `stroke="${tone('C2BEB5', 0.62)}" stroke-width="${f(0.6 * wk)}" stroke-linejoin="round"/>`;
+        }).join('');
+      };
+      const backMast = low ? block() : pole ? '' :
+        face(1, 2, pale, 0.8) + face(2, 3, pale, 0.8) + leg(2, known ? '#A9A7BE' : '#DCDBE6', 1.4);
+      const frontMast = low || pole
+        ? line(P(0, 0, low ? BLOCK.h : 0), P(0, 0, top), steel, Math.max(1.6, k * 0.076), ' stroke-linecap="round"')
+        : face(3, 0, steel, 1) + face(0, 1, steel, 1) +
+          leg(3, steel, 1.7) + leg(1, steel, 1.7) + leg(0, known ? INK : steel, 2.1);
+
+      // head frames: a ring per mounting height, its back half behind the
+      // mast. A pipe has clamps, not a frame.
+      const tiersZ = low ? [] : [...new Set(list.filter(a => !a.omni).map(a => a.h))];
+      const ring = (z, back) => {
+        const c = P(0, 0, z), rx = k * mountR(z), ry = rx * SE;
+        return `<path d="M ${f(c[0] + (back ? -rx : rx))} ${f(c[1])} A ${f(rx)} ${f(ry)} 0 0 1 ` +
+               `${f(c[0] + (back ? rx : -rx))} ${f(c[1])}" fill="none" stroke="${STEEL}" ` +
+               `stroke-width="${f(1.3 * wk)}"/>`;
+      };
+
+      // one antenna: a box of its real size, each face shaded by where it points
+      const antenna = a => {
+        const col = a.g.color;
+        if (a.omni) {
+          const t = P(0, 0, a.h + a.L / 2), b = P(0, 0, a.h - a.L / 2);
+          const rx = Math.max(2.5, k * a.W / 2), ry = rx * SE;
+          return `<path d="M ${f(b[0] - rx)} ${f(t[1])} L ${f(b[0] - rx)} ${f(b[1])} A ${f(rx)} ${f(ry)} 0 0 0 ` +
+                 `${f(b[0] + rx)} ${f(b[1])} L ${f(b[0] + rx)} ${f(t[1])} Z" fill="${tone(col, 0.8)}"/>` +
+                 `<ellipse cx="${f(t[0])}" cy="${f(t[1])}" rx="${f(rx)}" ry="${f(ry)}" fill="${tone(col, 1, 0.3)}"/>`;
+        }
+        const fr = antFrame(a), { az, nv, uv, wv } = fr;
+        const V = (su, sw, sn) => P(...fr.V(su, sw, sn));
+        const neg = v => v.map(x => -x);
+        const arm = r => P(Math.sin(az) * r + wv[0] * a.off, Math.cos(az) * r + wv[1] * a.off, a.h);
+        const armLine = line(P(Math.sin(az) * rAt(a.h) * 0.7, Math.cos(az) * rAt(a.h) * 0.7, a.h),
+                             arm(mountR(a.h) + 0.06), STEEL, 1.1 * wk);
+        if (a.dish) {
+          // a grid dish: its rim a circle facing the azimuth, the bowl behind
+          // it, the feed in front on three struts
+          const c = fr.V(0, 0, 0), R = a.L / 2;
+          const at = (r, t, dn) => P(...[0, 1, 2].map(j =>
+            c[j] + r * (Math.cos(t) * wv[j] + Math.sin(t) * uv[j]) + nv[j] * dn));
+          const ring = (r, dn) => Array.from({ length: 32 }, (_, i) => pt(at(r, i / 32 * 2 * Math.PI, dn))).join(' L ');
+          const faceUs = dot(nv, VIEW) < 0;
+          const lum = 0.7 + 0.3 * Math.max(0, dot(faceUs ? nv : neg(nv), LIGHT));
+          const mesh = tone('B9BCC4', lum), rib = tone('8C8F98', lum);
+          let t = armLine;
+          // from behind: the bowl's ribs run from the hub to the rim
+          if (!faceUs) {
+            for (let i = 0; i < 8; i++) {
+              t += line(at(0, 0, -a.D / 2), at(R, i * Math.PI / 4, a.D / 2), rib, 0.9 * wk);
+            }
+          }
+          t += `<path d="M ${ring(R, a.D / 2)} Z" fill="${mesh}" fill-opacity="${faceUs ? 0.9 : 0.55}" ` +
+               `stroke="#${col}" stroke-width="${f(Math.max(1.6, 2.2 * wk))}" stroke-linejoin="round"/>`;
+          [0.7, 0.4].forEach(r => {
+            t += `<path d="M ${ring(R * r, a.D / 2 * (faceUs ? 1 - r * r : 1))} Z" fill="none" ` +
+                 `stroke="${rib}" stroke-width="${f(0.6 * wk)}" stroke-opacity="0.8"/>`;
+          });
+          if (!faceUs) t += `<circle cx="${f(at(0, 0, -a.D / 2)[0])}" cy="${f(at(0, 0, -a.D / 2)[1])}" ` +
+                            `r="${f(Math.max(1.5, k * 0.08))}" fill="${rib}"/>`;
+          // in front: the feed at the focus, on three struts from the rim
+          if (faceUs) {
+            const feed = at(0, 0, a.D / 2 + R * 0.55);
+            [0, 2, 4].forEach(i => { t += line(at(R, i * Math.PI / 3 + 0.5, a.D / 2), feed, rib, 0.8 * wk); });
+            t += `<circle cx="${f(feed[0])}" cy="${f(feed[1])}" r="${f(Math.max(1.5, k * 0.09))}" fill="#${col}"/>`;
+          }
+          return t;
+        }
+        const faces = [
+          { m: nv, q: [V(1, -1, 1), V(1, 1, 1), V(-1, 1, 1), V(-1, -1, 1)], w: 0.18 },
+          { m: neg(nv), q: [V(1, -1, -1), V(1, 1, -1), V(-1, 1, -1), V(-1, -1, -1)], w: 0 },
+          { m: wv, q: [V(1, 1, 1), V(1, 1, -1), V(-1, 1, -1), V(-1, 1, 1)], w: 0 },
+          { m: neg(wv), q: [V(1, -1, 1), V(1, -1, -1), V(-1, -1, -1), V(-1, -1, 1)], w: 0 },
+          { m: uv, q: [V(1, -1, 1), V(1, 1, 1), V(1, 1, -1), V(1, -1, -1)], w: 0.35 },
+        ];
+        // the arm that carries it, from inside the mast to its back
+        let t = armLine;
+        faces.filter(fc => dot(fc.m, VIEW) < 0).forEach(fc => {
+          const lum = 0.62 + 0.38 * Math.max(0, dot(fc.m, LIGHT));
+          t += `<path d="M ${fc.q.map(pt).join(' L ')} Z" fill="${tone(col, lum, fc.w)}" ` +
+               `stroke="${tone(col, 0.55)}" stroke-width="${f(0.5 * wk)}" stroke-linejoin="round"/>`;
+        });
+        return t;
+      };
+      const depth = a => Math.cos(rad(a.g.az));      // north is far
+      const behind = list.filter(a => !a.omni && depth(a) > 0).sort((a, b) => depth(b) - depth(a));
+      const front = list.filter(a => a.omni || depth(a) <= 0).sort((a, b) => depth(b) - depth(a));
+      return backMast + tiersZ.map(z => ring(z, true)).join('') + behind.map(antenna).join('') +
+        frontMast + tiersZ.map(z => ring(z, false)).join('') + front.map(antenna).join('') +
+        (pole || low ? '' : line(P(0, 0, top), P(0, 0, top + 1.6), steel, 1.3 * wk, ' stroke-linecap="round"'));
+    }
+
+    // direction="ltr" is load-bearing: inline on an RTL page the SVG inherits
+    // rtl, which FLIPS text-anchor — every label then grew back over its own
+    // arrow on screen, while the rasterised copy (an image, so ltr) did not,
+    // and the slide and the screen disagreed.
+    let o = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" ` +
+      `direction="ltr" font-family="Arial, Helvetica, sans-serif" ` +
+      // what was drawn, for anyone checking it without looking
+      `data-mount="${low ? 'block' : pole ? 'pole' : known ? 'lattice' : 'none'}" ` +
+      `data-shapes="${[...new Set(ants.map(a => a.dish ? 'dish' : a.omni ? 'omni' : 'panel'))].join(' ')}">` +
+      `<defs><radialGradient id="${id}g" cx="50%" cy="50%" r="50%">` +
+        `<stop offset="0" stop-color="#ECEBF4"/><stop offset="1" stop-color="#F8F8FB"/></radialGradient>` +
+      `<radialGradient id="${id}f" cx="50%" cy="50%" r="50%">` +
+        `<stop offset="0" stop-color="#1A1A2E" stop-opacity="0.26"/>` +
+        `<stop offset="1" stop-color="#1A1A2E" stop-opacity="0"/></radialGradient></defs>`;
+
+    // ── the ground: compass, wedges, arrows ──
+    o += `<ellipse cx="${cx}" cy="${f(gy)}" rx="${GR}" ry="${f(GR * SE)}" fill="url(#${id}g)" ` +
+         `stroke="#D9D7E6" stroke-width="1.2"/>`;
+    o += `<ellipse cx="${cx}" cy="${f(gy)}" rx="${f(GR * 0.62)}" ry="${f(GR * 0.62 * SE)}" fill="none" ` +
+         `stroke="#E3E1EE" stroke-width="1" stroke-dasharray="3 5"/>`;
+    for (let a = 0; a < 360; a += 30) {
+      o += line(G(a, GR), G(a, GR + (a % 90 ? 6 : 12)), '#BDB8D6', a % 90 ? 1 : 1.6);
+    }
+    lit.forEach(g => {
+      if (g.omni) {
+        o += `<ellipse cx="${cx}" cy="${f(gy)}" rx="${GR}" ry="${f(GR * SE)}" fill="#${g.color}" ` +
+             `fill-opacity="0.10" stroke="#${g.color}" stroke-opacity="0.8" stroke-width="2.4"/>`;
+        return;
+      }
+      const hw = g.hpbw / 2, a0 = G(g.az - hw, GR), a1 = G(g.az + hw, GR);
+      const arc = `A ${GR} ${f(GR * SE)} 0 ${g.hpbw > 180 ? 1 : 0} 1 ${pt(a1)}`;
+      o += `<path d="M ${cx} ${f(gy)} L ${pt(a0)} ${arc} Z" fill="#${g.color}" fill-opacity="0.15"/>`;
+      o += `<path d="M ${pt(a0)} ${arc}" fill="none" stroke="#${g.color}" stroke-opacity="0.85" ` +
+           `stroke-width="3" stroke-linecap="round"/>`;
+    });
+    const rin = s * foot + 14;
+    lit.forEach(g => {
+      if (g.omni) return;
+      o += line(G(g.az, rin), G(g.az, GR - 12), '#' + g.color, 3.2, ' stroke-linecap="round"');
+      o += `<path d="M ${pt(G(g.az, GR + 3))} L ${pt(G(g.az - 5, GR - 16))} ` +
+           `L ${pt(G(g.az + 5, GR - 16))} Z" fill="#${g.color}"/>`;
+    });
+    o += `<ellipse cx="${cx}" cy="${f(gy)}" rx="${f(s * foot + 18)}" ry="${f((s * foot + 18) * SE)}" ` +
+         `fill="url(#${id}f)"/>`;
+
+    // ── layout first: everything that carries words gets its place, and the
+    // tree and the person go where none of it is ──
+    const boxes = [];                               // [x0, y0, x1, y1]
+    const cw = (txt, size) => txt.length * size * 0.56;
+
+    // the degrees at each wedge's rim, and what it carries under them
+    const labels = lit.map(g => {
+      const fq = [...new Set(g.rows.map(r => r.freq).filter(Boolean)
+        .map(v => String(v).replace(/^EARFCN\s*/, '').replace(/\s*MHz$/, '')))]
+        .sort((a, b) => parseFloat(a) - parseFloat(b));
+      const sub = fq.slice(0, 3).join('/') + (fq.length > 3 ? ' +' + (fq.length - 3) : '');
+      const a = g.omni ? 135 : g.az;
+      const sx = Math.sin(rad(a)), cy = Math.cos(rad(a));
+      let [lx, ly] = G(a, GR + 18);
+      let anchor = sx > 0.3 ? 'start' : sx < -0.3 ? 'end' : 'middle';
+      ly += cy > 0.3 ? -10 : cy < -0.3 ? 24 : 7;
+      // Behind the mast the far rim is where the lattice stands, so the label
+      // steps out to the side the arrow leans to.
+      if (cy > 0.82) {
+        anchor = sx < -0.02 ? 'end' : 'start';
+        lx = G(a, GR)[0] + (anchor === 'start' ? 1 : -1) * (s * foot + 16);
+        ly = G(a, GR)[1] + 2;
+      }
+      const deg = g.omni ? 'Omni' : Math.round(g.az * 10) / 10 + '\u00b0';
+      const w = Math.max(cw(deg, 25), sub ? cw(sub, 15) : 0);
+      // never past the edge of the picture — the slide crops nothing for us
+      if (anchor === 'end') lx = Math.max(lx, w + 6);
+      else if (anchor === 'start') lx = Math.min(lx, W - w - 6);
+      else lx = Math.max(w / 2 + 6, Math.min(lx, W - w / 2 - 6));
+      const x0 = anchor === 'start' ? lx : anchor === 'end' ? lx - w : lx - w / 2;
+      boxes.push([x0, ly - 21, x0 + w, ly + (sub ? 24 : 5)]);
+      return `<text x="${f(lx)}" y="${f(ly)}" text-anchor="${anchor}" font-size="25" font-weight="700" ` +
+             `fill="#${g.color}">${esc(deg)}</text>` +
+             (sub ? `<text x="${f(lx)}" y="${f(ly + 19)}" text-anchor="${anchor}" font-size="15" ` +
+                    `fill="${DIM}">${esc(sub)}</text>` : '');
+    }).join('');
+
+    // the heights, as a dimension line beside the mast. Heights too close to
+    // letter apart share one label, as a range.
+    let dims = '';
+    if (known) {
+      const hs = [...new Set(ants.map(a => a.h))].sort((a, b) => b - a);
+      const reach = Math.max(...ants.map(a => a.omni ? 0 : mountR(a.h) + a.D + Math.abs(a.off) + a.W));
+      const xd = Math.min(W - 96, cx + s * Math.max(foot, reach) + 30);
+      const yTop = P(0, 0, hs[0])[1];
+      dims += line([xd, gy], [xd, yTop], '#8C8AA0', 1) + line([xd - 5, gy], [xd + 5, gy], '#8C8AA0', 1);
+      const runs = [];
+      hs.forEach(h => {
+        const y = P(0, 0, h)[1];
+        dims += line([xd - 5, y], [xd + 5, y], '#8C8AA0', 1.2);
+        dims += line([cx + s * mountR(h), y], [xd - 7, y], '#B4B2C6', 0.8, ' stroke-dasharray="2 3"');
+        const last = runs[runs.length - 1];
+        if (last && y - last.y0 < 19) last.lo = h; else runs.push({ hi: h, lo: h, y0: y });
+      });
+      const m = v => String(Math.round(v * 10) / 10);
+      runs.forEach(r => {
+        const t = (r.lo === r.hi ? m(r.hi) : m(r.lo) + '\u2013' + m(r.hi)) + ' m';
+        dims += `<text x="${f(xd + 9)}" y="${f(r.y0 + 6)}" font-size="17" font-weight="700" fill="${INK}">${esc(t)}</text>`;
+      });
+      boxes.push([xd - 8, yTop - 14, xd + 12 + cw('00.0\u201300.0 m', 17), gy + 4]);
+    }
+
+    // the insets: each tier of antennas, magnified. At true scale a 2.7 m
+    // antenna on a 40 m mast is a few pixels tall. A circle shows the same
+    // antennas in the same projection and the same proportions, only closer:
+    // a similarity of the main drawing about the tier's own centre.
+    let insets = '';
+    if (known && !pole && !low) {
+      const sorted = ants.slice().sort((a, b) => b.h - a.h);
+      const tiers = [];
+      sorted.forEach(a => {
+        const t = tiers[tiers.length - 1];
+        if (t && t.lo - (a.h + a.L / 2) < 3) { t.list.push(a); t.lo = Math.min(t.lo, a.h - a.L / 2); }
+        else tiers.push({ list: [a], lo: a.h - a.L / 2 });
+      });
+      const use = tiers.slice(0, 3);
+      const IR = use.length === 1 ? 94 : use.length === 2 ? 80 : 66;
+      use.forEach((t, i) => {
+        const pts = [];
+        // framed on the antennas alone; the head frame may run off the edge
+        t.list.forEach(a => antCorners(a).forEach(p => pts.push(P(...p))));
+        const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+        const bx = [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+        const bc = [(bx[0] + bx[2]) / 2, (bx[1] + bx[3]) / 2];
+        // the box's DIAGONAL fits the circle, so no corner of it is clipped
+        const zm = Math.min(64 / s, 2 * (IR - 8) / Math.max(Math.hypot(bx[2] - bx[0], bx[3] - bx[1]), 1));
+        if (zm < 1.3) return;
+        const ix = 14 + IR, iy = 14 + IR + i * (2 * IR + 14);
+        const Pz = (x, y, z) => { const q = P(x, y, z); return [ix + (q[0] - bc[0]) * zm, iy + (q[1] - bc[1]) * zm]; };
+        const hr = Math.max(8, Math.hypot(bx[2] - bx[0], bx[3] - bx[1]) / 2 + 4);
+        const dx = bc[0] - ix, dy = bc[1] - iy, dl = Math.hypot(dx, dy) || 1;
+        const cid = id + 'c' + i;
+        insets += `<defs><clipPath id="${cid}"><circle cx="${ix}" cy="${f(iy)}" r="${IR}"/></clipPath></defs>` +
+          `<circle cx="${f(bc[0])}" cy="${f(bc[1])}" r="${f(hr)}" fill="none" stroke="#9E9BB5" stroke-width="1.2"/>` +
+          line([ix + dx / dl * IR, iy + dy / dl * IR], [bc[0] - dx / dl * hr, bc[1] - dy / dl * hr], '#9E9BB5', 1.2) +
+          `<circle cx="${ix}" cy="${f(iy)}" r="${IR}" fill="#FFFFFF" stroke="#9E9BB5" stroke-width="1.4"/>` +
+          `<g clip-path="url(#${cid})">` + rig(Pz, s * zm, Math.min(2, 0.8 + zm * 0.12), t.list) + `</g>` +
+          `<text x="${f(ix + IR * 0.74)}" y="${f(iy + IR * 0.94)}" font-size="13" font-weight="700" ` +
+          `fill="${DIM}">\u00d7${zm < 3 ? zm.toFixed(1) : Math.round(zm)}</text>`;
+        boxes.push([ix - IR, iy - IR, ix + IR, iy + IR]);
+      });
+    }
+
+    // ── scale: a 7 m tree, a 1.75 m person, two shrubs ──
+    const hit = b => boxes.reduce((n, q) =>
+      n + Math.max(0, Math.min(b[2], q[2]) - Math.max(b[0], q[0])) *
+          Math.max(0, Math.min(b[3], q[3]) - Math.max(b[1], q[1])), 0);
+    // how much of the arrows a box would cover, sampled along each arrow
+    const onArrows = b => lit.reduce((n, g) => {
+      if (g.omni) return n;
+      for (let r = rin; r <= GR; r += 8) {
+        const q = G(g.az, r);
+        if (q[0] > b[0] && q[0] < b[2] && q[1] > b[1] && q[1] < b[3]) n++;
+      }
+      return n;
+    }, 0);
+    const treeAt = (az, d) => {
+      const x = d * Math.sin(rad(az)), y = d * Math.cos(rad(az)), b = P(x, y, 0);
+      return { az, x, y, b, box: [b[0] - 2.8 * s, P(x, y, 7.1)[1], b[0] + 2.8 * s, b[1] + 2] };
+    };
+    // the mast itself is in the way of a tree too — not of the person, who
+    // stands at its foot
+    const mastBox = [cx - s * foot - 6, P(0, 0, top)[1], cx + s * foot + 6, gy + s * foot * SE + 6];
+    boxes.push(mastBox);
+    const cands = [];
+    [235, 260, 285, 210, 310, 125, 150, 335, 100, 60, 30].forEach((az, i) =>
+      [foot + 3.4, foot + 5.6].forEach(d => {
+        const t = treeAt(az, d);
+        const off = t.box[0] < 4 || t.box[2] > W - 4 || t.box[1] < 4;
+        // covering words is the worst thing a tree can do here
+        t.score = hit(t.box) * 30 + onArrows(t.box) * 250 + (off ? 1e6 : 0) + i * 40 + (d > foot + 4 ? 20 : 0);
+        cands.push(t);
+      }));
+    boxes.pop();                                     // the mast box, again
+    // A 7 m tree beside a block site would be the subject of the picture;
+    // there the person alone gives the scale. Nor is a tree ever drawn
+    // hanging off the edge because no spot inside was free.
+    const best = cands.sort((a, b) => a.score - b.score)[0];
+    const tr = !low && s * 2.8 < cx - 20 && best.score < 1e6 ? best : null;
+    const tree = !tr ? '' : (() => {
+      const t = P(tr.x, tr.y, 2.8);
+      let o2 = `<ellipse cx="${f(tr.b[0])}" cy="${f(tr.b[1])}" rx="${f(s * 2)}" ry="${f(s * 2 * SE)}" fill="#1A1A2E" fill-opacity="0.05"/>` +
+        `<rect x="${f(tr.b[0] - s * 0.17)}" y="${f(t[1])}" width="${f(s * 0.34)}" height="${f(tr.b[1] - t[1])}" fill="#8A7A68"/>`;
+      [[-0.9, 4.2, 1.8, '#8FAF89'], [1.0, 4.5, 1.65, '#86A680'], [0, 5.3, 1.75, '#A2BF9C']].forEach(([dx, z, r, c]) => {
+        const p = P(tr.x + dx, tr.y, z);
+        o2 += `<circle cx="${f(p[0])}" cy="${f(p[1])}" r="${f(s * r)}" fill="${c}"/>`;
+      });
+      return o2;
+    })();
+    if (tr) boxes.push(tr.box);
+
+    const personAt = az => {
+      const d = foot + (low ? 0.9 : 1.9), x = d * Math.sin(rad(az)), y = d * Math.cos(rad(az)), b = P(x, y, 0);
+      return { x, y, b, box: [b[0] - 0.5 * s, P(x, y, 1.8)[1], b[0] + 0.5 * s, b[1]] };
+    };
+    const pp = [200, 160, 225, 135, 245, 115].map(personAt).sort((a, b) => hit(a.box) - hit(b.box))[0];
+    const person = (() => {
+      const b = pp.b, hip = P(pp.x, pp.y, 0.86), sh = P(pp.x, pp.y, 1.45), hd = P(pp.x, pp.y, 1.63);
+      const bw = Math.max(1.2, s * 0.19), lw = Math.max(1, s * 0.11);
+      return `<ellipse cx="${f(b[0])}" cy="${f(b[1])}" rx="${f(s * 0.35)}" ry="${f(s * 0.35 * SE)}" fill="#1A1A2E" fill-opacity="0.12"/>` +
+        line([b[0] - s * 0.09, b[1]], [hip[0] - s * 0.05, hip[1]], '#55536A', lw, ' stroke-linecap="round"') +
+        line([b[0] + s * 0.09, b[1]], [hip[0] + s * 0.05, hip[1]], '#55536A', lw, ' stroke-linecap="round"') +
+        `<rect x="${f(hip[0] - bw)}" y="${f(sh[1])}" width="${f(bw * 2)}" height="${f(hip[1] - sh[1] + s * 0.04)}" ` +
+        `rx="${f(bw * 0.7)}" fill="#55536A"/>` +
+        `<circle cx="${f(hd[0])}" cy="${f(hd[1])}" r="${f(Math.max(1.3, s * 0.12))}" fill="#55536A"/>`;
+    })();
+    const bush = (az, d, r) => {
+      const c = P(d * Math.sin(rad(az)), d * Math.cos(rad(az)), r * 0.55);
+      return `<circle cx="${f(c[0] - s * r * 0.55)}" cy="${f(c[1] + s * r * 0.1)}" r="${f(s * r * 0.62)}" fill="#9CB896"/>` +
+             `<circle cx="${f(c[0] + s * r * 0.5)}" cy="${f(c[1] + s * r * 0.15)}" r="${f(s * r * 0.55)}" fill="#8BAA85"/>` +
+             `<circle cx="${f(c[0])}" cy="${f(c[1] - s * r * 0.2)}" r="${f(s * r * 0.7)}" fill="#A8C3A2"/>`;
+    };
+    const tAz = tr ? tr.az : 235;
+    // shrubs are real shrubs too: at a block site's scale they stay small
+    const bushBack = bush(tAz + 150, foot + 1.1, low ? 0.4 : 0.8),
+          bushFront = bush(tAz + 35, foot + 1.6, low ? 0.3 : 0.6);
+
+    // ── paint, back to front ──
+    o += (tr && tr.y > 0 ? tree : '') + bushBack;
+    o += rig(P, s, 1, ants);
+    o += (tr && tr.y > 0 ? '' : tree) + person + bushFront;
+    o += dims + labels + insets;
+
+    // north, as a small compass lying on the same ground, in the corner
+    {
+      const x0 = W - 40, y0 = 42, r = 22;
+      o += `<ellipse cx="${x0}" cy="${y0}" rx="${r}" ry="${f(r * SE)}" fill="none" stroke="#C9C6DA" stroke-width="1"/>`;
+      o += `<path d="M ${x0} ${f(y0 - r * SE - 3)} L ${x0 - 5} ${f(y0 + 2)} L ${x0} ${f(y0 - 1)} L ${x0 + 5} ${f(y0 + 2)} Z" fill="${INK}"/>`;
+      o += `<text x="${x0}" y="${f(y0 - r * SE - 8)}" text-anchor="middle" font-size="14" font-weight="700" fill="${INK}">N</text>`;
+    }
+    return o + '</svg>';
+  }
+
+  // Rasterised at 3x for the slide: sharp on a projector, and a PNG opens
+  // in every PowerPoint the TS machines might run, where an SVG picture
+  // needs 2019 or later.
+  async function svgPng(svg, scale) {
+    const img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = SV.W * scale; c.height = SV.H * scale;
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return c.toDataURL('image/png');
+  }
+
+  // The card's table: one row per sector, grouped by azimuth. The stripe
+  // and the azimuth carry the beam colour; the azimuth is written once per
+  // group, like the point label in the report table.
+  const ST_COLS = ['sector', 'freq', 'bw', 'height', 'antenna', 'power', 'crs'];
+  const ST_HEAD = ['אזימוט', 'סקטור', 'תדר מרכזי',
+                   'רוחב פס', 'גובה', 'דגם אנטנה', 'הספק', 'CRS'];
+
+  function sdCard(p) {
+    const db = DB[p.net] || {};
+    const groups = azGroups(sdRows(p.net, p.id));
+    const xy = coordText(db.coords && db.coords[p.id]);
+    const note = siteNote(p.net, p.id);
+    const nm = (db.sites && db.sites[p.id]) || p.id;
+    const azTxt = g => g.az == null ? '-' : (Math.round(g.az * 10) / 10) + '°';
+    const body = groups.map(g => g.rows.map((r, i) =>
+      '<tr class="' + (i === g.rows.length - 1 ? 'g-end' : '') + '">' +
+        '<td class="st-stripe" style="background:#' + g.color + '"></td>' +
+        '<td class="st-az" style="color:#' + g.color + '">' + (i ? '' : azTxt(g)) + '</td>' +
+        ST_COLS.map(c => '<td' + (isLtrText(r[c] || '') ? ' class="td-ltr"' : '') + '>' +
+          esc(r[c] == null ? '-' : r[c]) + '</td>').join('') +
+      '</tr>').join('')).join('');
+    return '<section class="sd-site sd-card">' +
+      '<header class="st-head">' +
+        '<h3 class="st-name' + (isLtrText(nm) ? ' td-ltr' : '') + '">' + esc(nm) + '</h3>' +
+        '<p class="st-meta"><span class="mono">' + esc(p.id) + '</span>' +
+          '<span class="st-net">' + esc(netTag(p.net)) + '</span>' +
+          (xy ? '<span class="mono">' + esc(xy) + '</span>' : '') + '</p>' +
+      '</header>' +
+      (note ? '<p class="sd-site-note">' + esc(note) + '</p>' : '') +
+      '<div class="st-body">' +
+        '<table class="st-table"><thead><tr><th class="st-stripe"></th>' +
+          ST_HEAD.map(h => '<th>' + h + '</th>').join('') + '</tr></thead>' +
+          '<tbody>' + (body || '<tr><td colspan="' + (ST_COLS.length + 2) + '">-</td></tr>') + '</tbody></table>' +
+        '<div class="st-diagram">' + siteSvg(groups) + '</div>' +
+      '</div>' +
+    '</section>';
+  }
+
+  // The site sheet's own style — kept apart from the report table's, since
+  // the two sheets offer different styles (Stylish needs azimuths; Coverage
+  // needs RSRP) and share only Classic and Clean.
+  function siteSheet(page) {
+    page.classList.toggle('out-lean', siteStyle === 'clean');
+    page.classList.toggle('out-stylish', siteStyle === 'stylish');
+    page.dataset.style = siteStyle;
   }
 
   function renderSite() {
@@ -1304,10 +1994,17 @@
       esc(T('sd.remove')) + '">\u00d7</button></span>').join('');
 
     $('sdActions').classList.toggle('hidden', !sd.picked.length);
+    const stylish = siteStyle === 'stylish';
     $('sdPage').innerHTML = sd.picked.length
-      ? '<h2 class="tbl-title">\u05e0\u05ea\u05d5\u05e0\u05d9 \u05d0\u05ea\u05e8</h2>' +
-        sd.picked.map(sdBlock).join('')
+      ? (stylish
+          ? sd.picked.map(sdCard).join('')
+          : '<h2 class="tbl-title">\u05e0\u05ea\u05d5\u05e0\u05d9 \u05d0\u05ea\u05e8</h2>' +
+            sd.picked.map(sdBlock).join(''))
       : '<p class="ed-msg">' + esc(T('sd.empty')) + '</p>';
+    siteSheet($('sdPage'));
+    // A stylish card is a slide of its own, so "all on one slide" does not
+    // apply to it and the toggle steps aside rather than lying.
+    $('sdPer').classList.toggle('hidden', stylish);
 
     $('sdPer').querySelectorAll('[data-sd-per]').forEach(b =>
       b.classList.toggle('on', b.dataset.sdPer === sd.per));
@@ -1336,6 +2033,36 @@
   $('sdClear').onclick = () => { sd.picked = []; renderSite(); };
   $('sdPrint').onclick = () => window.print();
 
+  /* PptxGenJS 3.12 writes a paragraph's properties (<a:pPr>) before EVERY
+     run, so a paragraph of several runs — the network chip beside a site
+     name, the coverage legend's swatches — carries several. The schema allows
+     one, first; a file that breaks it is the kind PowerPoint offers to
+     "repair". So every presentation is tidied on its way out: each paragraph
+     keeps its first <a:pPr> and drops the rest. Hooked at exportPresentation,
+     which both write() and writeFile() go through. */
+  const onePPr = xml => xml.replace(/<a:p>([\s\S]*?)<\/a:p>/g, (m, body) => {
+    let seen = false;
+    return '<a:p>' + body.replace(/<a:pPr\b[^>]*?(?:\/>|>[\s\S]*?<\/a:pPr>)/g,
+      pp => (seen ? '' : (seen = true, pp))) + '</a:p>';
+  });
+  function tidyPptx(pptx) {
+    const exp = pptx.exportPresentation.bind(pptx);
+    pptx.exportPresentation = async props => {
+      const buf = await exp(Object.assign({}, props, { outputType: 'arraybuffer' }));
+      const z = await JSZip.loadAsync(buf);
+      for (const n of Object.keys(z.files)) {
+        if (/^ppt\/slides\/slide\d+\.xml$/.test(n)) z.file(n, onePPr(await z.file(n).async('string')));
+      }
+      const t = props && props.outputType;
+      return z.generateAsync({
+        type: t === 'STREAM' ? 'nodebuffer' : (t || 'blob'),
+        mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        compression: props && props.compression ? 'DEFLATE' : 'STORE',
+      });
+    };
+    return pptx;
+  }
+
   // The PPTX. Same palette and the same hand-reversed column order as the
   // point-analysis table — PowerPoint tables have no RTL column order, so the
   // arrays are built with the last Hebrew column first. `sd.per` decides
@@ -1346,7 +2073,7 @@
     const btn = $('sdPptx');
     btn.disabled = true;
     try {
-      const pptx = new PptxGenJS();
+      const pptx = tidyPptx(new PptxGenJS());
       pptx.layout = 'LAYOUT_WIDE';
       const BD = { type: 'solid', pt: TBL.border.pt, color: TBL.border.color };
       const cell = (t, o) => ({
@@ -1356,6 +2083,14 @@
           valign: 'middle', align: 'center',
         }, o || {}),
       });
+
+      if (siteStyle === 'stylish') {
+        await stylishSlides(pptx);
+        await pptx.writeFile({ fileName: 'TableX-sites.pptx' });
+        toast(T('toast.pptxDone'));
+        return;
+      }
+      const lean = () => siteStyle === 'clean';
 
       const groups = sd.per === 'one'
         ? sd.picked.map(x => [x])
@@ -1371,20 +2106,28 @@
           const xy = coordText(db.coords && db.coords[pick.id]);
           slide.addText(nm + '   ' + pick.id + (xy ? '   ' + xy : ''), {
             x: 0.3, y, w: 12.7, h: 0.4, fontSize: 15, bold: true,
-            color: '1a1a2e', align: 'right', rtlMode: !isLtrText(nm),
+            color: lean() ? LEAN.ink : '1a1a2e', align: 'right', rtlMode: !isLtrText(nm),
             fontFace: 'Arial',
           });
           y += 0.45;
 
           const rows = sdRows(pick.net, pick.id);
           // reversed by hand, strongest-Hebrew-column-last
-          const head = SD_HEAD.slice().reverse().map(h =>
-            cell(h, { fill: { color: TBL.head }, color: 'FFFFFF', bold: true, rtlMode: true }));
-          const body = rows.map((r, i) => SD_COLS.slice().reverse().map(c =>
-            cell(r[c] == null ? '-' : r[c], {
-              fill: { color: i % 2 ? TBL.rowB : TBL.rowA }, color: '1a1a2e',
-              rtlMode: !isLtrText(r[c] || ''),
-            })));
+          const L = LEAN;
+          const head = SD_HEAD.slice().reverse().map(h => lean()
+            ? cell(h, { fill: { color: L.fill }, color: L.ink, bold: true, rtlMode: true,
+                        border: pgBorder({ bd: bdLean(L.head) }) })
+            : cell(h, { fill: { color: TBL.head }, color: 'FFFFFF', bold: true, rtlMode: true }));
+          const body = rows.map((r, i) => SD_COLS.slice().reverse().map(c => lean()
+            ? cell(r[c] == null ? '-' : r[c], {
+                fill: { color: L.fill }, color: L.ink, rtlMode: !isLtrText(r[c] || ''),
+                border: pgBorder({ bd: Object.assign(bdLean(i === rows.length - 1 ? L.end : L.hair),
+                                                     { t: i ? L.hair : L.head }) }),
+              })
+            : cell(r[c] == null ? '-' : r[c], {
+                fill: { color: i % 2 ? TBL.rowB : TBL.rowA }, color: '1a1a2e',
+                rtlMode: !isLtrText(r[c] || ''),
+              })));
           slide.addTable([head].concat(body), {
             x: 0.3, y, w: 12.7, rowH: TBL.rowH,
           });
@@ -1401,11 +2144,67 @@
     }
   };
 
+  // One slide per site: name and meta across the top, the diagram on the
+  // left as a picture, the table on the right as a NATIVE table so the
+  // numbers stay editable in PowerPoint. Columns reversed by hand, as in
+  // every other writer here.
+  async function stylishSlides(pptx) {
+    const INK = '1A1A2E', DIM = '6B6B7B';
+    const HAIR = { type: 'solid', pt: 0.5, color: 'E4E2EE' };
+    const END = { type: 'solid', pt: 0.75, color: '8C8AA0' };
+    const HEAD = { type: 'solid', pt: 1.5, color: INK };
+    const NONE = { type: 'none' };
+    // the antenna column fits `RVV65DC33XR_1800` on one line at 10 pt
+    const colW = [0.6, 0.66, 1.62, 0.52, 0.74, 0.95, 0.85, 0.7, 0.09];   // crs .. az, stripe
+    const W = colW.reduce((a, b) => a + b, 0), X = 12.83 - W;
+    for (const pick of sd.picked) {
+      const db = DB[pick.net] || {};
+      const nm = (db.sites && db.sites[pick.id]) || pick.id;
+      const xy = coordText(db.coords && db.coords[pick.id]);
+      const groups = azGroups(sdRows(pick.net, pick.id));
+      const slide = pptx.addSlide();
+      slide.background = { color: 'FFFFFF' };
+
+      slide.addShape('rect', { x: 12.23, y: 0.42, w: 0.6, h: 0.06, fill: { color: '4A3F8C' }, line: { color: '4A3F8C', width: 0 } });
+      slide.addText(nm, { x: 0.5, y: 0.52, w: 12.33, h: 0.62, fontSize: 28, bold: true, color: INK,
+                          align: 'right', rtlMode: !isLtrText(nm), fontFace: 'Arial' });
+      // written left-to-right with the id LAST, so it lands at the right edge
+      slide.addText([xy, netTag(pick.net), pick.id].filter(Boolean).join('   ·   '), {
+        x: 0.5, y: 1.12, w: 12.33, h: 0.36, fontSize: 12, color: DIM, align: 'right',
+        rtlMode: false, fontFace: 'Arial' });
+
+      // the drawing, as tall as the space under the title allows
+      const ih = 5.45, iw = ih * SV.W / SV.H;
+      slide.addImage({ data: await svgPng(siteSvg(groups), 3), x: Math.max(0.2, X - 0.25 - iw), y: 1.62, w: iw, h: ih });
+
+      const cell = (t, o) => ({ text: t, options: Object.assign({
+        fontSize: 10, fontFace: 'Arial', color: INK, valign: 'middle', align: 'center',
+        fill: { color: 'FFFFFF' } }, o) });
+      const head = [ST_HEAD.slice().reverse().map(h =>
+          cell(h, { bold: true, color: DIM, rtlMode: true, border: [NONE, NONE, HEAD, NONE] }))
+        .concat([cell('', { border: [NONE, NONE, NONE, NONE] })])];
+      const body = [];
+      groups.forEach(g => g.rows.forEach((r, i) => {
+        const last = i === g.rows.length - 1;
+        const bd = [i ? HAIR : (body.length ? END : HEAD), NONE, last ? END : HAIR, NONE];
+        body.push(ST_COLS.slice().reverse().map(c => cell(r[c] == null ? '-' : r[c],
+            { rtlMode: !isLtrText(r[c] || ''), border: bd }))
+          .concat([
+            cell(i ? '' : (g.az == null ? '-' : (Math.round(g.az * 10) / 10) + '°'),
+                 { bold: true, color: g.color, border: [i ? NONE : bd[0], NONE, last ? END : NONE, NONE] }),
+            cell('', { fill: { color: g.color }, border: [NONE, NONE, NONE, NONE] }),
+          ]));
+      }));
+      slide.addTable(head.concat(body), { x: X, y: 1.9, w: W, colW, rowH: 0.34 });
+    }
+  }
+
   /* ── views ───────────────────────────────────────────────────────── */
   function show(which) {
     const table = which === 'table', lk = which === 'lookup', dk = which === 'decks';
-    const sd = which === 'site';
-    $('viewHome').classList.toggle('hidden', table || lk || dk || sd);
+    const sd = which === 'site', db = which === 'db';
+    $('viewHome').classList.toggle('hidden', table || lk || dk || sd || db);
+    $('viewDb').classList.toggle('hidden', !db);
     $('viewLookup').classList.toggle('hidden', !lk);
     $('viewDecks').classList.toggle('hidden', !dk);
     $('viewSite').classList.toggle('hidden', !sd);
@@ -1414,7 +2213,7 @@
     // and carries its own toolbar. The others are places you leave again, so
     // they keep the nav.
     $('nav').classList.toggle('hidden', table);
-    const at = lk ? 'lookup' : dk ? 'decks' : sd ? 'site' : 'home';
+    const at = lk ? 'lookup' : dk ? 'decks' : sd ? 'site' : db ? 'db' : 'home';
     document.querySelectorAll('.nav-link[data-goto]').forEach(b =>
       b.classList.toggle('active', b.dataset.goto === at));
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -1698,8 +2497,8 @@
     if (b.dataset.goto === 'lookup') return show('lookup');
     if (b.dataset.goto === 'site') return show('site');
     if (b.dataset.goto === 'decks') return show('decks');
+    if (b.dataset.goto === 'db') return show('db');
     show('home');
-    if (b.dataset.goto === 'db') $('sectionDb').scrollIntoView({ behavior: 'smooth' });
   });
 
   $('lkSearch').addEventListener('input', renderLookup);
@@ -1708,7 +2507,7 @@
     if (c) copyText(c.dataset.copy);
   });
 
-  $('dbChip').onclick = () => { show('home'); $('sectionDb').scrollIntoView({ behavior: 'smooth' }); };
+  $('dbChip').onclick = () => show('db');
 
   /* ── about the builder ───────────────────────────────────────────── */
   const about = $('aboutModal');
@@ -1731,6 +2530,127 @@
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) $('btnGenerate').click();
   });
 
+  /* ── output styles ─────────────────────────────────────────────────────
+     The deliverable comes in three styles, chosen from the table's own
+     toolbar and KEPT per machine (tablex_style), because a commander reads a
+     familiar table faster than a correct-but-different one: whichever style
+     a team settles on has to come out the same every time.
+
+       classic   the purple table commanders already know — the default, and
+                 byte-for-byte what every earlier build produced.
+       clean     black on white. No fills; a heavy rule under the header,
+                 hairlines between rows, a darker rule where a point ends.
+       coverage  clean, plus each level tinted in the class Planet 7.10's own
+                 RSRP legend puts it in — the colours of the coverage-map
+                 screenshots beside it in the deck — with that legend under
+                 the table, labelled PREDICTED (see the top of CLAUDE.md).
+
+     One definition feeds every renderer: the HTML through classes on the
+     sheet, both PPTX writers through tableMatrix()'s per-cell fills and
+     borders, and the template path through TableXReport.caption(). */
+  const STYLE_KEY = 'tablex_style';
+  const STYLES = ['classic', 'clean', 'coverage'];
+  let outStyle = 'classic';
+  try {
+    const v = localStorage.getItem(STYLE_KEY);
+    if (STYLES.includes(v)) outStyle = v;
+  } catch (e) { /* private mode */ }
+  const lean = () => outStyle !== 'classic';     // clean and coverage share a table
+
+  // The site sheet's style is its own setting: classic, clean or stylish
+  // (the drawn site — see STYLISH by renderSite()).
+  const SITE_STYLE_KEY = 'tablex_site_style';
+  const SITE_STYLES = ['classic', 'clean', 'stylish'];
+  let siteStyle = 'classic';
+  try {
+    const v = localStorage.getItem(SITE_STYLE_KEY);
+    if (SITE_STYLES.includes(v)) siteStyle = v;
+  } catch (e) { /* private mode */ }
+
+  // Planet 7.10's RSRP legend, exactly as Interfex's drivecore.js carries it
+  // (min inclusive, max exclusive) — the classes engineers read off the map.
+  // `tint` is the colour at 35% on white: a cell fill black text still reads
+  // on, where the pure legend green (#40D63E) would not.
+  const RSRP_CLASSES = [
+    { min: -60,  max: null, tint: 'F6B8B5', label: '\u2265 \u221260' },
+    { min: -75,  max: -60,  tint: 'F5BEE0', label: '\u221275\u2026\u221260' },
+    { min: -90,  max: -75,  tint: 'B6D2B7', label: '\u221290\u2026\u221275' },
+    { min: -110, max: -90,  tint: 'BCF1BB', label: '\u2212110\u2026\u221290' },
+    { min: -120, max: -110, tint: 'B6C5EF', label: '\u2212120\u2026\u2212110' },
+    { min: null, max: -120, tint: 'ABABAB', label: '< \u2212120' },
+  ];
+  // The caption's Hebrew is the DELIVERABLE's, like the headers: fixed, and
+  // never translated by the UI language. It says "predicted RSRP".
+  const LEGEND_LABEL = 'RSRP \u05d7\u05d6\u05d5\u05d9 (Planet)';
+  function rsrpClass(v) {
+    const n = parseFloat(v);
+    if (!isFinite(n)) return null;
+    return RSRP_CLASSES.find(c =>
+      (c.min == null || n >= c.min) && (c.max == null || n < c.max)) || null;
+  }
+
+  // The lean styles' ink and rules, shared by the point table and the site
+  // sheet so the two cannot drift apart.
+  const LEAN = {
+    ink: '1A1A1A', dim: '6B6B6B', fill: 'FFFFFF',
+    head: { pt: 1.5, color: '1A1A1A' },
+    hair: { pt: 0.5, color: 'DCDCDC' },
+    end:  { pt: 0.75, color: '8C8C8C' },
+  };
+  // [top, right, bottom, left], each a line or null — the one border model
+  // both PPTX writers understand (pptx.js cellXml reads the same object).
+  const bdLean = bottom => ({ t: null, r: null, b: bottom, l: null });
+  const pgBorder = (c, BD) => c.bd
+    ? ['t', 'r', 'b', 'l'].map(k => c.bd[k]
+        ? { type: 'solid', pt: c.bd[k].pt, color: c.bd[k].color }
+        : { type: 'none' })
+    : BD;
+
+  // The picker sits in both toolbars (the table's and the site sheet's);
+  // they are one setting, so both follow. The sheet on screen re-renders at
+  // once and settles in with a short fade, so the change is seen, not just
+  // made — and the next export is in the new style with nothing else to do.
+  function markStyle() {
+    document.querySelectorAll('[data-out-style]').forEach(b =>
+      b.classList.toggle('on', b.dataset.outStyle === outStyle));
+    document.querySelectorAll('[data-site-style]').forEach(b =>
+      b.classList.toggle('on', b.dataset.siteStyle === siteStyle));
+  }
+  const settle = page => {
+    if (page && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      page.animate([{ opacity: 0.35, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
+                   { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+    }
+  };
+  function setSiteStyle(next) {
+    if (!SITE_STYLES.includes(next) || next === siteStyle) return;
+    siteStyle = next;
+    try { localStorage.setItem(SITE_STYLE_KEY, next); } catch (e) { /* private mode */ }
+    markStyle();
+    renderSite();
+    settle($('sdPage'));
+  }
+  function setStyle(next) {
+    if (!STYLES.includes(next) || next === outStyle) return;
+    outStyle = next;
+    try { localStorage.setItem(STYLE_KEY, next); } catch (e) { /* private mode */ }
+    markStyle();
+    let page = null;
+    if (lastRows && !$('viewTable').classList.contains('hidden')) { renderTable(lastRows); page = $('docPage'); }
+    if (!$('viewSite').classList.contains('hidden')) { renderSite(); page = $('sdPage'); }
+    if (page && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      page.animate([{ opacity: 0.35, transform: 'translateY(4px)' }, { opacity: 1, transform: 'none' }],
+                   { duration: 320, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' });
+    }
+  }
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-out-style]');
+    if (b) setStyle(b.dataset.outStyle);
+    const sb = e.target.closest('[data-site-style]');
+    if (sb) setSiteStyle(sb.dataset.siteStyle);
+  });
+  markStyle();
+
   /* ── PPTX export ─────────────────────────────────────────────────── */
   /* ── the report table, as data ────────────────────────────────────────
      ONE definition of the deliverable's shape, because there are now two
@@ -1745,7 +2665,8 @@
      one, change all of them.
 
      Colours are the document's own purple, not the app's mint: this is a
-     preview of a PowerPoint slide, not app chrome (DESIGN.md deviation 3). */
+     preview of a PowerPoint slide, not app chrome (DESIGN.md invariant 1). The
+     clean and coverage styles are leanMatrix(), below. */
   const TBL = {
     colW: [1.3, 1.2, 1.2, 0.85, 4.5, 0.85, 0.8],   // inches
     border: { color: 'BBB5E0', pt: 0.5 },
@@ -1754,9 +2675,20 @@
   };
   TBL.frac = TBL.colW.map(w => w / TBL.colW.reduce((a, b) => a + b, 0));
 
+  // The network chip beside the site name — the app's green `.tag-net`,
+  // stated as file colours so both PPTX writers and print carry the same one.
+  // Asked for on 2026-09-29: a slide that mixes operators has to say which is
+  // which. It rides the export as a second, smaller run in the SAME cell (a
+  // highlighted run is what PowerPoint has for a chip), so the table keeps its
+  // seven columns and the chip wraps with the name instead of floating over it.
+  // Only the network: `סקטור משוער` and `לא נמצא` stay app-only.
+  const NET_CHIP = { color: '0C6F4B', hl: 'E3F1EA', sz: 8 };
+  const chipOf = r => r.net ? Object.assign({ t: netTag(r.net) }, NET_CHIP) : null;
+
   // [[{t, fill, color, bold, align}, ...], ...] — align uses the OOXML
   // spelling ('ctr' / 'r'); the PptxGenJS writer maps it.
   function tableMatrix(groups) {
+    if (lean()) return leanMatrix(groups);
     const H = t => ({ t, fill: TBL.head, color: 'FFFFFF', bold: true, align: 'ctr' });
     const out = [[
       H('עוצמה(dBm)'), H('רוחב פס (Mhz)'), H('תדר מרכזי'), H('סקטור'),
@@ -1768,7 +2700,7 @@
         const c = t => ({ t: String(t), fill, color: '000000', align: 'ctr' });
         out.push([
           c(r.power), c(r.bw), c(r.freq), c(r.sector),
-          { ...c(r.site), align: 'r', ltr: isLtrText(r.site) }, c(r.rank),
+          { ...c(r.site), align: 'r', ltr: isLtrText(r.site), tag: chipOf(r) }, c(r.rank),
           { t: i === 0 ? `נק' ${nk}` : '', fill: TBL.group,
             color: 'FFFFFF', bold: true, align: 'ctr' },
         ]);
@@ -1776,6 +2708,55 @@
     });
     return out;
   }
+
+  // Clean and coverage. Same columns, same hand-reversed order; only the
+  // ink changes. The point label sits on its group's first row alone, and
+  // its column draws no line inside a group, so it reads as one merged cell.
+  function leanMatrix(groups) {
+    const L = LEAN;
+    const H = (t, align) => ({ t, fill: L.fill, color: L.ink, bold: true,
+                               align: align || 'ctr', bd: bdLean(L.head) });
+    const out = [[
+      H('עוצמה(dBm)'), H('רוחב פס (Mhz)'), H('תדר מרכזי'), H('סקטור'),
+      H('שם אתר משרת', 'r'), H('מס"ד'), H(''),
+    ]];
+    Object.keys(groups).map(Number).sort((a, b) => a - b).forEach(nk => {
+      const rows = groups[nk];
+      rows.forEach((r, i) => {
+        const last = i === rows.length - 1;
+        const c = (t, o) => Object.assign({ t: String(t), fill: L.fill, color: L.ink,
+                                            align: 'ctr', bd: bdLean(last ? L.end : L.hair) }, o);
+        const lv = outStyle === 'coverage' ? rsrpClass(r.power) : null;
+        out.push([
+          c(r.power, lv ? { fill: lv.tint } : null),
+          c(r.bw), c(r.freq), c(r.sector),
+          c(r.site, { align: 'r', ltr: isLtrText(r.site), tag: chipOf(r) }),
+          c(r.rank, { color: L.dim }),
+          c(i === 0 ? `נק' ${nk}` : '', { bold: true, bd: bdLean(last ? L.end : null) }),
+        ]);
+      });
+    });
+    // A shared edge is stated by BOTH cells that meet at it, and they must
+    // agree — so each cell's top is the bottom of the cell above it.
+    for (let r = 1; r < out.length; r++) {
+      out[r].forEach((cell, k) => { cell.bd.t = out[r - 1][k].bd.b; });
+    }
+    return out;
+  }
+
+  // Coverage only: the legend under the table. `items` run strongest to
+  // weakest and are written LEFT TO RIGHT — a range like −75…−60 inside an
+  // RTL paragraph is exactly the run the bidi algorithm turns around.
+  function legendCaption() {
+    if (outStyle !== 'coverage') return null;
+    return { label: LEGEND_LABEL, items: RSRP_CLASSES.map(c => ({ tint: c.tint, text: c.label })) };
+  }
+
+  // PptxGenJS text runs for the legend line: a tinted square, then its range.
+  const legendRuns = cap => cap.items.flatMap((it, i) => [
+    { text: '\u25a0 ', options: { color: it.tint, fontSize: 12 } },
+    { text: it.text + (i < cap.items.length - 1 ? '     ' : ''), options: { color: '444444' } },
+  ]);
 
   $('btnPptx').onclick = async () => {
     if (!lastRows) return;
@@ -1786,30 +2767,49 @@
     const btn = $('btnPptx');
     btn.disabled = true;
     try {
-      const pptx = new PptxGenJS();
+      const pptx = tidyPptx(new PptxGenJS());
       pptx.layout = 'LAYOUT_WIDE';
       const slide = pptx.addSlide();
       slide.background = { color: 'FFFFFF' };
 
-      slide.addText('טבלת נתונים', {
-        x: 0.4, y: 0.12, w: 12.5, h: 0.7,
-        fontSize: 28, bold: true, color: '1a1a2e',
-        align: 'center', rtlMode: true, fontFace: 'Arial',
-      });
+      slide.addText('טבלת נתונים', lean()
+        ? { x: 0.3, y: 0.2, w: 12.7, h: 0.6, fontSize: 22, bold: true, color: LEAN.ink,
+            align: 'right', rtlMode: true, fontFace: 'Arial' }
+        : { x: 0.4, y: 0.12, w: 12.5, h: 0.7, fontSize: 28, bold: true, color: '1a1a2e',
+            align: 'center', rtlMode: true, fontFace: 'Arial' });
 
       const BD = { type: 'solid', pt: TBL.border.pt, color: TBL.border.color };
-      const rows = tableMatrix(lastRows).map(row => row.map(c => ({
-        text: c.t,
+      const matrix = tableMatrix(lastRows);
+      // A chip is a second run in the same paragraph: the name, a gap, then
+      // the network, smaller and highlighted, padded with no-break spaces so
+      // the highlight reads as a chip rather than a marker stroke.
+      const runs = c => [
+        { text: c.t, options: { color: c.color, bold: !!c.bold, fontSize: TBL.size, fontFace: 'Arial', rtlMode: !c.ltr } },
+        { text: '  ', options: { fontSize: TBL.size, fontFace: 'Arial', rtlMode: !c.ltr } },
+        { text: '\u00a0' + c.tag.t + '\u00a0', options: { color: c.tag.color, highlight: c.tag.hl,
+                                                   fontSize: c.tag.sz, fontFace: 'Arial', rtlMode: !c.ltr } },
+      ];
+      const rows = matrix.map(row => row.map(c => ({
+        text: c.tag ? runs(c) : c.t,
         options: {
           fill: { color: c.fill }, color: c.color, bold: !!c.bold,
           align: c.align === 'r' ? 'right' : 'center', valign: 'middle',
-          rtlMode: !c.ltr, border: BD, fontSize: TBL.size, fontFace: 'Arial',
+          rtlMode: !c.ltr, border: pgBorder(c, BD), fontSize: TBL.size, fontFace: 'Arial',
         },
       })));
 
       slide.addTable(rows, {
         x: 0.3, y: 1.0, w: 12.7, colW: TBL.colW, rowH: TBL.rowH,
       });
+
+      const cap = legendCaption();
+      if (cap) {
+        const y = 1.0 + TBL.rowH * matrix.length + 0.15;
+        slide.addText(cap.label, { x: 10.3, y, w: 2.7, h: 0.3, fontSize: 9, bold: true,
+          color: LEAN.ink, align: 'right', rtlMode: true, fontFace: 'Arial' });
+        slide.addText(legendRuns(cap), { x: 0.3, y, w: 10.0, h: 0.3, fontSize: 9,
+          align: 'right', rtlMode: false, fontFace: 'Arial' });
+      }
 
       await pptx.writeFile({ fileName: 'TableX.pptx' });
       toast(T('toast.pptxDone'));
@@ -1831,6 +2831,7 @@
   global.TableXReport = {
     TBL,
     matrix: () => (lastRows ? tableMatrix(lastRows) : null),
+    caption: () => (lastRows ? legendCaption() : null),
     has: () => !!lastRows,
     meta: () => {
       if (!lastRows) return null;
@@ -1866,6 +2867,7 @@
       coords: JSON.parse(JSON.stringify(src.coords || {})),
       ant: JSON.parse(JSON.stringify(src.ant || {})),
       pwr: JSON.parse(JSON.stringify(src.pwr || {})),
+      crs: JSON.parse(JSON.stringify(src.crs || {})),
       sectors: JSON.parse(JSON.stringify(src.sectors || {})),
       open: new Set(),
       dirty: 0,
@@ -2007,6 +3009,7 @@
   function dropPlant(secId) {
     if (ed.ant) delete ed.ant[secId];
     if (ed.pwr) delete ed.pwr[secId];
+    if (ed.crs) delete ed.crs[secId];
   }
 
   function addSectorTo(siteId) {
@@ -2146,10 +3149,24 @@
       b.classList.toggle('on', (b.dataset.setScene === '1') === SCENE.enabled));
   }
 
+  // A view transition where the browser has one and motion is allowed —
+  // Electron 33 has it, and anything without it simply swaps at once.
+  const canSweep = () => !!document.startViewTransition &&
+    !matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   function setTheme(next) {
-    document.documentElement.dataset.theme = next;
-    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* private mode */ }
-    markActive();
+    const root = document.documentElement;
+    const apply = () => {
+      root.dataset.theme = next;
+      try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* private mode */ }
+      markActive();
+    };
+    // The new theme sweeps out from the button that asked for it: motion.js
+    // records the press point, main.css (MOTION) draws the circle.
+    if (next === root.dataset.theme || !canSweep()) return apply();
+    root.classList.add('vt-theme');
+    document.startViewTransition(apply).finished
+      .finally(() => root.classList.remove('vt-theme'));
   }
 
   // Everything rendered from JS has to be rebuilt on a language switch —
@@ -2177,7 +3194,13 @@
   setPop.querySelectorAll('[data-set-theme]').forEach(b =>
     b.onclick = () => setTheme(b.dataset.setTheme));
   setPop.querySelectorAll('[data-set-lang]').forEach(b =>
-    b.onclick = () => { I18N.set(b.dataset.setLang); relocalize(); });
+    b.onclick = () => {
+      if (b.dataset.setLang === I18N.lang) return;
+      const swap = () => { I18N.set(b.dataset.setLang); relocalize(); };
+      // The whole page mirrors on a language switch; a cross-fade hides the
+      // one frame where half of it has flipped and half has not.
+      if (canSweep()) document.startViewTransition(swap); else swap();
+    });
   setPop.querySelectorAll('[data-set-scene]').forEach(b =>
     b.onclick = () => { SCENE.setEnabled(b.dataset.setScene === '1'); markActive(); });
 

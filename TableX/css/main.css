@@ -1,86 +1,101 @@
 /* ═══════════════════════════════════════════════════════════════════
-   TableX — Mintlify style system (see DESIGN.md)
-   Monochrome + one green. Square geometry (4px controls / 16px cards).
-   Elevation is whispered: 2px at 3–5%, never a colored or large shadow.
+   TableX — "Signal" (see DESIGN.md)
+   A cream desk, lighter cream cards, pine ink and one mint; the network
+   at night lives in a window in the nav. IBM Plex Sans Hebrew + Plex
+   Mono. Every press transmits: see MOTION at the bottom of this file and
+   js/motion.js.
    ═══════════════════════════════════════════════════════════════════ */
 
 :root {
-  /* colors */
-  --mint:        #0c8c5e;
-  --mint-wash:   rgba(12, 140, 94, 0.06);
-  --mint-line:   rgba(12, 140, 94, 0.22);
-  --ink:         #08090a;   /* filled button surface, headings */
-  --black:       #000000;   /* body text */
-  --paper:       #ffffff;
-  --mist:        #f2f2f2;   /* hairlines, faint wash */
-  --cloud:       #dddddd;   /* input borders, hover outlines */
-  --muted:       #6b6f72;   /* secondary text — derived, still neutral */
+  /* colors — the old names are kept so no component had to be renamed:
+     --mist is now "field" (recessed surfaces), --cloud "rule-strong". */
+  /* Cream, by request (2026-09-29): the page is a warm desk and the cards
+     a lighter sheet on it, which is also what lets a card read as a card
+     without a heavy shadow. The mint is a shade deeper than the ghost's
+     #0c8c5e so 14px mint text still clears 4.5:1 on the cream. */
+  --mint:        #0b7d53;   /* signal: the one accent */
+  --mint-wash:   rgba(11, 125, 83, 0.08);
+  --mint-line:   rgba(11, 125, 83, 0.28);
+  --ink:         #0f1f1a;   /* pine: headings, the filled button */
+  --black:       #1e2a23;   /* body text */
+  --canvas:      #f4f1e8;   /* the page — nav, toolbar, loader, body */
+  --paper:       #fbf9f3;   /* surfaces on it: cards, modals, inputs */
+  --mist:        #ece8dc;   /* field: wells, tracks, faint hover wash */
+  --rule:        #e2ddd0;   /* hairlines */
+  --cloud:       #cbc4b3;   /* input borders, hover outlines */
+  --muted:       #676657;   /* secondary text */
 
-  /* the one colored surface in the system */
+  /* the one colored surface: the night under the home page (.floor) */
   --hero-top:    #07281e;
   --hero-bot:    #0b4d37;
-  /* Text ON the hero. The hero band is dark in BOTH themes, so this must not
-     follow --paper: in dark mode --paper is near-black and the headline
-     vanished into the gradient. Deliberately not overridden below. */
-  --hero-fg:     #ffffff;
 
   /* type */
-  --font: 'Inter', 'Heebo', ui-sans-serif, system-ui, -apple-system,
+  --font: 'IBM Plex Sans Hebrew', ui-sans-serif, system-ui, -apple-system,
           'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  /* The report preview's face. It is the deliverable, and it keeps the type
+     it had before the app around it changed — see .doc-page. */
+  --font-doc: 'Inter', 'Heebo', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
 
-  /* radii — the system is square, never pill */
-  --r-btn: 4px;
-  --r-input: 4px;
-  --r-card: 16px;
-  --r-lg: 24px;
+  /* radii — three steps, by size of thing, never pill */
+  --r-btn: 6px;
+  --r-input: 6px;
+  --r-card: 12px;
+  --r-lg: 20px;
 
-  /* elevation */
-  --sh-btn:  lab(2.42579 -0.165291 -0.470081 / 0.03) 0px 2px 4px 0px;
-  --sh-card: lab(100 0 0 / 0.05) 0px 2px 4px 0px;
-  --sh-float: 0 1px 2px rgba(8, 9, 10, 0.04), 0 8px 24px rgba(8, 9, 10, 0.06);
+  /* elevation — tinted with the ink, so a shadow is pine, not grey */
+  --sh-btn:  0 1px 2px rgba(15, 31, 26, 0.10);
+  --sh-card: 0 1px 2px rgba(15, 31, 26, 0.05);
+  --sh-float: 0 1px 2px rgba(15, 31, 26, 0.05), 0 12px 32px -8px rgba(15, 31, 26, 0.16);
 
   /* layout */
   --page: 1200px;
-  --gap-section: 80px;
+  --gap-section: 96px;
 
-  --ink-hover:   #1c1f21;
-  --err:         #7a2222;
+  --ink-hover:   #1d3a31;
+  --err:         #a3302a;
 
+  /* motion — one vocabulary for the whole app */
   --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);          /* settles, no bounce */
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);        /* one small overshoot */
+  --t-fast: 140ms;
+  --t-med: 260ms;
 }
 
 /* ── dark theme ────────────────────────────────────────────────────
-   A deviation from DESIGN.md, which says the canvas is always white
-   (see its "How TableX applies this"). Only the tokens are redefined —
-   every component keeps one definition.
+   Only the tokens are redefined — every component keeps one definition.
 
    `--ink` and `--paper` SWAP roles rather than both going dark: --ink is
-   the filled-button surface and heading colour, --paper the canvas and
+   the filled-button surface and heading colour, --paper the surface and
    the text on that button, so swapping them inverts the button correctly
    with no per-component rule.
 
    The generated report keeps its own hardcoded colours: it is a preview
    of a white PowerPoint slide, not app chrome. See .doc-page. */
+/* Dark is the hero's own night carried down the page — pine, not neutral
+   black — so the landscape and the app below it are one scene. */
 :root[data-theme="dark"] {
-  --mint:        #22c98a;
-  --mint-wash:   rgba(34, 201, 138, 0.10);
-  --mint-line:   rgba(34, 201, 138, 0.28);
-  --ink:         #f4f5f5;
-  --ink-hover:   #dfe1e2;
-  --black:       #e6e8e9;
-  --paper:       #0c0d0e;
-  --mist:        #1b1d1f;
-  --cloud:       #2c2f32;
-  --muted:       #979da1;
-  --err:         #d98b8b;
+  --mint:        #2fd393;
+  --mint-wash:   rgba(47, 211, 147, 0.09);
+  --mint-line:   rgba(47, 211, 147, 0.30);
+  --ink:         #e8f2ee;
+  --ink-hover:   #cfe3db;
+  --black:       #d5e2dc;
+  --canvas:      #08110e;
+  --paper:       #0c1713;
+  --mist:        #111e19;
+  --rule:        #182822;
+  --cloud:       #26392f;
+  --muted:       #8aa097;
+  --err:         #f08c84;
 
   --hero-top:    #04140f;
   --hero-bot:    #073024;
 
-  --sh-card:  rgba(0, 0, 0, 0.4) 0px 2px 4px 0px;
-  --sh-btn:   rgba(0, 0, 0, 0.3) 0px 2px 4px 0px;
-  --sh-float: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.5);
+  --sh-card:  0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-btn:   0 1px 2px rgba(0, 0, 0, 0.5);
+  --sh-float: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -8px rgba(0, 0, 0, 0.6);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -88,17 +103,22 @@
 html { -webkit-text-size-adjust: 100%; }
 
 body {
-  background: var(--paper);
+  background: var(--canvas);
   color: var(--black);
   font-family: var(--font);
   font-size: 16px;
   line-height: 1.5;
-  letter-spacing: -0.16px;
-  font-feature-settings: "ss01" on, "cv11" on;
   -webkit-font-smoothing: antialiased;
 }
 
+::selection { background: var(--mint-line); color: var(--ink); }
+
 button { font: inherit; color: inherit; cursor: pointer; border: none; background: none; }
+
+/* One focus treatment for every control: a mint ring that sits OFF the
+   element, so it never fights a button's own fill or border. */
+:focus-visible { outline: 2px solid var(--mint); outline-offset: 2px; }
+:focus:not(:focus-visible) { outline: none; }
 .hidden { display: none !important; }
 /* Any rule setting `display` beats the UA's [hidden]{display:none} — which is
    how the photo fallback rendered underneath the photo instead of only on
@@ -112,7 +132,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
    reason; the unresolved-code banner did not, which is what made it visible.
    Putting it on the class means a new call site cannot forget. */
 .mono {
-  font-family: var(--mono); font-size: 0.92em;
+  font-family: var(--mono); font-size: 0.9em;
   direction: ltr; unicode-bidi: isolate;
 }
 .mint { color: var(--mint); }
@@ -120,8 +140,8 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 /* ── entrance animation ──────────────────────────────────────────── */
 .reveal {
   opacity: 0;
-  transform: translateY(10px);
-  animation: rise 0.55s var(--ease) forwards;
+  transform: translateY(12px);
+  animation: rise 0.7s var(--ease-out) forwards;
   animation-delay: var(--d, 0ms);
 }
 @keyframes rise { to { opacity: 1; transform: none; } }
@@ -142,7 +162,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   position: fixed;
   inset: 0;
   z-index: 500;
-  background: var(--paper);
+  background: var(--canvas);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -275,9 +295,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 .loader-word {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.01em;
   color: var(--ink);
 }
 
@@ -285,7 +305,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .loader-track {
   width: 132px;
   height: 2px;
-  background: var(--mist);
+  background: var(--rule);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -298,9 +318,8 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 .loader-status {
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
-  letter-spacing: 0.65px;
   color: var(--muted);
   min-height: 20px;
 }
@@ -316,76 +335,108 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 /* ── view switching ──────────────────────────────────────────────── */
-.view { animation: viewIn 0.32s var(--ease); }
-@keyframes viewIn { from { opacity: 0; transform: translateY(6px); } }
+.view { animation: viewIn 0.42s var(--ease-out); }
+@keyframes viewIn { from { opacity: 0; transform: translateY(8px); } }
 
 /* ═══ NAV ═══════════════════════════════════════════════════════════
-   White, no bottom border — it reads as floating on the page. */
+   Paper, no border until the page scrolls under it. */
 .nav {
   position: sticky;
   top: 0;
   z-index: 100;
-  background: var(--paper);
-  transition: box-shadow 0.25s var(--ease), background 0.25s var(--ease);
+  background: var(--canvas);
+  transition: box-shadow var(--t-med) var(--ease);
 }
-.nav.scrolled { box-shadow: 0 1px 0 var(--mist); }
+.nav.scrolled { box-shadow: 0 1px 0 var(--rule); }
 
 .nav-inner {
   max-width: var(--page);
   margin: 0 auto;
-  padding: 16px 32px;
+  padding: 14px 32px;
   display: flex;
   align-items: center;
-  gap: 32px;
+  gap: 36px;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   text-decoration: none;
   color: var(--ink);
+  border-radius: var(--r-btn);
 }
-.brand-mark { width: 22px; height: 22px; color: var(--mint); }
+.brand-mark {
+  width: 22px; height: 22px; color: var(--mint);
+  transition: translate var(--t-med) var(--spring);
+}
+/* The mark is the loader's ghost; on hover it does the one thing the ghost
+   does — lifts off the ground. */
+.brand:hover .brand-mark { translate: 0 -3px; }
 .brand-word {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.01em;
 }
 
-.nav-links { display: flex; gap: 4px; }
+/* The active link is marked by ONE mint bar that travels between links
+   (js/motion.js sets --ind-x/--ind-w). A bar that jumps says "you are here";
+   one that slides also says where you came from. */
+.nav-links { display: flex; gap: 2px; position: relative; }
+.nav-links::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -2px;
+  height: 2px;
+  width: var(--ind-w, 0);
+  translate: var(--ind-x, 0) 0;
+  background: var(--mint);
+  border-radius: 2px;
+  opacity: 0;
+}
+.nav-links.ind-ready::after { opacity: 1; }
+.nav-links.ind-move::after {
+  transition: translate 0.42s var(--ease-out), width 0.42s var(--ease-out),
+              opacity var(--t-fast) var(--ease);
+}
 .nav-link {
+  position: relative;
   font-size: 14px;
   font-weight: 500;
-  color: var(--black);
+  color: var(--muted);
   padding: 6px 10px;
   border-radius: var(--r-btn);
-  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.nav-link:hover { background: var(--mist); }
-.nav-link.active { color: var(--mint); }
+.nav-link:hover { background: var(--mist); color: var(--ink); }
+.nav-link.active { color: var(--ink); }
 
-.nav-actions { margin-inline-start: auto; display: flex; align-items: center; gap: 12px; }
+.nav-actions { margin-inline-start: auto; display: flex; align-items: center; gap: 10px; }
 
 .db-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.2px;
   color: var(--muted);
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-btn);
   padding: 5px 10px;
-  transition: border-color 0.2s var(--ease);
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              translate var(--t-med) var(--spring);
 }
-.db-chip:hover { border-color: var(--cloud); }
+.db-chip:hover { border-color: var(--cloud); color: var(--ink); translate: 0 -1px; }
+/* Status markers are square: the pixel is this app's one unit of ornament
+   (the ghost, the scene and the icon are all drawn on it). */
 .db-chip-dot {
   width: 6px; height: 6px;
-  border-radius: 50%;
+  border-radius: 1px;
   background: var(--cloud);
-  transition: background 0.3s var(--ease);
+  transition: background var(--t-med) var(--ease);
 }
 .db-chip-dot.ok      { background: var(--mint); }
 .db-chip-dot.partial { background: #b9860b; }
@@ -397,120 +448,123 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--r-btn);
   color: var(--muted);
-  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.icon-btn svg { width: 17px; height: 17px; }
-.icon-btn:hover { background: var(--mist); color: var(--black); }
+.icon-btn svg { width: 17px; height: 17px; transition: rotate 0.5s var(--ease-out); }
+.icon-btn:hover { background: var(--mist); color: var(--ink); }
+.icon-btn:hover svg { rotate: 45deg; }
 .icon-btn[aria-expanded="true"] { background: var(--mist); color: var(--mint); }
+.icon-btn[aria-expanded="true"] svg { rotate: 90deg; }
 
 .set-pop {
   position: absolute;
   top: calc(100% + 8px);
   inset-inline-end: 0;
   z-index: 120;
-  width: 248px;
+  width: 256px;
   background: var(--paper);
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   box-shadow: var(--sh-float);
   padding: 16px;
   display: grid;
   gap: 16px;
-  animation: abIn 0.18s var(--ease);
+  transform-origin: top left;
+  animation: popIn 0.34s var(--spring);
 }
+:root[dir="ltr"] .set-pop { transform-origin: top right; }
+@keyframes popIn { from { opacity: 0; transform: translateY(-6px) scale(0.96); } }
 .set-label {
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 8px;
 }
 
-/* segmented control — square like everything else, mint marks the active one */
+/* segmented control — a paper thumb slides to the chosen option
+   (js/motion.js). Until the script has measured, .on paints its own tile,
+   so the control is never wrong, only still. */
 .seg {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  gap: 4px;
+  gap: 2px;
   background: var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-btn);
   padding: 3px;
+}
+.seg::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: var(--ind-w, 0);
+  translate: var(--ind-x, 0) 0;
+  background: var(--paper);
+  border-radius: 4px;
+  box-shadow: var(--sh-btn);
+  opacity: 0;
+}
+.seg.ind-ready::before { opacity: 1; }
+.seg.ind-move::before {
+  transition: translate 0.38s var(--ease-out), width 0.38s var(--ease-out);
 }
 .seg-btn {
   font-size: 13px;
   font-weight: 500;
   text-align: center;
   padding: 6px 8px;
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--muted);
-  transition: background 0.16s var(--ease), color 0.16s var(--ease);
+  transition: color var(--t-med) var(--ease), background var(--t-fast) var(--ease);
 }
-.seg-btn:hover { color: var(--black); }
+.seg-btn:hover { color: var(--ink); }
 .seg-btn.on {
   background: var(--paper);
-  color: var(--mint);
+  color: var(--ink);
   box-shadow: var(--sh-btn);
 }
+.seg.ind-ready .seg-btn.on { background: transparent; box-shadow: none; }
 
 .set-note {
   font-size: 12px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--muted);
-  border-top: 1px solid var(--mist);
+  border-top: 1px solid var(--rule);
   padding-top: 12px;
 }
 
-/* ═══ HERO ══════════════════════════════════════════════════════════
-   The only colored surface. Everything below reverts to white.
-
-   The bottom 184px are the pixel landscape (js/scene.js) — the spec's
-   "hand-illustrated hero" slot, which TableX had left as a bare
-   gradient. padding-bottom carries it: 84px of it is ground that was
-   already inside the old 132px, the rest is sky the hero grew for. */
-.hero {
-  position: relative;
-  overflow: hidden;
-  background: linear-gradient(160deg, var(--hero-top) 0%, var(--hero-bot) 100%);
-  padding: 88px 32px 216px;
-  text-align: center;
-}
-.hero-glow {
-  position: absolute;
-  inset: -40% 20% auto;
-  height: 420px;
-  background: radial-gradient(ellipse at 50% 0,
-              rgba(12, 140, 94, 0.55), transparent 68%);
-  pointer-events: none;
-}
-/* above the scene — positioned siblings paint in DOM order otherwise */
-.hero-inner { position: relative; z-index: 2; max-width: 760px; margin: 0 auto; }
-
-/* ═══ SCENE — the hero's pixel landscape ════════════════════════════
-   Drawn by js/scene.js; read its header for the grid and the layout
-   trick. Colour lives HERE and reaches the rects through classes, never
-   a fill="" attribute, so a theme switch stays a pure token swap and
-   the scene needs no re-render.
+/* ═══ THE FLOOR — the network at night, under the page ═══════════════
+   Drawn by js/scene.js (read its header). It was the hero until
+   2026-09-29, then briefly a window in the nav; it is now the bottom of
+   the home page, full width and full scale, with the footer standing on
+   its ground. Colour lives HERE and reaches the rects through classes,
+   never a fill="" attribute, so a theme switch stays a pure token swap
+   and the scene needs no re-render.
 
    The ramp is atmospheric: the most DISTANT range is the lightest (it sits
    in the horizon haze) and every nearer layer steps darker, down to a
-   near-black foreground. Four ranges rather than three — the extra one is
-   what turns a stack of bands into distance. Each crest carries a 1px lit
-   rim, which is what separates layers whose values are close.
+   near-black foreground. Each crest carries a 1px lit rim, which is what
+   separates layers whose values are close.
 
-   The hero band is dark in both themes, so one palette serves both; the
-   dark block below only deepens it to match the darker gradient. */
-#scene {
+   Night in both themes. The palette sits on .floor rather than #scene so
+   the footer can carry the same ground colour on down. */
+.floor {
   --sc-dist:   #147056;
   --sc-far:    #0d5340;
   --sc-mid:    #073527;
   --sc-near:   #041c13;
   --sc-ground: #04150e;
-  --sc-rim:    #1c8a68;   /* the horizon line, at the card's top edge */
+  --sc-rim:    #1c8a68;   /* the horizon line */
   --sc-rim1:   #2fa77e;   /* distant crest — brightest, deepest in the haze */
   --sc-rim2:   #1a7a5d;
   --sc-rim3:   #0e5039;
@@ -526,10 +580,55 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   --sc-pin:    #cbfae2;
   --sc-star:   #8fe6c2;
 
+  margin-top: auto;
+  width: 100%;
+}
+/* The sky fades in from the page above rather than starting at a hard
+   edge: dusk, then night, then the hills. 48px of it is sky the drawing
+   does not reach; the tallest mast's lamp sits just where it goes dark. */
+.scene-host {
+  position: relative;
+  height: 156px;
+  overflow: hidden;
+  /* Interpolated in oklch, from the page's own colour: mixed as plain
+     transparency, cream into pine went through a dead grey; through oklch
+     it passes a sage dusk instead. */
+  background: linear-gradient(180deg in oklch,
+              var(--canvas) 0%,
+              var(--hero-top) 44%,
+              var(--hero-bot) 100%);
+  transition: height 0.5s var(--ease-out), opacity 0.4s var(--ease);
+}
+
+/* The footer IS the ground, carried on below the drawing's last row. */
+.floor .foot {
+  max-width: none;
+  margin: 0;
+  padding: 18px max(32px, calc((100% - var(--page)) / 2 + 32px)) 26px;
+  background: var(--sc-ground);
+  border-top: 0;
+  color: rgba(214, 240, 228, 0.55);
+}
+.floor .foot-sep { color: rgba(214, 240, 228, 0.25); }
+.floor .credit { color: rgba(214, 240, 228, 0.78); border-color: rgba(214, 240, 228, 0.16); }
+.floor .credit:hover { color: #4ade9f; border-color: rgba(74, 222, 159, 0.45); }
+.floor .foot :focus-visible { outline-color: #4ade9f; }
+
+/* Scene switched off in settings: the landscape goes, and so does the
+   night — the footer returns to the page like any other. */
+.floor:has(#scene.off) .scene-host { height: 0; opacity: 0; }
+.floor:has(#scene.off) .foot {
+  background: transparent;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+}
+.floor:has(#scene.off) .foot-sep { color: var(--cloud); }
+.floor:has(#scene.off) .credit { color: var(--muted); border-color: var(--rule); }
+.floor:has(#scene.off) .credit:hover { color: var(--mint); border-color: var(--mint-line); }
+
+#scene {
   position: absolute;
-  left: 0; right: 0; bottom: 0;
-  height: 184px;
-  z-index: 1;
+  inset: 0;
   display: flex;
   justify-content: center;
   align-items: flex-end;
@@ -539,13 +638,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 #scene.off { opacity: 0; }
 #scene svg { display: block; }
 
-/* Hidden scene, no landscape to make room for — the hero returns to the
-   height it had before it grew one. :has() keeps that in CSS rather than
-   giving JS a second say in how tall the hero is. */
-.hero { transition: padding-bottom 0.4s var(--ease); }
-.hero:has(#scene.off) { padding-bottom: 132px; }
-
-:root[data-theme="dark"] #scene {
+:root[data-theme="dark"] .floor {
   --sc-dist:   #0f5a45;
   --sc-far:    #0a4132;
   --sc-mid:    #05291d;
@@ -563,15 +656,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 /* Soft horizon glow. Deliberately NOT pixels: a dithered gradient would
-   cost ~1,400 rects for what one radial does better, and the hero
-   already carries a radial in .hero-glow, so it is in the system. */
+   cost a thousand rects for what one radial does better. */
 .sc-haze {
   position: absolute;
   left: 0; right: 0;
-  bottom: 88px;
-  height: 116px;
+  bottom: 12px;
+  height: 96px;
   background: radial-gradient(ellipse 64% 100% at 50% 100%,
-              rgba(74, 222, 159, 0.26), rgba(74, 222, 159, 0.08) 44%, transparent 76%);
+              rgba(74, 222, 159, 0.24), rgba(74, 222, 159, 0.07) 44%, transparent 76%);
 }
 
 #scene .sc-dist   { fill: var(--sc-dist); }
@@ -598,9 +690,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 
 /* Coverage arcs answer only the site the ghost is standing at. Opacity
    is set by the tick as an ATTRIBUTE, so it must not also be declared
-   here — a CSS property would win and freeze the pulse. */
-/* Every site shows a resting fan — the network is always there — and the
-   one the ghost is standing at comes up to full and pulses. */
+   here — a CSS property would win and freeze the pulse. Every site shows
+   a resting fan — the network is always there — and the one the ghost is
+   standing at comes up to full and pulses. */
 .sc-site { opacity: 0.3; transition: opacity 0.55s var(--ease); }
 .sc-site.on { opacity: 1; }
 .sc-arc, .sc-star, .sc-lamp { transition: opacity 0.28s linear; }
@@ -610,121 +702,152 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   .sc-arc, .sc-star, .sc-lamp { transition: none; }
 }
 
-.hero-title {
-  font-size: 57px;
-  line-height: 1.1;
-  letter-spacing: -1.14px;
-  font-weight: 600;
-  color: var(--hero-fg);
-  margin-bottom: 20px;
-}
-.hero-sub {
-  font-size: 18px;
-  line-height: 1.6;
-  letter-spacing: -0.18px;
-  color: rgba(255, 255, 255, 0.72);
-  max-width: 560px;
-  margin: 0 auto;
-}
-
-/* eyebrow — small caps, mint, the one place letter-spacing opens up */
+/* eyebrow — where you are, in sentence case. No capitals and no tracking:
+   Hebrew has no case, and a Latin label shouting above a Hebrew heading
+   was the loudest thing on every page. The marker is a pixel, not a dot. */
 .eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  font-size: 13px;
+  gap: 8px;
+  font-size: 14px;
   font-weight: 500;
   line-height: 1.5;
-  letter-spacing: 0.65px;
-  text-transform: uppercase;
   color: var(--mint);
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 .eyebrow .dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
+  width: 6px; height: 6px;
+  border-radius: 1px;
   background: currentColor;
 }
-.eyebrow-on-dark { color: #4ade9f; }
 
-/* ═══ BRIDGE — the paste card overlaps the hero's bottom edge ═══════ */
+/* ═══ HOME — the paste, and nothing else ════════════════════════════
+   No hero and no explanation: how to get the paste out of Planet lives
+   behind the "?" (js/tour.js). The card sits a comfortable distance down
+   and carries the page on its own. */
 .bridge {
-  max-width: 840px;
-  margin: -84px auto 0;
+  max-width: 880px;
+  margin: 72px auto 72px;
   padding: 0 32px;
   position: relative;
-  z-index: 5;
+  width: 100%;
 }
+/* The floor sits at the bottom of the screen, not wherever the card
+   happens to end — the landscape is the ground the page stands on. */
+#viewHome { display: flex; flex-direction: column; min-height: calc(100vh - 61px); }
 
 .card {
   background: var(--paper);
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   padding: 24px;
 }
-.paste-card { box-shadow: var(--sh-float); padding: 28px; }
+.paste-card { box-shadow: var(--sh-float); padding: 28px 28px 24px; }
 
 .paste-head {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+.paste-head .card-title { margin-inline-end: 10px; }
+
+/* The "?" — the whole explanation the page no longer carries. Until it has
+   been opened once it transmits twice on arrival (js/tour.js adds
+   .nudge), the same ring every press sends, so the first thing a new
+   soldier's eye lands on is where the answer is. */
+.help-btn {
+  position: relative;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease), rotate 0.5s var(--spring);
+}
+.help-btn:hover { color: var(--mint); border-color: var(--mint-line); background: var(--mint-wash); rotate: -12deg; }
+.help-btn.nudge::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  border: 1.5px solid var(--mint);
+  animation: nudge 1.6s var(--ease-out) 0.9s 2 both;
+  pointer-events: none;
+}
+@keyframes nudge {
+  0%   { opacity: 0.7; scale: 1; }
+  70%  { opacity: 0;   scale: 2.1; }
+  100% { opacity: 0;   scale: 2.1; }
 }
 .card-title {
-  font-size: 20px;
+  font-size: 21px;
   line-height: 1.3;
-  letter-spacing: -0.2px;
+  letter-spacing: -0.01em;
   font-weight: 600;
   color: var(--ink);
 }
 .card-sub { font-size: 14px; color: var(--muted); margin-top: 4px; }
 
-/* column schema strip — reads as the paste layout, left to right */
+/* Column legend. It reads in the SAME order, left to right, as the rows in
+   the box under it — the paste is LTR, so the legend is too. */
 .schema {
   display: flex;
-  gap: 4px;
+  gap: 0;
   margin-bottom: 8px;
-  flex-wrap: wrap;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-btn);
+  overflow: hidden;
 }
 .schema-cell {
   flex: 1;
-  min-width: 62px;
+  min-width: 0;
   text-align: center;
+  font-family: var(--mono);
   font-size: 12px;
-  font-weight: 500;
   color: var(--muted);
   background: var(--mist);
-  border-radius: var(--r-btn);
-  padding: 5px 6px;
+  padding: 6px 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.schema-pt { background: var(--mint-wash); color: var(--mint); }
+.schema-cell + .schema-cell { border-left: 1px solid var(--rule); }
+.schema-pt { background: var(--mint-wash); color: var(--mint); font-weight: 500; }
 .schema-note {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: var(--muted);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
+/* The paste box is a WELL — recessed into the card (it takes the page's
+   own cream, a step darker than the card) until you are in it, then it
+   comes up to paper. */
 .ta {
   width: 100%;
-  background: var(--paper);
-  border: 1px solid var(--cloud);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
   border-radius: var(--r-input);
   color: var(--black);
   font-family: var(--mono);
   font-size: 13px;
-  line-height: 1.7;
+  line-height: 1.75;
   padding: 12px 14px;
   resize: vertical;
   outline: none;
-  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+  tab-size: 4;
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease),
+              background var(--t-med) var(--ease);
 }
+.ta:hover { border-color: var(--cloud); }
 .ta:focus {
+  background: var(--paper);
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px var(--mint-wash);
+  box-shadow: 0 0 0 4px var(--mint-wash);
 }
-.ta::placeholder { color: #a8adb0; }
+.ta::placeholder { color: var(--muted); opacity: 0.55; }
 
 .paste-foot {
   display: flex;
@@ -733,57 +856,129 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   gap: 12px;
   margin-top: 16px;
 }
-.hint { font-size: 13px; color: var(--muted); transition: color 0.2s var(--ease); }
-.hint.ready { color: var(--mint); }
-
-/* ═══ BUTTONS ═══════════════════════════════════════════════════════
-   One filled variant (ink black). Everything else is ghost. 4px radius. */
-.btn {
+.hint {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  transition: color var(--t-med) var(--ease);
+}
+/* A square that lights when the paste parses — the same pixel as every
+   other status marker, and the same colour as the bar that answers it. */
+.hint::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 1px;
+  background: var(--cloud);
+  transition: background var(--t-med) var(--ease), scale var(--t-med) var(--spring);
+}
+.hint.ready { color: var(--mint); }
+.hint.ready::before { background: var(--mint); scale: 1.35; }
+
+/* ═══ BUTTONS ═══════════════════════════════════════════════════════
+   One filled variant (pine). Ghost and outline for everything else.
+   Every one of them moves: see MOTION at the bottom of this file for the
+   press and the rings, which are shared. What is here is each variant's
+   own hover — one move per kind, saying what that kind of button does. */
+.btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   font-size: 15px;
   font-weight: 500;
+  line-height: 1.4;
+  white-space: nowrap;
   border-radius: var(--r-btn);
-  padding: 9px 16px;
-  transition: background 0.18s var(--ease), color 0.18s var(--ease),
-              border-color 0.18s var(--ease), transform 0.18s var(--ease);
+  padding: 9px 18px;
+  overflow: hidden;
+  isolation: isolate;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              border-color var(--t-fast) var(--ease), box-shadow var(--t-med) var(--ease),
+              translate var(--t-med) var(--spring);
 }
-.btn-sm { font-size: 14px; padding: 7px 12px; }
+.btn-sm { font-size: 14px; padding: 7px 13px; }
 
+/* Primary: lifts, and a mint line draws across its foot from the centre —
+   the one mint moment on the one filled button. */
 .btn-primary {
   background: var(--ink);
   color: var(--paper);
   box-shadow: var(--sh-btn);
 }
-.btn-primary:hover { background: var(--ink-hover); }
-.btn-primary:active { transform: translateY(1px); }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+.btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: var(--mint);
+  scale: 0 1;
+  transition: scale 0.38s var(--ease-out);
+}
+.btn-primary:hover { background: var(--ink-hover); translate: 0 -1px; box-shadow: var(--sh-float); }
+.btn-primary:hover::after { scale: 1 1; }
+.btn-primary:disabled {
+  opacity: 0.38; cursor: not-allowed; translate: none; box-shadow: none;
+}
+.btn-primary:disabled::after { scale: 0 1; }
 
+/* Ghost: a wash that grows out from the middle rather than switching on. */
 .btn-ghost { color: var(--black); }
-.btn-ghost:hover { background: var(--mist); }
+.btn-ghost::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--mist);
+  opacity: 0;
+  scale: 0.82;
+  transition: opacity var(--t-fast) var(--ease), scale 0.3s var(--ease-out);
+}
+.btn-ghost:hover::before { opacity: 1; scale: 1; }
+.btn-ghost:hover { color: var(--ink); }
+/* A ghost button that is switched on (the template editor's repeat toggle)
+   keeps its tint; the wash must not paint over it. */
+.btn.toggle.on::before { opacity: 0; }
 
 /* Clearing a database is the one destructive action on a card. It stays a
    ghost button so it never competes with Update, and carries the error token
    rather than a hardcoded red so it swaps correctly in dark. Must stay AFTER
    .btn-ghost — same specificity, so source order is what wins the colour. */
-.btn-danger { color: var(--err); }
+.btn-danger, .btn-danger:hover { color: var(--err); }
+.btn-danger::before { background: color-mix(in srgb, var(--err) 9%, transparent); }
 
 /* Destructive confirm. --err and --paper BOTH swap with the theme, so this is
-   dark red on white in light and light red on near-black in dark — legible in
+   dark red on white in light and light red on pine in dark — legible in
    each without a second hardcoded colour. */
 .btn-primary.danger { background: var(--err); color: var(--paper); }
-.btn-primary.danger:hover { background: var(--err); filter: brightness(1.12); }
+.btn-primary.danger::after { background: var(--paper); opacity: 0.5; }
+.btn-primary.danger:hover { background: var(--err); filter: brightness(1.08); }
 
+/* Outline: the border tightens to ink and the button rises to meet it. */
 .btn-outline {
   border: 1px solid var(--cloud);
   color: var(--black);
   background: var(--paper);
 }
-.btn-outline:hover { border-color: var(--muted); }
+.btn-outline:hover { border-color: var(--ink); color: var(--ink); translate: 0 -1px; }
 
-.btn-arrow { width: 15px; height: 15px; }
+/* Arrows point the way the page reads — left in Hebrew, right in English —
+   and step that way on hover. `translate` is its own property so the step
+   composes with the mirror instead of replacing it. */
+.btn-arrow {
+  width: 15px; height: 15px; flex: none;
+  transition: translate 0.34s var(--spring);
+}
 .btn-arrow.flip { transform: scaleX(-1); }
+:root[dir="ltr"] .btn-arrow { transform: scaleX(-1); }
+:root[dir="ltr"] .btn-arrow.flip { transform: none; }
+.btn:hover .btn-arrow { translate: -3px 0; }
+.btn:hover .btn-arrow.flip { translate: 3px 0; }
+:root[dir="ltr"] .btn:hover .btn-arrow { translate: 3px 0; }
+:root[dir="ltr"] .btn:hover .btn-arrow.flip { translate: -3px 0; }
 
 /* ═══ SECTIONS ══════════════════════════════════════════════════════ */
 .section {
@@ -791,66 +986,83 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   margin: 0 auto;
   padding: var(--gap-section) 32px 0;
 }
-.section-head { max-width: 620px; margin-bottom: 32px; }
+.section-head { max-width: 640px; margin-bottom: 36px; }
 .section-title {
-  font-size: 40px;
+  font-size: 36px;
   line-height: 1.15;
-  letter-spacing: -0.4px;
+  letter-spacing: -0.015em;
   font-weight: 600;
   color: var(--ink);
   margin-bottom: 12px;
+  text-wrap: balance;
 }
-.section-sub { font-size: 16px; line-height: 1.6; color: var(--muted); }
+.section-sub { font-size: 16px; line-height: 1.7; color: var(--muted); text-wrap: pretty; }
 
-/* ═══ DATABASE CARDS ════════════════════════════════════════════════ */
+/* ═══ DATABASE LEDGER ═══════════════════════════════════════════════
+   The four networks are one instrument, not four products, so they sit in
+   ONE ruled panel rather than four floating cards. The rules are the
+   cells' own end/bottom borders; .db-ledger clips the outermost ones,
+   which is what keeps the rules right at every reflow (4 -> 2 -> 1). */
+.db-ledger {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  overflow: hidden;
+  background: var(--paper);
+}
 .db-grid {
   display: grid;
   /* auto-fit, not a fixed column count: the network list grows (3 -> 4 on
      2026-09-04) and a hardcoded repeat(3) silently wraps the extra card into
      a lonely row. This reflows 4 -> 2 -> 1 on its own. */
   grid-template-columns: repeat(auto-fit, minmax(228px, 1fr));
-  gap: 16px;
+  gap: 0;
+  margin-inline-end: -1px;
+  margin-block-end: -1px;
 }
-.db-card {
+.db-ledger .db-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  transition: border-color 0.22s var(--ease), box-shadow 0.22s var(--ease),
-              transform 0.22s var(--ease);
+  gap: 18px;
+  padding: 24px;
+  border: 0;
+  border-inline-end: 1px solid var(--rule);
+  border-block-end: 1px solid var(--rule);
+  border-radius: 0;
+  background: var(--paper);
+  transition: background var(--t-med) var(--ease);
 }
-.db-card:hover {
-  border-color: var(--cloud);
-  box-shadow: var(--sh-card);
-  transform: translateY(-2px);
-}
-.db-card.loaded { border-color: var(--mint-line); background: var(--mint-wash); }
+.db-ledger .db-card:hover { background: color-mix(in srgb, var(--mist) 60%, var(--paper)); }
 .db-card.busy { opacity: 0.6; pointer-events: none; }
 
 .db-card-head { display: flex; align-items: center; gap: 8px; }
 .db-name {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--ink);
-  letter-spacing: -0.15px;
 }
 .db-state {
   margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
   color: var(--muted);
-  border: 1px solid var(--mist);
-  border-radius: var(--r-btn);
-  padding: 2px 7px;
 }
-.db-state.on { color: var(--mint); border-color: var(--mint-line); }
+.db-state::before {
+  content: '';
+  width: 6px; height: 6px;
+  border-radius: 1px;
+  border: 1px solid var(--cloud);
+}
+.db-state.on { color: var(--mint); }
+.db-state.on::before { background: var(--mint); border-color: var(--mint); }
 
 .db-count {
-  font-size: 40px;
-  line-height: 1.15;
-  letter-spacing: -0.4px;
-  font-weight: 600;
+  font-size: 36px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 500;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -858,17 +1070,17 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: block;
   font-size: 13px;
   font-weight: 400;
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
   color: var(--muted);
-  margin-top: 2px;
+  margin-top: 6px;
 }
 .db-count.empty { color: var(--cloud); }
 
 .db-meta {
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.7;
   color: var(--muted);
-  border-top: 1px solid var(--mist);
+  border-top: 1px dashed var(--rule);
   padding-top: 12px;
   margin-top: auto;
   /* anywhere, not break-all: break-all splits ordinary words mid-letter, which
@@ -889,7 +1101,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   grid-template-columns: repeat(2, auto);
   justify-content: start;
   justify-items: start;
-  gap: 8px;
+  gap: 6px;
 }
 
 /* ═══ FOOTER ════════════════════════════════════════════════════════ */
@@ -897,8 +1109,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   max-width: var(--page);
   margin: var(--gap-section) auto 0;
   padding: 24px 32px 40px;
-  border-top: 1px solid var(--mist);
+  border-top: 1px solid var(--rule);
   display: flex;
+  align-items: center;
   gap: 8px;
   font-size: 13px;
   color: var(--muted);
@@ -909,16 +1122,16 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   font-size: 13px;
   font-weight: 500;
   color: var(--muted);
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-btn);
-  padding: 4px 10px;
-  transition: color 0.18s var(--ease), border-color 0.18s var(--ease),
-              transform 0.18s var(--ease);
+  padding: 5px 11px;
+  transition: color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+              translate var(--t-med) var(--spring);
 }
 .credit:hover {
   color: var(--mint);
   border-color: var(--mint-line);
-  transform: translateY(-1px);
+  translate: 0 -2px;
 }
 
 /* ═══ SITE EDITOR ═══════════════════════════════════════════════════
@@ -927,13 +1140,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   position: fixed;
   inset: 0;
   z-index: 420;
-  background: rgba(8, 9, 10, 0.36);
+  background: rgba(4, 16, 12, 0.46);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  animation: viewIn 0.2s var(--ease);
+  animation: scrimIn 0.24s var(--ease);
 }
+@keyframes scrimIn { from { opacity: 0; } }
 .ed-overlay.hidden { display: none !important; }
 
 .ed-modal {
@@ -942,11 +1156,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   width: min(760px, 100%);
   max-height: min(760px, calc(100vh - 48px));
   background: var(--paper);
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   box-shadow: var(--sh-float);
   overflow: hidden;
-  animation: abIn 0.26s var(--ease);
+  animation: abIn 0.46s var(--spring);
 }
 
 /* Confirm dialog — reuses .ed-overlay for the backdrop, so there is one
@@ -954,16 +1168,15 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ask-modal {
   width: min(440px, 100%);
   background: var(--paper);
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   box-shadow: var(--sh-float);
   padding: 24px;
-  animation: abIn 0.26s var(--ease);
+  animation: abIn 0.46s var(--spring);
 }
 .ask-title {
-  font-size: 19px;
+  font-size: 18px;
   line-height: 1.4;
-  letter-spacing: -0.16px;
   font-weight: 600;
   color: var(--ink);
 }
@@ -992,7 +1205,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ed-title {
   font-size: 24px;
   line-height: 1.33;
-  letter-spacing: -0.24px;
+  letter-spacing: -0.01em;
   font-weight: 600;
   color: var(--ink);
 }
@@ -1007,7 +1220,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: flex;
   gap: 8px;
   padding: 0 24px 14px;
-  border-bottom: 1px solid var(--mist);
+  border-bottom: 1px solid var(--rule);
 }
 .ed-search {
   flex: 1;
@@ -1019,19 +1232,24 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   border-radius: var(--r-input);
   padding: 8px 12px;
   outline: none;
-  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.ed-search:focus { border-color: var(--mint); box-shadow: 0 0 0 3px var(--mint-wash); }
-.ed-plus { font-size: 15px; line-height: 1; font-weight: 500; }
+.ed-search:hover { border-color: var(--muted); }
+.ed-search:focus { border-color: var(--mint); box-shadow: 0 0 0 4px var(--mint-wash); }
+.ed-plus {
+  font-size: 16px; line-height: 1; font-weight: 500;
+  transition: rotate 0.4s var(--spring);
+}
+.btn:hover .ed-plus { rotate: 90deg; }
 
 /* add form */
 .ed-add {
   padding: 16px 24px;
-  border-bottom: 1px solid var(--mist);
+  border-bottom: 1px solid var(--rule);
   background: var(--mint-wash);
-  animation: edDrop 0.24s var(--ease);
+  animation: edDrop 0.34s var(--ease-out);
 }
-@keyframes edDrop { from { opacity: 0; transform: translateY(-6px); } }
+@keyframes edDrop { from { opacity: 0; transform: translateY(-8px); } }
 .ed-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1043,7 +1261,6 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ed-field span {
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.3px;
   color: var(--muted);
 }
 .ed-field input {
@@ -1055,9 +1272,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   border-radius: var(--r-input);
   padding: 7px 10px;
   outline: none;
-  transition: border-color 0.18s var(--ease);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease);
 }
-.ed-field input:focus { border-color: var(--mint); }
+.ed-field input:hover { border-color: var(--muted); }
+.ed-field input:focus { border-color: var(--mint); box-shadow: 0 0 0 3px var(--mint-wash); }
 .ed-add-foot { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* list */
@@ -1066,24 +1284,26 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ed-list { flex: 1; min-height: 300px; overflow-y: auto; padding: 8px 24px 16px; }
 
 .ed-site {
-  border-bottom: 1px solid var(--mist);
-  animation: rowIn 0.3s var(--ease) both;
+  border-bottom: 1px solid var(--rule);
+  animation: rowIn 0.4s var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 18ms);
 }
 .ed-site-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 2px;
+  padding: 10px 6px;
+  margin-inline: -4px;
+  border-radius: var(--r-btn);
   cursor: pointer;
-  transition: background 0.16s var(--ease);
+  transition: background var(--t-fast) var(--ease);
 }
 .ed-site-row:hover { background: var(--mist); }
 .ed-caret {
   width: 14px;
   color: var(--muted);
   font-size: 10px;
-  transition: transform 0.2s var(--ease);
+  transition: transform 0.36s var(--spring);
   flex: none;
 }
 .ed-site.open .ed-caret { transform: rotate(90deg); }
@@ -1133,13 +1353,13 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.16s var(--ease), color 0.16s var(--ease),
-              transform 0.16s var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              scale var(--t-med) var(--spring);
 }
 .ed-rm:hover {
-  background: rgba(190, 60, 60, 0.10);
-  color: #c0394b;
-  transform: scale(1.08);
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+  scale: 1.12;
 }
 /* Same geometry as .ed-rm so the pair reads as one control, mint instead of
    red because it adds rather than destroys. */
@@ -1154,13 +1374,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.16s var(--ease), color 0.16s var(--ease),
-              transform 0.16s var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              rotate 0.4s var(--spring);
 }
+/* the plus turns a quarter — it is about to add, not to remove */
 .ed-add-sec:hover {
-  background: rgba(12, 140, 94, 0.10);
+  background: var(--mint-wash);
   color: var(--mint);
-  transform: scale(1.08);
+  rotate: 90deg;
 }
 
 .ed-sectors { padding: 0 0 8px 0; display: grid; gap: 2px; }
@@ -1172,7 +1393,8 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   font-size: 13px;
   color: var(--muted);
   border-radius: var(--r-btn);
-  animation: rowIn 0.22s var(--ease) both;
+  animation: rowIn 0.32s var(--ease-out) both;
+  transition: background var(--t-fast) var(--ease);
 }
 :root[dir="rtl"] .ed-sector { padding: 6px 26px 6px 2px; }
 .ed-sector:hover { background: var(--mist); }
@@ -1225,7 +1447,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 /* ═══ SITE DATA VIEW ═════════════════════════════════════════════════
-   The chrome around the sheet is the app's Mintlify system; the sheet
+   The chrome around the sheet is the app's own system; the sheet
    itself (.doc-page and the table inside it) is the DELIVERABLE's purple,
    the same split the point-analysis table already makes. */
 .sd-top .section-head, .sd-bar, .sd-results, .sd-picked, .sd-actions { max-width: 900px; }
@@ -1242,9 +1464,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   text-align: start;
   border: 1px solid transparent;
   border-radius: var(--r-btn);
-  transition: background 0.16s var(--ease), border-color 0.16s var(--ease);
+  transition: background var(--t-fast) var(--ease), border-color var(--t-med) var(--ease);
 }
 .sd-hit:hover { background: var(--mist); }
+.sd-hit.on .sd-hit-name { color: var(--mint); }
 .sd-hit.on { background: var(--mint-wash); border-color: var(--mint-line); }
 .sd-hit-name { font-weight: 600; }
 .sd-hit-id { font-size: 12px; color: var(--muted); }
@@ -1255,11 +1478,13 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   align-items: center;
   gap: 6px;
   padding: 4px 6px 4px 10px;
-  font-size: 12.5px;
+  font-size: 13px;
   background: var(--mint-wash);
   border: 1px solid var(--mint-line);
   border-radius: var(--r-btn);
+  animation: chipIn 0.36s var(--spring);
 }
+@keyframes chipIn { from { opacity: 0; scale: 0.85; } }
 :root[dir="rtl"] .sd-chip { padding: 4px 10px 4px 6px; }
 .sd-chip-x {
   width: 18px;
@@ -1267,11 +1492,17 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   flex: none;
   line-height: 1;
   color: var(--muted);
-  border-radius: var(--r-btn);
+  border-radius: 4px;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              rotate 0.36s var(--spring);
 }
-.sd-chip-x:hover { background: rgba(190, 60, 60, 0.10); color: #c0394b; }
+.sd-chip-x:hover {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+  rotate: 90deg;
+}
 
-.sd-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 22px; }
+.sd-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 22px; }
 .sd-actions.hidden { display: none !important; }
 .sd-wrap { margin-top: 8px; }
 
@@ -1323,7 +1554,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ins-modal { width: min(1040px, 100%); }
 .ins-hint  { align-self: center; font-size: 12.5px; color: var(--muted); }
 
-.ins-sheet + .ins-sheet { border-top: 1px solid var(--mist); }
+.ins-sheet + .ins-sheet { border-top: 1px solid var(--rule); }
 .ins-head {
   display: flex;
   align-items: center;
@@ -1334,7 +1565,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   color: var(--black);
   text-align: start;
   border-radius: var(--r-btn);
-  transition: background 0.16s var(--ease);
+  transition: background var(--t-fast) var(--ease);
 }
 .ins-head:hover { background: var(--mist); }
 .ins-name { font-weight: 600; }
@@ -1343,7 +1574,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   flex: none;
   font-size: 11px;
   color: var(--muted);
-  transition: transform 0.16s var(--ease);
+  transition: transform 0.36s var(--spring);
 }
 :root[dir="rtl"] .ins-caret { transform: scaleX(-1); }
 .ins-sheet.open .ins-caret,
@@ -1397,25 +1628,32 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
    styling here. Only what differs is defined below. */
 /* Narrower than a full .section: a site row is a short line, and at 1200px
    it strands most of its width as empty space. */
-.lk-top { padding-top: 48px; }
+.lk-top, .db-top { padding-top: 64px; }
 .lk-top .section-head, .lk-bar, .lk-direct, .lk-list { max-width: 900px; }
 
 .lk-bar, .sd-bar {
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid var(--cloud);
-  border-radius: var(--r-input);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
   background: var(--paper);
-  padding: 0 14px;
+  padding: 0 16px;
   margin-bottom: 20px;
-  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease),
+              background var(--t-med) var(--ease);
 }
+.lk-bar:hover, .sd-bar:hover { border-color: var(--cloud); }
 .lk-bar:focus-within, .sd-bar:focus-within {
+  background: var(--paper);
   border-color: var(--mint);
-  box-shadow: 0 0 0 3px var(--mint-wash);
+  box-shadow: 0 0 0 4px var(--mint-wash);
 }
-.lk-ico { width: 18px; height: 18px; flex: none; color: var(--muted); }
+.lk-ico {
+  width: 18px; height: 18px; flex: none; color: var(--muted);
+  transition: color var(--t-med) var(--ease), scale 0.4s var(--spring);
+}
+.lk-bar:focus-within .lk-ico { color: var(--mint); scale: 1.1; }
 .lk-search {
   flex: 1;
   border: 0;
@@ -1424,9 +1662,25 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   font: inherit;
   font-size: 16px;
   color: var(--black);
-  padding: 14px 0;
+  padding: 15px 0;
 }
-.lk-search::-webkit-search-cancel-button { cursor: pointer; }
+.lk-search::placeholder { color: var(--muted); opacity: 0.8; }
+/* The browser's own clear button is a blue ✕ from no palette here. Redrawn
+   as the app's ✕ — muted, ink on hover, and it turns like every other ✕. */
+.lk-search::-webkit-search-cancel-button,
+.ed-search::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  background: var(--muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3 3l8 8M11 3l-8 8' stroke='black' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3 3l8 8M11 3l-8 8' stroke='black' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: background var(--t-fast) var(--ease), rotate 0.4s var(--spring);
+}
+.lk-search::-webkit-search-cancel-button:hover,
+.ed-search::-webkit-search-cancel-button:hover { background: var(--ink); rotate: 90deg; }
 
 /* the answer, when the query resolves through the generator's own lookup */
 .lk-direct {
@@ -1441,17 +1695,16 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   background: var(--mint-wash);
   font-size: 13px;
   color: var(--muted);
+  animation: rise 0.44s var(--ease-out) both;
 }
 .lk-direct.approx { border-color: var(--cloud); background: var(--mist); }
 .lk-dtag {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--mint);
   border: 1px solid var(--mint-line);
-  border-radius: 3px;
-  padding: 2px 6px;
+  border-radius: 4px;
+  padding: 1px 7px;
 }
 .lk-direct.approx .lk-dtag { color: var(--muted); border-color: var(--cloud); }
 .lk-dname { font-size: 16px; font-weight: 600; color: var(--ink); }
@@ -1464,12 +1717,12 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
    loader). The sub line carries the "these databases are empty on this machine"
    note, which belongs with the message rather than orphaned beneath it. */
 .lk-empty {
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   background: var(--paper);
-  box-shadow: var(--sh-card);
   padding: 48px 28px;
   text-align: center;
+  animation: rise 0.44s var(--ease-out) both;
 }
 .lk-empty-main { font-size: 15px; color: var(--black); }
 .lk-empty-sub {
@@ -1497,15 +1750,25 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .lk-sector.hit { background: var(--mint-wash); }
 .lk-sector.hit .mono { color: var(--mint); font-weight: 600; }
 /* copy targets read as clickable without becoming buttons */
-.lk-site [data-copy] { cursor: copy; border-radius: 3px; }
+.lk-site [data-copy] {
+  cursor: copy; border-radius: 3px;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
 .lk-site [data-copy]:hover { background: var(--mint-wash); color: var(--mint); }
+/* js/motion.js adds .copied for one beat after a click copies the value, so
+   the thing you clicked is what answers — not only the toast at the bottom. */
+[data-copy].copied { animation: copied 0.7s var(--ease-out); }
+@keyframes copied {
+  0%   { background: var(--mint-line); color: var(--mint); }
+  100% { background: transparent; }
+}
 
 .ed-foot {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 14px 24px;
-  border-top: 1px solid var(--mist);
+  border-top: 1px solid var(--rule);
   background: var(--paper);
 }
 .ed-dirty { font-size: 13px; color: var(--muted); }
@@ -1521,12 +1784,12 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   position: fixed;
   inset: 0;
   z-index: 400;
-  background: rgba(8, 9, 10, 0.32);
+  background: rgba(4, 16, 12, 0.42);
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 24px;
-  animation: viewIn 0.22s var(--ease);
+  animation: scrimIn 0.24s var(--ease);
 }
 .ab-overlay.hidden { display: none !important; }
 
@@ -1537,9 +1800,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   overflow-y: auto;
   padding: 28px;
   box-shadow: var(--sh-float);
-  animation: abIn 0.26s var(--ease);
+  animation: abIn 0.46s var(--spring);
 }
-@keyframes abIn { from { opacity: 0; transform: translateY(10px) scale(0.99); } }
+@keyframes abIn { from { opacity: 0; transform: translateY(14px) scale(0.97); } }
 
 .ab-x {
   position: absolute;
@@ -1551,9 +1814,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   color: var(--muted);
   font-size: 13px;
   line-height: 1;
-  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              rotate 0.4s var(--spring);
 }
-.ab-x:hover { background: var(--mist); color: var(--black); }
+/* every ✕ in the app turns a quarter on hover — the same move as the chip's */
+.ab-x:hover { background: var(--mist); color: var(--ink); rotate: 90deg; }
 
 .ab-head { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 20px; }
 
@@ -1579,7 +1844,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ab-name {
   font-size: 24px;
   line-height: 1.33;
-  letter-spacing: -0.24px;
+  letter-spacing: -0.01em;
   font-weight: 600;
   color: var(--ink);
 }
@@ -1598,9 +1863,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   position: absolute;
   inset-inline-start: 4px;
   top: 10px;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
+  width: 5px;
+  height: 5px;
+  border-radius: 1px;
   background: var(--mint);
 }
 .ab-facts strong { font-weight: 600; }
@@ -1608,7 +1873,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .ab-quote {
   border-inline-start: 2px solid var(--mint);
   background: var(--mint-wash);
-  border-radius: 0 var(--r-btn) var(--r-btn) 0;
+  border-radius: var(--r-btn);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
   padding: 12px 14px;
   font-size: 14px;
   line-height: 1.6;
@@ -1620,17 +1887,16 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: flex;
   flex-wrap: wrap;
   gap: 8px 24px;
-  border-top: 1px solid var(--mist);
+  border-top: 1px solid var(--rule);
   padding-top: 16px;
   font-size: 13px;
   color: var(--muted);
 }
 .ab-stat strong {
   display: block;
-  font-size: 20px;
+  font-size: 21px;
   line-height: 1.3;
-  letter-spacing: -0.2px;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -1640,16 +1906,18 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   position: sticky;
   top: 0;
   z-index: 90;
-  background: var(--paper);
-  border-bottom: 1px solid var(--mist);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--rule);
+  animation: viewIn 0.42s var(--ease-out);
 }
 .toolbar-inner {
   max-width: var(--page);
   margin: 0 auto;
   padding: 12px 32px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
 }
 .toolbar-meta {
   font-size: 13px;
@@ -1676,7 +1944,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   padding: 12px 14px;
   margin-bottom: 16px;
   font-size: 14px;
-  animation: rise 0.4s var(--ease) both;
+  animation: rise 0.5s var(--ease-out) both;
 }
 .notice-ico { width: 16px; height: 16px; color: #b9860b; flex: none; margin-top: 2px; }
 .notice-body { color: var(--muted); font-size: 13px; margin-top: 2px; }
@@ -1692,7 +1960,20 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   border-radius: var(--r-lg);
   box-shadow: var(--sh-card), 0 1px 0 var(--cloud);
   padding: 48px;
+  /* Pinned to the face, features and mono it had before the 2026-09-29
+     redesign moved the app to Plex: the sheet is the deliverable, and
+     the chrome changing type is no reason for the document to. */
+  font-family: var(--font-doc);
+  font-feature-settings: "ss01" on, "cv11" on;
+  letter-spacing: -0.16px;
+  animation: sheetIn 0.6s var(--ease-out) both;
 }
+.doc-page .mono {
+  font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+/* The sheet arrives like paper laid on a desk: up and into focus, once. */
+@keyframes sheetIn { from { opacity: 0; transform: translateY(16px) scale(0.985); } }
 
 .tbl-title {
   text-align: center;
@@ -1787,15 +2068,15 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   white-space: nowrap;
 }
 
-/* app-only annotations — never exported, never printed */
+/* annotations. `.tag-net` is exported and printed (app.js NET_CHIP);
+   the others are app-only */
 .tag {
   display: inline-block;
-  font-size: 10px;
+  font-family: var(--font);
+  font-size: 11px;
   font-weight: 500;
-  letter-spacing: 0.4px;
-  text-transform: uppercase;
-  border-radius: 3px;
-  padding: 1px 5px;
+  border-radius: 4px;
+  padding: 1px 6px;
   margin-inline-start: 6px;
   vertical-align: 1px;
   white-space: nowrap;
@@ -1804,26 +2085,162 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .tag-warn { background: rgba(185,134,11,0.12); color: #8a6408; }
 .tag-miss { background: rgba(190,60,60,0.10); color: #a33; }
 
+/* ═══ OUTPUT STYLES — the deliverable's three looks ══════════════════
+   app.js "output styles" is the source of truth; these rules are its HTML
+   half and must say what tableMatrix()/leanMatrix() put in the PPTX, value
+   for value. `classic` has no rules here on purpose — it is the sheet as it
+   always was. `.out-lean` covers both clean and coverage (same table; the
+   coverage tints arrive as inline fills from app.js). Hardcoded colours,
+   like the rest of the sheet: it is a white slide in both themes. */
+.out-lean .tbl-title {
+  text-align: right;
+  font-size: 1.6rem;
+  color: #1a1a1a;
+  letter-spacing: -0.3px;
+  margin-bottom: 22px;
+}
+.out-lean .data-table thead th {
+  background: none;
+  color: #1a1a1a;
+  font-weight: 700;
+  border: 0;
+  border-bottom: 1.5px solid #1a1a1a;
+}
+.out-lean .data-table tbody td {
+  border: 0;
+  border-bottom: 1px solid #dcdcdc;
+  color: #1a1a1a;
+}
+/* beats `.row-a td:not(.nk-cell)`; an inline coverage tint still wins */
+.out-lean .data-table tbody tr td:not(.nk-cell) { background: none; }
+.out-lean .data-table tbody tr.g-end td,
+.out-lean .data-table tbody .nk-cell { border-bottom: 1px solid #8c8c8c; }
+.out-lean .data-table .nk-cell { background: none; color: #1a1a1a; font-weight: 700; }
+.out-lean .data-table .td-rank { color: #6b6b6b; }
+.out-lean .td-ed:hover { box-shadow: inset 0 0 0 1px #b9b9b9; }
+.out-lean .td-edited::after { background: #1a1a1a; }
+
+/* the site sheet, clean */
+.out-lean .sd-table tbody tr:last-child td { border-bottom-color: #8c8c8c; }
+.out-lean .sd-site-name { color: #1a1a1a; }
+.out-lean .sd-site-id, .out-lean .sd-site-xy, .out-lean .sd-site-note { color: #6b6b6b; }
+.out-lean .sd-site-net { background: none; color: #555555; box-shadow: inset 0 0 0 1px #cfcfcf; }
+
+/* Coverage's legend: the label (fixed Hebrew, like the headers) at the
+   right, the six Planet classes to its left, written left-to-right so a
+   range like −75…−60 is never turned around by the RTL paragraph. */
+.tbl-legend {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 14px;
+  direction: rtl;
+  font-size: 12px;
+  color: #444444;
+}
+.lg-label { font-weight: 700; color: #1a1a1a; white-space: nowrap; }
+.lg-items { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.lg-item { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.lg-item i { width: 11px; height: 11px; border-radius: 2px; }
+
+/* ── Stylish: the site as it stands (app.js STYLISH) ──
+   A card per site: the name large with a short purple bar over it, the id,
+   operator and coordinates under it; then the sector table on the right and
+   the 2.5D drawing on the left, each row striped in its wedge's colour.
+   The purple is Classic's — Stylish is the same family, better dressed. */
+.out-stylish .sd-card { padding: 4px 0 34px; }
+.out-stylish .sd-card + .sd-card { border-top: 1px dashed #d9d6e6; padding-top: 38px; }
+.st-head { direction: rtl; margin-bottom: 18px; }
+.st-head::before {
+  content: '';
+  display: block;
+  width: 44px;
+  height: 4px;
+  border-radius: 2px;
+  background: #4a3f8c;
+  margin-bottom: 14px;
+}
+.st-name { font-size: 30px; line-height: 1.15; font-weight: 700; color: #1a1a2e; letter-spacing: -0.4px; }
+.st-name.td-ltr { direction: ltr; unicode-bidi: isolate; text-align: right; }
+.st-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: #6b6b7b;
+}
+.st-net {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #4a3f8c;
+  background: #f0eeff;
+}
+.st-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 46%);
+  gap: 24px;
+  align-items: center;
+  direction: rtl;
+}
+.st-diagram svg { display: block; width: 100%; height: auto; }
+.st-table {
+  width: 100%;
+  border-collapse: collapse;
+  direction: rtl;
+  font-size: 13px;
+  color: #1a1a2e;
+}
+.st-table th {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #6b6b7b;
+  padding: 7px 6px;
+  border-bottom: 1.5px solid #1a1a2e;
+  white-space: nowrap;
+}
+.st-table td {
+  padding: 8px 5px;
+  text-align: center;
+  border-bottom: 1px solid #e4e2ee;
+  white-space: nowrap;        /* "20 MHz" is one value, never two lines */
+}
+.st-table tr.g-end td { border-bottom-color: #8c8aa0; }
+.st-table .st-stripe { width: 5px; padding: 0; border-bottom: 0; }
+.st-table .st-az { font-weight: 700; white-space: nowrap; }
+.st-table td.td-ltr { direction: ltr; }
+@media (max-width: 760px) {
+  .st-body { grid-template-columns: 1fr; }
+}
+@media print {
+  .out-stylish .sd-card { break-inside: avoid; break-after: page; border-top: 0 !important; }
+}
+
+/* the picker lives in both output toolbars */
+.seg.out-style .seg-btn { padding: 5px 10px; }
+
 /* ═══ TOAST ═════════════════════════════════════════════════════════ */
 .toast {
   position: fixed;
   left: 50%;
   bottom: 28px;
-  transform: translate(-50%, 16px);
+  transform: translate(-50%, 20px) scale(0.96);
   background: var(--ink);
   color: var(--paper);
   font-size: 14px;
   font-weight: 500;
-  border-radius: var(--r-btn);
-  padding: 10px 16px;
+  border-radius: 8px;
+  padding: 11px 18px;
   box-shadow: var(--sh-float);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.24s var(--ease), transform 0.24s var(--ease);
+  transition: opacity var(--t-med) var(--ease), transform 0.5s var(--spring);
   z-index: 300;
   max-width: min(560px, calc(100vw - 48px));
 }
-.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.show { opacity: 1; transform: translate(-50%, 0) scale(1); }
 .toast.err { background: var(--err); }
 
 /* ═══ RESPONSIVE ════════════════════════════════════════════════════ */
@@ -1832,7 +2249,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
    editor is the one place the app draws somebody else's design, so it
    gets no styling of its own beyond a frame — whatever colours come out
    of the .pptx are the ones that belong there. */
-.dk-top { padding-top: 48px; }
+.dk-top { padding-top: 64px; }
 
 .dk-tpls {
   display: grid;
@@ -1847,16 +2264,17 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   gap: 4px;
   text-align: start;
   padding: 16px;
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   background: var(--paper);
   cursor: pointer;
   font: inherit;
   color: inherit;
-  transition: border-color 0.15s var(--ease), box-shadow 0.15s var(--ease);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-med) var(--ease),
+              translate var(--t-med) var(--spring);
 }
-.dk-card:hover { border-color: var(--cloud); }
-.dk-card.on { border-color: var(--mint); box-shadow: 0 0 0 3px var(--mint-wash); }
+.dk-card:hover { border-color: var(--cloud); translate: 0 -2px; box-shadow: var(--sh-float); }
+.dk-card.on { border-color: var(--mint); box-shadow: 0 0 0 4px var(--mint-wash); }
 .dk-name { font-size: 15px; font-weight: 600; color: var(--ink); }
 .dk-meta { font-size: 12px; color: var(--muted); }
 .dk-acts { display: flex; gap: 10px; margin-top: 8px; }
@@ -1864,12 +2282,13 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   font-size: 12px;
   font-weight: 500;
   color: var(--mint);
-  padding: 2px 4px;
-  border-radius: 3px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background var(--t-fast) var(--ease);
 }
 .dk-act:hover { background: var(--mint-wash); }
 .dk-act.danger { color: var(--err); }
-.dk-act.danger:hover { background: rgba(122, 34, 34, 0.08); }
+.dk-act.danger:hover { background: color-mix(in srgb, var(--err) 9%, transparent); }
 
 .dk-new {
   align-items: center;
@@ -1879,7 +2298,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   border-color: var(--cloud);
   min-height: 116px;
 }
-.dk-plus { font-size: 22px; line-height: 1; color: var(--mint); }
+.dk-plus {
+  font-size: 22px; line-height: 1; color: var(--mint);
+  transition: rotate 0.44s var(--spring), scale 0.44s var(--spring);
+}
+.dk-new:hover .dk-plus { rotate: 90deg; scale: 1.15; }
 
 /* ── drop zone + image strip ── */
 .dk-drop {
@@ -1887,9 +2310,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   border-radius: var(--r-card);
   padding: 28px 20px;
   text-align: center;
-  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+  transition: border-color var(--t-med) var(--ease), background var(--t-med) var(--ease),
+              scale var(--t-med) var(--spring);
 }
-.dk-drop.over { border-color: var(--mint); background: var(--mint-wash); }
+.dk-drop.over { border-color: var(--mint); background: var(--mint-wash); scale: 1.01; }
 .dk-drop-t { font-size: 16px; font-weight: 600; color: var(--ink); }
 .dk-drop-s {
   font-size: 13px;
@@ -1910,11 +2334,14 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   position: relative;
   width: 128px;
   height: 78px;
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: 6px;
   overflow: hidden;
   background: var(--mist);
+  animation: chipIn 0.4s var(--spring) both;
+  transition: translate var(--t-med) var(--spring), box-shadow var(--t-med) var(--ease);
 }
+.dk-thumb:hover { translate: 0 -2px; box-shadow: var(--sh-float); }
 .dk-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dk-tn {
   position: absolute;
@@ -1940,18 +2367,20 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   font-size: 12px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.12s var(--ease);
+  scale: 0.8;
+  transition: opacity var(--t-fast) var(--ease), scale var(--t-med) var(--spring),
+              background var(--t-fast) var(--ease);
 }
 .dk-x { top: 4px; inset-inline-end: 4px; }
 .dk-move { bottom: 4px; inset-inline-start: 4px; }
 .dk-move.r { inset-inline-start: 28px; }
-.dk-thumb:hover .dk-x, .dk-thumb:hover .dk-move { opacity: 1; }
+.dk-thumb:hover .dk-x, .dk-thumb:hover .dk-move { opacity: 1; scale: 1; }
 .dk-x:hover { background: var(--err); }
 .dk-move:hover { background: var(--mint); }
 
 /* ── the plan ── */
 .dk-out {
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: var(--r-card);
   padding: 20px;
 }
@@ -2009,6 +2438,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   border-bottom: 1px solid transparent;
   padding: 2px 0;
   outline: none;
+  transition: border-color var(--t-med) var(--ease);
 }
 .tpl-name:hover { border-bottom-color: var(--cloud); }
 .tpl-name:focus { border-bottom-color: var(--mint); }
@@ -2034,10 +2464,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   gap: 6px;
   align-items: center;
   padding: 6px;
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: 6px;
   cursor: pointer;
   position: relative;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-med) var(--ease);
 }
 .tr-item:hover { border-color: var(--cloud); }
 .tr-item.on { border-color: var(--mint); background: var(--mint-wash); }
@@ -2045,7 +2476,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .tr-thumb {
   position: relative;
   display: block;
-  border: 1px solid var(--mist);
+  border: 1px solid var(--rule);
   border-radius: 3px;
   overflow: hidden;
   background: #fff;
@@ -2066,9 +2497,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   display: flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 0.12s var(--ease);
+  translate: 0 -2px;
+  transition: opacity var(--t-fast) var(--ease), translate var(--t-med) var(--spring);
 }
-.tr-item:hover .tr-ops { opacity: 1; }
+.tr-item:hover .tr-ops { opacity: 1; translate: none; }
 .tr-ops button {
   width: 18px; height: 18px;
   font-size: 9px;
@@ -2078,6 +2510,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   background: var(--paper);
   color: var(--muted);
   cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .tr-ops button:hover { border-color: var(--mint); color: var(--mint); }
 .tr-ops button.danger:hover { border-color: var(--err); color: var(--err); }
@@ -2180,33 +2613,345 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .slot-h.sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
 .slot-h.se { bottom: -6px; right: -6px; cursor: nwse-resize; }
 
+/* ═══ TOUR — the "?" on the paste card ═══════════════════════════════
+   js/tour.js. One step at a time, each with a small drawing of what the
+   step is about. The drawings are markup, so they theme with the app —
+   except the report drawing, which is the deliverable's purple and white
+   because it IS the report (invariant 1). */
+.tour-modal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(580px, 100%);
+  max-height: calc(100vh - 48px);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-float);
+  overflow: hidden;
+  animation: abIn 0.46s var(--spring);
+}
+.tour-head {
+  position: relative;
+  padding: 20px 64px 0 24px;
+}
+:root[dir="rtl"] .tour-head { padding: 20px 24px 0 64px; }
+.tour-head .ab-x { top: 12px; }
+
+/* Progress: one segment per step, filled up to here. The segment you just
+   reached fills from the reading-start side; each is also a way back. */
+.tour-bar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; }
+.tour-seg { position: relative; height: 18px; border-radius: 2px; }
+.tour-seg::before, .tour-seg::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0;
+  top: 7px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+  transition: background var(--t-fast) var(--ease);
+}
+.tour-seg::after { background: var(--mint); scale: 0 1; transform-origin: left; }
+:root[dir="rtl"] .tour-seg::after { transform-origin: right; }
+.tour-seg.on::after { scale: 1 1; }
+.tour-seg[aria-current]::after { animation: segFill 0.6s var(--ease-out); }
+.tour-seg:hover::before { background: var(--cloud); }
+@keyframes segFill { from { scale: 0 1; } }
+
+.tour-stage { padding: 18px 24px 4px; overflow: hidden; min-height: 372px; }
+/* A step arrives from the side you are reading towards, and a step back
+   from the side you came from. */
+.tour-step { --s: 1; --d: 1; }
+:root[dir="rtl"] .tour-step { --d: -1; }
+.tour-step.back { --s: -1; }
+.tour-step.fwd, .tour-step.back { animation: stepIn 0.46s var(--ease-out); }
+@keyframes stepIn { from { opacity: 0; translate: calc(var(--s) * var(--d) * 36px) 0; } }
+
+.tour-fig {
+  height: 176px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 16px;
+  margin-bottom: 20px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.tour-title {
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+.tour-body { font-size: 15px; line-height: 1.7; color: var(--black); max-width: 56ch; }
+.tour-note { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: 8px; }
+
+.tour-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px 18px 24px;
+  border-top: 1px solid var(--rule);
+}
+:root[dir="rtl"] .tour-foot { padding: 14px 24px 18px 20px; }
+.tour-count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ── the drawings ── */
+.tf-win {
+  width: 100%;
+  max-width: 470px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  box-shadow: var(--sh-card);
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--black);
+}
+.tf-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--muted);
+  font-family: var(--font);
+  font-size: 11px;
+}
+.tf-bar i { width: 7px; height: 7px; border-radius: 1px; background: var(--cloud); }
+.tf-bar span { margin-left: 6px; }
+.tg-r {
+  display: grid;
+  grid-template-columns: 42px repeat(3, 64px) repeat(3, minmax(0, 1fr));
+}
+.tg-r + .tg-r { border-top: 1px solid var(--rule); }
+.tg-h { color: var(--muted); font-weight: 500; background: var(--mist); }
+.tg-c {
+  padding: 5px 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tg-c + .tg-c { border-left: 1px solid var(--rule); }
+.tg-r[style] { animation: rowIn 0.42s var(--ease-out) both; animation-delay: calc(var(--i) * 120ms + 150ms); }
+.tg-r.sel {
+  animation: rowSel 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 140ms + 250ms);
+}
+@keyframes rowSel {
+  from { background: transparent; }
+  to   { background: var(--mint-wash); color: var(--mint); }
+}
+
+.tf-keys { display: flex; align-items: center; gap: 6px; }
+.tf-plus { font-size: 12px; color: var(--muted); }
+.tf-key {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--cloud);
+  border-bottom-width: 3px;
+  border-radius: 6px;
+  padding: 5px 10px 4px;
+}
+.tf-key.hit { animation: keyHit 1.8s var(--ease) 0.7s infinite; }
+@keyframes keyHit {
+  0%, 60%, 100% { translate: 0 0; border-bottom-width: 3px; }
+  70%, 80%      { translate: 0 2px; border-bottom-width: 1px; background: var(--mint-wash); color: var(--mint); border-color: var(--mint-line); }
+}
+
+.tf-paste { width: 100%; max-width: 470px; }
+.tf-paste .schema { margin-bottom: 6px; }
+.tf-paste .schema-cell { font-size: 10.5px; padding: 4px 2px; }
+.tf-ta {
+  position: relative;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.7;
+  color: var(--black);
+  background: var(--paper);
+  border: 1px solid var(--mint);
+  box-shadow: 0 0 0 3px var(--mint-wash);
+  border-radius: 6px;
+  padding: 7px 10px;
+  white-space: pre;
+  overflow: hidden;
+}
+.tf-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: rowIn 0.4s var(--ease-out) both;
+  animation-delay: calc(var(--i) * 160ms + 700ms);
+}
+.tf-caret {
+  display: inline-block;
+  width: 1.5px;
+  height: 12px;
+  vertical-align: -2px;
+  background: var(--mint);
+  animation: blink 1s steps(1) infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+/* the report: its own face, its own purple, its own white */
+.tf-doc {
+  width: 100%;
+  max-width: 470px;
+  font-family: var(--font-doc);
+  font-size: 12px;
+  background: #ffffff;
+  border: 1px solid #c8c2e8;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tf-tr { display: grid; grid-template-columns: 2.4fr 0.8fr 1fr 1fr 1fr; }
+.tf-tr span {
+  padding: 8px;
+  text-align: center;
+  color: #1a1a2e;
+  background: #f0eeff;
+  white-space: nowrap;
+}
+.tf-tr span + span { border-right: 1px solid #c8c2e8; }
+.tf-th span { background: #4a3f8c; color: #ffffff; font-weight: 600; font-size: 11px; }
+.tf-th span + span { border-right-color: #3a3070; }
+
+/* The step itself: a Planet code becomes its Hebrew site name. The resting
+   state is the NAME, so reduced motion (which ends every animation at once)
+   shows the answer rather than the question. */
+.tf-morph { display: grid; }
+.tf-from, .tf-to { grid-area: 1 / 1; font-weight: 500; }
+.tf-from { font-family: ui-monospace, Consolas, monospace; font-size: 11px; opacity: 0; animation: morphOut 3.2s var(--ease) infinite; }
+.tf-to { animation: morphIn 3.2s var(--ease) infinite; }
+@keyframes morphOut { 0%, 30% { opacity: 1; } 42%, 92% { opacity: 0; } 100% { opacity: 1; } }
+@keyframes morphIn  { 0%, 30% { opacity: 0; translate: 0 4px; } 42%, 92% { opacity: 1; translate: 0 0; } 100% { opacity: 0; } }
+
+.tf-export { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; }
+.tf-doc-sm { max-width: 320px; }
+.tf-doc-sm .tf-tr { grid-template-columns: 2.4fr 0.8fr 1fr; }
+.tf-tr .tf-edit { background: #ffffff; box-shadow: inset 0 0 0 1.5px #6b5fb5; }
+.tf-edit .tf-caret { background: #6b5fb5; margin-inline-start: 2px; }
+.tf-btns { display: flex; gap: 8px; }
+.tf-btn {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--r-btn);
+  border: 1px solid var(--cloud);
+  background: var(--paper);
+  color: var(--ink);
+}
+.tf-btn.pri { background: var(--ink); color: var(--paper); border-color: var(--ink); animation: cue 1.8s var(--ease-out) 0.6s infinite; }
+
+/* "Try it with the sample" hands focus to generate, and generate answers
+   with two soft rings of its own so the eye lands on it. */
+.btn-primary.cue { animation: cue 1.3s var(--ease-out) 2; }
+@keyframes cue {
+  0%   { box-shadow: 0 0 0 0 var(--mint-line); }
+  100% { box-shadow: 0 0 0 12px transparent; }
+}
+
+@media (max-width: 560px) {
+  .tour-stage { min-height: 0; padding-inline: 16px; }
+  .tour-fig { height: 150px; }
+  .tg-r { grid-template-columns: 26px repeat(3, 44px) repeat(3, minmax(0, 1fr)); }
+}
+
+/* ═══ MOTION ═════════════════════════════════════════════════════════
+   The system's one signature: a press TRANSMITS. js/motion.js draws two
+   thin rings from the point you pressed — the coverage arcs the floor's
+   sites emit — in a fixed layer above everything, so nothing is ever
+   inserted into a button. The press itself (a spring-back scale) is also
+   there, as an additive Web Animation. Each component's own hover lives
+   with the component above; what is here is only what they all share. */
+.fx-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  overflow: hidden;
+}
+.fx-ring {
+  position: absolute;
+  border: 1.5px solid var(--mint);
+  border-radius: 50%;
+  translate: -50% -50%;
+  opacity: 0;
+  animation: ring 0.62s var(--ease-out) both;
+}
+@keyframes ring {
+  0%   { opacity: 0.55; scale: 0.15; }
+  100% { opacity: 0;    scale: 1; }
+}
+
+/* Theme change: the new theme sweeps out as a circle from the button that
+   asked for it (motion.js records where; app.js setTheme() starts it). A
+   language change is a plain cross-fade — the page is mirroring, and a
+   sweep across a mirroring page reads as a glitch. */
+:root.vt-theme::view-transition-old(root) { animation: none; }
+:root.vt-theme::view-transition-new(root) {
+  animation: themeSweep 0.62s var(--ease-out);
+}
+@keyframes themeSweep {
+  from { clip-path: circle(0 at var(--vt-x, 50%) var(--vt-y, 0)); }
+  to   { clip-path: circle(150vmax at var(--vt-x, 50%) var(--vt-y, 0)); }
+}
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.28s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-layer { display: none; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
+
 @media (max-width: 900px) {
-  .db-grid { grid-template-columns: 1fr; }
+  .db-grid { grid-template-columns: repeat(2, 1fr); }
   .tpl-work { grid-template-columns: 1fr; }
   .tpl-rail { display: flex; overflow-x: auto; }
   .tr-item { min-width: 150px; }
-  /* No landscape here: the band needs ~184px of hero it cannot have on a
-     short viewport, and display:none zeroes clientWidth, which makes
-     scene.js stand down and kill its timer on its own. */
-  #scene { display: none; }
-  .hero { padding: 64px 24px 120px; }
-  .hero-title { font-size: 40px; letter-spacing: -0.4px; }
-  .section-title { font-size: 32px; }
+  .section-title { font-size: 30px; }
   .nav-links { display: none; }
   .nav-inner, .toolbar-inner, .section { padding-inline: 20px; }
   .doc-wrap { padding: 16px; }
   .doc-page { padding: 24px; }
 }
 
+@media (max-width: 560px) {
+  .db-grid { grid-template-columns: 1fr; }
+  .nav-inner, .toolbar-inner, .section, .bridge, .foot { padding-inline: 16px; }
+  .nav-inner { gap: 16px; }
+  .bridge { margin-top: 32px; }
+  .scene-host { height: 132px; }
+  .paste-card { padding: 20px 16px 16px; }
+  .schema-cell { font-size: 11px; padding-inline: 2px; }
+  .db-chip { display: none; }
+  .foot { flex-wrap: wrap; row-gap: 12px; }
+}
+
 /* ═══ PRINT — only the document survives ════════════════════════════ */
 @media print {
-  .nav, .toolbar, .foot, .notice, #viewHome, #viewLookup, .toast { display: none !important; }
+  .nav, .toolbar, .foot, .notice, #viewHome, #viewDb, #viewLookup, .toast { display: none !important; }
   body { background: #fff; }
   .doc-wrap { background: #fff; padding: 0; min-height: 0; }
   .doc-shell { max-width: none; }
-  .doc-page { box-shadow: none; border-radius: 0; padding: 0; }
+  .doc-page { box-shadow: none; border-radius: 0; padding: 0; animation: none; }
   .data-table tbody tr { animation: none; }
-  .tag { display: none !important; }
+  .fx-layer { display: none !important; }
+  /* the network chip is part of the deliverable (it rides the PPTX too);
+     `סקטור משוער` and `לא נמצא` stay app-only */
+  .tag:not(.tag-net) { display: none !important; }
+  .tag-net { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   .data-table thead { display: table-header-group; }
   .data-table tr { break-inside: avoid; }
 }
