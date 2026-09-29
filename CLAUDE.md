@@ -156,13 +156,17 @@ powershell -ExecutionPolicy Bypass -Command "npm run build"
 Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
 ```
 
-Last build **2026-09-23 at commit `a037fa7`**: electron 33.4.11 + electron-builder 26.15.3, target
-`dir`, no winCodeSign symlink error. **`dist\TableX.zip`, 110.8 MB.** Carries the workbook
-inspector, the IDF Planet import (composite key, note split, EARFCN frequency) and the site-data
-sheet. Verified by running the packaged app's own `server.ps1` and pointing all three suites at it:
-**116/116**, and the shipped `data/` holds the real 334-site `idf.json` with no `.bak` and no
-`tpl/`. (Before that, 2026-09-10 at commit `7e612e9`: electron 33.4.11 + electron-builder 26.15.3, target `dir`, completed cleanly
-with no winCodeSign symlink error, 110.8 MB, 40/40; and 2026-09-06 at commit `fd7ae0d`, 110.7 MB.)
+Last build **2026-09-29 at commit `251a296`**, version 1.2.0: electron 33.4.11 + electron-builder
+26.15.3, target `dir`, no winCodeSign symlink error. **`dist\TableX.zip`, 111.2 MB.** Carries the
+Signal redesign, the output styles and Stylish, the CRS column, the chip in the export, the
+maximized window, and the 2024 Partner export with its plant (1.8 MB of the growth). Verified on
+**the zip itself**, expanded to a scratch folder: its own `server.ps1` under all three suites,
+**144/144**; its `data/` holds the four databases with no `.bak` and no `tpl/`; and its exe,
+launched with `ELECTRON_RUN_AS_NODE` cleared and read through `user32`, showed a first visible frame
+already maximized, (−8,−8) → (1928,1048) on 1920×1080, and left no process behind on close.
+`main.js` was recreated from the 2026-09-23 build's own copy (`dist\win-unpacked\resources\app\`)
+with the `createWindow()` below swapped in. (Before that: 2026-09-23 at `a037fa7`, 110.8 MB,
+116/116; 2026-09-10 at `7e612e9`, 110.8 MB, 40/40; 2026-09-06 at `fd7ae0d`, 110.7 MB.)
 
 The app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`.
 **Point the suites at the PACKAGED server, not the repo one** — that is what makes the shipped
@@ -171,7 +175,9 @@ build checked rather than assumed.
 `package.json` — the settings that matter:
 
 ```json
-{ "main": "main.js", "build": { "asar": false, "win": { "target": "dir", "icon": "icon.ico" },
+{ "main": "main.js",
+  "devDependencies": { "electron": "33.4.11", "electron-builder": "26.15.3" },
+  "build": { "productName": "TableX", "asar": false, "win": { "target": "dir", "icon": "icon.ico" },
   "files": ["main.js","package.json","server.ps1","icon.ico","TableX/**",
             "!TableX/data/*.bak","!TableX/data/tpl/**"] } }
 ```
@@ -248,8 +254,8 @@ function createWindow() {
 Verified 2026-09-29 against the real Electron 33 binary (the 2026-09-23 `win-unpacked` with this
 `createWindow()` swapped in), by reading the window through `user32`: the unpatched build's first
 visible frame was a 1440×940 window at (240,50); the patched one's was `IsZoomed` true, (−8,−8) →
-(1928,1048) on a 1920×1080 screen. Check it the same way after a rebuild — the fix lives only in
-this recipe until then.
+(1928,1048) on a 1920×1080 screen. **Shipped in the 2026-09-29 build**, and checked the same way on
+the zip; check it again after any rebuild.
 
 ### The trap that wastes an afternoon: `ELECTRON_RUN_AS_NODE`
 
