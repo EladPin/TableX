@@ -30,7 +30,7 @@ is the whole job this app removes:
 
 - **Planet speaks English codes; the deck must speak Hebrew site names.** A point analysis says
   `LNN4610Da`. The slide has to say `גג בית העם  דישון`, sector `Da`, 1800 MHz, 20 MHz. That
-  mapping lives in a **14,252-sector** Planet network export. Looking up three cells per point,
+  mapping lives in a **16,510-sector** Planet network export. Looking up three cells per point,
   across seven points, is where the time and the mistakes go.
 - **It is 20+ minutes per table, by hand, if you are good.** Reading the points out of Planet,
   translating the names, building the table in PowerPoint, and getting the RTL layout and the
@@ -327,7 +327,7 @@ TableX/
                               ALSO where window.JSZip comes from; pptx.js needs it
   fonts/                      self-hosted, 17 woff2: IBM Plex Sans Hebrew + Plex Mono
                               (the app), Inter + Heebo (the report preview only)
-  data/partner.json           SHIPPED — 2,898 sites / 14,252 sectors + the plant, 1.8 MB
+  data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors + the plant, 2.0 MB
   data/idf.json               SHIPPED — 334 sites / 792 sectors, from the ENM dump
   data/cellcom.json           empty stub - the real DB is built on TS, cannot ship
   data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
@@ -360,7 +360,7 @@ because that step cost a click on every single use and the whole product is spee
 |------|-------|-------|
 | `idf` | IDF | **shipped**, 334 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
 | `cellcom` | Cellcom | **ships empty**, but the import is proven — 2,575 sites / 18,891 sectors on TS |
-| `partner` | Partner | **shipped**, 2,898 sites / 14,252 sectors, with the plant — the 2024 export (see "Sibling projects") |
+| `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors, with the plant — the May-26 export (see "Sibling projects") |
 | `pelephone` | Pelephone | **ships empty**, but the import is proven — 2,383 sites / 18,217 sectors on TS |
 
 `ours` was renamed to `idf` on 2026-09-04 — the key, the file (`data/ours.json` →
@@ -585,6 +585,14 @@ Sector ID | Site ID | Site Name | Sector | Frequency (MHz) | Bandwidth (MHz)
 Flat is tried **first**, which is what keeps `DEMO_DB.xlsx` reproducing its old output exactly —
 it turns out to be this same Planet group export with a hand-built `DB` tab appended, and that
 hand-built tab is precisely the manual step this path removes.
+
+**A third reader now shares this contract**: `TableX/js/sitegen.js` reads the same group export to
+CLONE a site out of it (see "Planet quests"). It is deliberately NOT a fourth parser — it reads
+every sheet as raw rows and interprets almost nothing, because its job is to copy columns it does
+not understand. The headers it does look for (`Site ID`, `Sector ID`, `Antenna ID`, `Band Name`,
+`Azimuth`, `Height (m)`, `Mechanical Tilt`, `Antenna File`, `PA Power (dBm)`, `Electrical Tilt`,
+`Longitude`, `Latitude`, `Description`) are the ones named here, so a change to the accepted header
+spellings touches it too.
 
 `tools/build_db.py` implements the *same* contract offline, for building a DB without the app:
 
@@ -1291,9 +1299,14 @@ which the `app` suite reads.
 - **How it is tested without data**: the `app` suite hands the page a seeded Cellcom through
   `Page.addScriptToEvaluateOnNewDocument` — `fetch('data/cellcom.json')` answers from the seed —
   so no database file is written, not even a `.bak`. Use the same trick for any view that needs
-  data the shipped databases lack. For LOOKING at it, the shipped `partner.json` (the 2024 export,
-  which carries the plant) is the richer test: SO5949A (one tier), NC0543D (side-by-side pairs), NC4127A and TR0830B (two tiers, 59/41 and
-  36/20 m), SO5320K (four azimuths), SI5505A (the indoor omni).
+  data the shipped databases lack. For LOOKING at it, the shipped `partner.json` is the richer test —
+  **re-checked against the May-26 refresh on 2026-10-02, because it changed the plant on half of
+  them**: SO5949A (one tier, 32 m, three azimuths), NC4127A (two tiers, 59 and 41 m, and a
+  different model on one azimuth), TR0830B (side-by-side — azimuth 180 carries an RVV-33B-R3 and an
+  RVV65D-C3-3XR at the same 36 m), SO5320K (four azimuths, and an `80020899` that falls through to
+  `TYPICAL`), SI5505A (the indoor omni at 2 m — the concrete block). **NC0543D was the side-by-side
+  example and is not one any more**: its three carriers are now the same model at the same height,
+  so `antModel()` groups them into one antenna.
 - **The output's text never translates**, style or not: the legend label is fixed Hebrew like
   the headers. Only the picker's labels are in `i18n.js`.
 
@@ -1776,22 +1789,28 @@ one of the `PHI_*` columns `TRUE` — so importing one unchanged adds the new si
 team's **real** groups in a shared project. That is exactly what "a quest may add clearly-named new
 things; it must never change something that was already there" forbids.
 
-**PROVEN ON TS, 2026-10-02 — and two of this file's own answers were wrong.** The first test
-workbooks were refused; the same data imported once Elad renamed the file and deleted columns. What
-that settled:
+**WHAT THE TS TRIALS SETTLED, 2026-10-02 — and be careful about what they did NOT.** The first test
+workbooks were refused; the data imported once Elad renamed the file, deleted columns and saved it
+through Excel. Three changes at once, so read the confidence levels:
 
-- **THE FILE NAME IS THE GROUP NAME.** The identical workbook was refused as
-  `TableX_new_site_TX9001A.xlsx` and accepted as `TableX_Test.xlsx`, the name of the group created
-  in Planet beforehand. **The download name is load-bearing, not cosmetic**, and **one file is one
+- **THE FILE NAME IS THE GROUP NAME. Certain** — not because the trial isolated it, but because it
+  is **Elad's own knowledge of how Planet names a group** ("that's how it works"), and the trial is
+  consistent with it. **The download name is load-bearing, not cosmetic**, and **one file is one
   group** — a round covering several groups is several files. Nothing inside the workbook says this;
-  it could not have been derived by reading the format, only by trying it.
-- **The other `Group:` columns must be DELETED, not set FALSE.** This file's first answer was to keep
-  them and write `FALSE`, reasoning that the export should keep the shape Planet produced and that a
-  missing column is a guess about what the importer tolerates. That was reasoning, not evidence, and
-  Planet disagreed with it. `dropCols()` removes them (18 columns → 14 on the Sectors sheet).
-- **A blank `Physical Cell ID` / `Cell ID` is ACCEPTED.** The file that imported was `TX9001A`, the
-  variant with those four fields emptied, so the design under `BLANK` stands and TableX never has to
-  invent a PCI. The `keepIdentity` fallback stays in the module but has no known use.
+  it could not have been derived by reading the format.
+- **A blank `Physical Cell ID` / `Cell ID` is ACCEPTED. Certain** — the file that imported was
+  `TX9001A`, the variant with those four fields emptied. The design under `BLANK` stands and TableX
+  never has to invent a PCI. The `keepIdentity` fallback stays in the module but has no known use.
+- **The other `Group:` columns are DELETED rather than set FALSE. NOT PROVEN NECESSARY**, and this
+  file said it was for several hours — wrongly. Deleting them was bundled with the Excel save in
+  the same trial, and the later trials showed the Excel save alone decides whether a file imports.
+  So nothing tells us Planet cares. **They are deleted anyway, on a different and sufficient
+  ground:** a cloned row carries the template's memberships, so leaving them would add the new site
+  to the team's real groups. Do not "simplify" this back to `FALSE` on the grounds that deletion
+  was never required — the point is the membership, not the importer.
+
+**The general lesson, since it cost three trips:** when a trial changes three things and the result
+flips, it has established nothing about any one of them. Change one thing per trip to TS.
 
 #### The Excel round trip is the accepted recipe, and why
 
@@ -1875,6 +1894,10 @@ README would mean rediscovering it.
   name-already-exists paths both exercised; the collision guard refusing a Site ID the export
   already carries and writing nothing; and **`build_db.py` parsing the generated workbook back** as
   a valid Planet group export, recovering all 6 sectors, the plant, the Hebrew name and the coords.
+  The **`quest` e2e suite** holds the whole chain in a browser, including the two rules that cost
+  three trips to TS — one group column named after the group, and a `sharedStrings` part with no
+  `t="str"` cell. Its fixture is a seven-sheet miniature built in the page, so it runs anywhere;
+  the real 8 MB export lives outside the repo and a test needing it would run on one machine only.
 - **On TS:** Planet's Import accepts it — see above for the two rules that trial corrected and the
   one question it left open.
 - **Not covered anywhere:** how a site generated this way behaves in an ANALYSIS. The import is
@@ -1888,10 +1911,11 @@ project should not keep our scaffolding.
 
 Round 3 was asked for on 2026-09-18 and has not come back. In rough order of how much it blocks:
 
-1. ~~**Every sheet of a single-site export.**~~ **Answered 2026-10-02 without a photograph** — a
-   group export is a complete specimen of the format and `Partner_May_26_V3.xlsx` is on the dev box.
-   Seven sheets, every column, every join (Site ID / Sector ID / Antenna ID) read directly. What
-   remains is not knowledge but a trial: **does Planet's Import accept what we write.**
+1. ~~**Every sheet of a single-site export**, and whether Planet imports what we write.~~
+   **Both answered 2026-10-02.** A group export is a complete specimen of the format and
+   `Partner_May_26_V3.xlsx` is on the dev box, so the sheets, columns and joins were read directly
+   rather than photographed; and Planet imports the generated workbook, after the Excel save.
+   Step 1 is done. Everything below is step 2 and step 3.
 2. **Where `AnalysisSpecification.xml` records WHICH sectors or group it covers**, and what
    `Sectors.bin` holds. At 161 KB the XML is big enough to carry a few thousand sector ids
    outright. Notepad + Ctrl+F for `Group`, `Sector`, the analysis's own name and `Partner`, plus
@@ -1908,21 +1932,31 @@ Round 3 was asked for on 2026-09-18 and has not come back. In rough order of how
    compiled program at all — TableX generates the script text and the user pastes it. If no, it
    needs a `.mbx`, and then **MapInfo Pro's exact version matters**, because a compiled MapBasic
    program has to match it (`Planet 7.10\mapinfo\MapInfoPro.exe` → Properties → Details).
-5. **Predictions.** A copied site's sectors presumably need `Generate Predictions` (it is on the
-   group right-click menu) before an analysis can use them. Nobody has said whether the analysis
-   or the Scheduler does that itself.
-6. **What coordinate format the incoming נ.צ arrive in** — the export is UTM 36N metres; if the
-   data arrives as ITM or degrees, TableX converts, and that conversion is published mathematics
-   that can be verified against a known point rather than against a photograph.
-7. **The naming convention for new sites**, so generated ids cannot collide with real ones.
+5. **Predictions — now the FIRST thing to find out, because sites can actually be imported.** A
+   copied site's sectors presumably need `Generate Predictions` (it is on the group right-click
+   menu) before an analysis can use them. Nobody has said whether the analysis or the Scheduler
+   does that itself. This is no longer theoretical: the next real round will import sites and then
+   want coverage out of them, and if predictions have to be generated by hand the quest should say
+   so on screen.
+6. **What coordinate format the incoming נ.צ arrive in.** Note the export is **not** always metres,
+   whatever the earlier note here said: `Partner_May_26_V3.xlsx` holds **WGS84 degrees**
+   (`34.957250` / `32.051722`) while the photographed IDF export held UTM 36N metres
+   (`622321.5` / `3452921`) under the same headers. The quest view sidesteps this entirely for now
+   — a new site inherits the TEMPLATE site's coordinates and the user overtypes them, so whatever
+   unit that project uses is the unit they type. If a conversion is ever wanted it is published
+   mathematics, verifiable against a known point rather than against a photograph.
+7. **The naming convention for new sites.** Less urgent than it was: the writer refuses a Site ID
+   the loaded export already carries, and the view refuses it before generating. That stops a
+   collision with an EXISTING site; it does not give the team a convention, which is still theirs
+   to decide. `TX` is used for test sites because no real Partner site uses that prefix.
 
 ### What TableX already has that this needs
 
 Most of the quest is glue, which is the reason to build it here rather than as a new app: the
 group-export parser (`dbparse.js`), SheetJS to write one back, `coords` / `ant` / `pwr` already
 carried per sector, the site search, the Decks engine for the PPTX, and `ask()` / toasts /
-i18n for anything it says. What is genuinely new is a quests view, a workbook *writer*, and an
-`AnalysisSpecification.xml` cloner.
+i18n for anything it says. The view and the workbook writer now exist (`quest.js`, `sitegen.js`);
+what is still genuinely new is an `AnalysisSpecification.xml` cloner and whatever drives MapInfo.
 
 ---
 
@@ -2246,7 +2280,18 @@ the raw key.
   looks like corruption when the data is fine. Verify by *comparing against a known-good
   source* (that is what the Interfex cross-check is for), not by eyeballing console output.
 
-## Open threads — where 2026-09-29 left off
+## Open threads — where 2026-10-02 left off
+
+**What happened that day, since it moved the project more than anything since the Signal redesign:**
+Partner was rebuilt from `Partner_May_26_V3.xlsx` (the 2026-09-29 revert turned out to rest on a
+wrong premise — the plant was always in that file, the parser just could not read it yet); the
+**first Planet quest was built and proven on TS**, so TableX now writes a new-site workbook Planet
+imports; and the nav was renamed and reordered around the five jobs the app actually does. Three
+commits, `60557eb`, `6fc5511`, `09d5654`, plus `b31a88d` for the nav.
+
+**The one thing to read before touching the quest** is "The Excel round trip is the accepted recipe"
+under "Planet quests", and the confidence levels beside it — three trips to TS were spent because
+one trial changed three things at once.
 
 Things raised with Elad and not settled. Each is small; none is a defect in what shipped.
 
@@ -2254,17 +2299,24 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   rebuilt from `Partner_May_26_V3.xlsx`, which carried the plant all along (see "Sibling projects").
   What is now open instead: **33% of its antennas have no `ANT_DIMS` entry** and draw at `TYPICAL`,
   `80020899` alone being 2,654 of them, and **Interfex's `partner_cells.json` is out of step again**.
-- **The site writer imported into Planet on 2026-10-02** — the gate is cleared. What is left before
-  the view is built: one import of a file Excel has never opened, since the accepted workbook had
-  been re-saved by Excel on the way. `TableX_Test.xlsx` on the Desktop is that test. See
-  "Planet quests".
+- **A generated workbook must be opened in Excel and saved before Planet will import it.** Accepted
+  by Elad as cheap enough — it is one file per group, against 13 sites copied by hand — and the view
+  says so every time it generates. The one remaining structural difference between our file and the
+  ones Planet reads is `xl/metadata.xml`; removing it is untested and needs a zip rewrite. If anyone
+  ever wants the step gone, `server.ps1` could do the Excel round trip over COM, at the price of
+  depending on Office. See "Planet quests".
+- **The quest has never been run against a real `Partner_Share` export, only the May-26 file and the
+  e2e fixture.** Nothing suggests it will not work — the May-26 file IS a real group export — but
+  the first real round is worth watching, particularly whether a new site needs
+  `Generate Predictions` before an analysis will use it (unknown #5, now the most load-bearing one).
 - **Levels show their minus on the right in the Hebrew report** — `72.42-`, in all three styles
   and in the old table too. It is the bidi algorithm placing a neutral `-` in an RTL cell. Offered
   and not changed, because it changes the deliverable; the fix is to isolate the level cell as LTR
   the way `td-ltr` does for codes. Check the PPTX cell as well as the HTML before calling it done.
-- **CRS is Planet's BOOST** (`0 dB` on every sector of the 2024 export). If the operator's request
-  form turns out to want the RS power itself, it is the render-time conversion under the workbook
-  contract — ask which the form wants before building it.
+- **CRS is Planet's BOOST**, and it is `0 dB` on all 16,510 sectors of the May-26 export too, so
+  the column prints `0 dB` for every Partner site. If the operator's request form turns out to want
+  the RS power itself, it is the render-time conversion under the workbook contract — ask which the
+  form wants before building it.
 - **`80020899` has no datasheet** — about 20% of Partner's antennas, drawn at the `TYPICAL` size.
   One `ANT_DIMS` line when someone finds its dimensions.
 - **IDF's real `Antenna File` spellings have not been seen.** Elad's list (80010866, 80010867,
@@ -2329,6 +2381,13 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   cannot distinguish a Planet-derived value from a typed one.
 - **The site-data sheet has no pagination either** — one table per site, so a site with many
   carriers runs off the bottom of its slide. Same limit, same unenabled `autoPage`.
+- **The quest writes a workbook Planet cannot read until Excel re-saves it.** Proven, documented,
+  and stated by the view on every generate, but it is still a manual step in an app whose whole
+  argument is removing them. `xl/metadata.xml` is the one untested suspect.
+- **The quest clones ONE antenna per sector.** A real site can carry several per sector (MIMO) and
+  one antenna serving several sectors, which the Partner export expresses and `siteDetail()` reads
+  correctly — but `cloneSite()` writes one antenna row per sector, numbered 1..N. Right for the
+  ordinary three-sector mast the quest was built for; wrong for anything exotic, and silently so.
 - **No build, no lint** — and the tests only cover what a browser can be driven through. See
   "Tests" above for what they do and do not reach. The manual pass is still worth doing on
   anything visual: `start.bat`, "טען דוגמה", generate, and check the table, the PPTX and the
@@ -2361,8 +2420,9 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   never `transform`, and never by adding an element inside the button. See DESIGN.md "Motion".
 - **Illustration stays on the home page's floor and in the loader.** If you touch the scene, keep
   colour in `main.css` and animated opacity in attributes — see "The floor".
-- When you touch the workbook contract, **touch both parsers**: `js/dbparse.js` and
-  `tools/build_db.py`.
+- When you touch the workbook contract, **touch both parsers** — `js/dbparse.js` and
+  `tools/build_db.py` — **and check `js/sitegen.js`**, which reads the same export to clone a site
+  out of it and looks up a dozen headers by name.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
   in `server.ps1`, `LABELS` in `tools/build_db.py`, and a `data/<net>.json` stub.
 - When you add a VIEW, **touch four places**: the `<main class="view">` in `index.html`, its nav
