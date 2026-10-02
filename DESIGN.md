@@ -128,6 +128,10 @@ Page max-width 1200px; section gap 96px; 32px side gutter, 20px under 900px, 16p
   (4 → 2 → 1 columns). A loaded network is marked by a filled mint square, an empty one
   by a hollow one.
 - **Views** (databases, lookup, site data, decks) — section head, then the tool.
+- **New sites** — a form with an order to it, so its steps sit on ONE RAIL: a hairline down the
+  start edge with a pixel square per step. A square lights and pops when its step is satisfied,
+  the rail draws mint down to the next, and the next step rises in. Numbered cards were tried first
+  and read as a static form; the rail says the same thing and moves.
 
 ## Motion
 
@@ -175,7 +179,15 @@ The nav's active link is marked by one mint bar, and every segmented control by 
 thumb, that **slide** to the new choice (`motion.js` measures; CSS draws from `--ind-x` /
 `--ind-w`). A marker that jumps says "you are here"; one that slides also says where you
 came from. Until the script has measured, `.on` paints its own tile, so the control is
-never wrong, only still.
+never wrong, only still. The new-site form's antenna list does the same: its highlight
+glides to the active option.
+
+### Lists that change
+
+When a row is added it rises in; when one is removed it leaves, and the rows below it
+**glide** up to close the gap rather than jumping (a FLIP in `quest.js`). A value the app
+filled or converted for you flashes once, so a change you did not type is a change you saw.
+A refused submit shakes the fields it is about — the one "no" in the system.
 
 ### Arrivals
 

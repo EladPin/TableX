@@ -98,8 +98,12 @@ box, contrary to what this file said until 2026-10-02 (`D:` and `F:` do not exis
 all, so the `D:\Downloads\` and `F:\IDF_DB_FOR_CLAUDE\` paths recorded elsewhere here are dead too).
 `git show cfd7b62:TableX/data/partner.json` is the 2026-09-05 May-26 build and
 `git show e9bf098:TableX/data/partner.json` the 2024 one, if either is ever wanted back;
-`partner.json.bak` is now the 2024 database rather than the 90-byte empty file the gotchas warn
-about. Interfex's `partner_cells.json` is from the 2024 export, so the two are **out of step again**
+**Rebuilt once more the same evening, from the same file, by `build_db.py`** — to add the
+new-site kit and the electrical-tilt slot (see "Planet quests" → "The kit"). Nothing else moved:
+sites, sectors, coords, power, CRS and the first four `ant` slots are identical to the build before
+it, and the browser importer produces the same JSON text. That rebuild's `.bak` is therefore the
+May-26 build without the kit — the 2024 database is now only in git (`e9bf098`).
+Interfex's `partner_cells.json` is from the 2024 export, so the two are **out of step again**
 and the cross-check is due; `c:\projects\interfex` is not on this dev box, so it was not re-run.
 
 Shared house style: **no internet on the target machines**, so everything is vendored and
@@ -316,9 +320,10 @@ TableX/
   js/scene.js                 the home page's pixel floor + the ghost that walks it
   js/dbparse.js               the workbook contract — runs as a Web Worker
   js/sitegen.js               a new site, cloned from a real one — the format
-                              contract. Also runs as a Web Worker
-  js/quest.js                 the אתרים חדשים view: load an export, pick a
-                              template, edit, generate
+                              contract, and makeKit(), which the DB import calls
+  js/geo.js                   WGS84 degrees <-> UTM 36N metres (Krüger series)
+  js/quest.js                 the אתרים חדשים view: pick a site from any
+                              database, edit, generate
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/motion.js                press, rings and sliding indicators, for every button
   js/tour.js                  the "?" on the paste card — Planet -> paste -> table, in 5 steps
@@ -327,7 +332,8 @@ TableX/
                               ALSO where window.JSZip comes from; pptx.js needs it
   fonts/                      self-hosted, 17 woff2: IBM Plex Sans Hebrew + Plex Mono
                               (the app), Inter + Heebo (the report preview only)
-  data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors + the plant, 2.0 MB
+  data/partner.json           SHIPPED — 3,129 sites / 16,510 sectors + the plant
+                              + the new-site kit, 2.1 MB
   data/idf.json               SHIPPED — 334 sites / 792 sectors, from the ENM dump
   data/cellcom.json           empty stub - the real DB is built on TS, cannot ship
   data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
@@ -389,15 +395,20 @@ state, not an error — the card renders as "ריק" with a load button.
   "sectors": { "LNN4610Da": ["MN4610A", "Da", 1800, 20] },
   "notes":   { "IDF_Amitay": "סקטורים 2,3 הם של ק.ד 235" },      // optional
   "coords":  { "IDF_Amitay": [622321.5, 3452921] },              // optional
-  "ant":     { "IDF_Amitay_1": [50, 60, 0, "LNX-6515DS.pafx"] }, // optional
+  "ant":     { "IDF_Amitay_1": [50, 60, 0, "LNX-6515DS.pafx", 3] }, // optional
   "pwr":     { "IDF_Amitay_1": 49.03 },                          // optional
-  "crs":     { "IDF_Amitay_1": 0 }                               // optional
+  "crs":     { "IDF_Amitay_1": 0 },                              // optional
+  "kit":     { "v": 1, "sheets": [...], "site": {...}, "bands": {...}, ... } // optional
 }
 ```
 
-**The five optional keys are omitted when empty**, so a database with none of
+**The six optional keys are omitted when empty**, so a database with none of
 them is shape-identical to one built before they existed. `ant` is
-`[height m, azimuth, mechanical tilt, antenna file]`, `pwr` is **PA Power in
+`[height m, azimuth, mechanical tilt, antenna file, electrical tilt]` — the
+fifth slot only when the export carries `Electrical Tilt` (added 2026-10-02 for
+the new-site form; every reader indexes by position, so a four-slot entry is
+still valid). `kit` is the new-site template — see "The kit" under
+"Planet quests". `pwr` is **PA Power in
 dBm as the workbook states it** — watts are a render-time conversion
 (`10^((dBm-30)/10)`, so 49.03 → 80 W and 46.02 → 40 W), never a stored number —
 and `crs` is Planet's **`Reference Signal Power Boosting (dB)`**, also as stated.
@@ -408,6 +419,8 @@ that payload silently wipes what the import collected, the next time somebody
 adds a sector. `OPTIONAL` in `app.js` is the one list all four read. **The
 restore used not to** — until 2026-09-29 restoring a `.json` backup kept only
 `sites` and `sectors` and dropped every coordinate, antenna and power value.
+**Nor did the editor's open** — it listed the keys by hand until 2026-10-02, so
+`kit` would have been the next one a Save quietly dropped; it reads `OPTIONAL` now.
 
 Site names are **deduplicated into `sites`** rather than repeated per sector — a site carries up
 to 12 sectors here and the Hebrew name is by far the longest field. That halves the file
@@ -543,6 +556,11 @@ They carry what a site-data slide needs and the sector sheet does not:
 | `Sector_Antennas` | `Site ID` + `Sector ID` + `Antenna ID`, and NOT an antenna sheet | the same join stated separately, in older exports |
 | whichever has it | `Site ID` + `Sector ID` + `PA Power (dBm)` | the power |
 | whichever has it | `Site ID` + `Sector ID` + `Reference Signal Power Boosting (dB)` | the CRS boost |
+| whichever has it | `Site ID` + `Antenna ID` + `Electrical Tilt` | the electrical tilt, `ant`'s fifth slot (`Antenna_Electrical_Parameters` in the Partner export) |
+
+**A group export also leaves its new-site KIT** (`kit`, 2026-10-02): every sheet's header, one Sites
+row, one donor sector per band with its rows on every sheet. That is why pass 2 now reads a group
+export whole. See "Planet quests" → "The kit".
 
 **`PA Power (dBm)` moves between sheets across Planet versions** — `LTE_FDD_Sectors` in the 2024
 Partner export, `LTE_FDD_Sector_Carriers` in the Planet the team runs now — which is exactly why it
@@ -857,13 +875,19 @@ Three things here are load-bearing:
   thread is that fallback, which is cheap enough against the loader's own minimum to leave alone.
 - **The buffer is structured-cloned, not transferred.** A transfer detaches it in the page, and
   the inline fallback would then have nothing left to parse.
-- **Two passes, and the second is the point.** Pass 1 reads with `sheetRows`, so every sheet
-  yields its header row for almost nothing; pass 2 re-reads with `sheets: [...]` and fully parses
-  **only** the one or two that matched. Reading all seven sheets of the Partner export costs
-  ~6.5 s and most of the memory; the two we use cost ~3 s. Pass 1 must therefore choose sheets
-  from **headers alone** — which is why it hands pass 2 *every* plausible site sheet and lets
-  `bestNameCol` pick the winner from full rows, exactly as `build_db.py` does. Narrowing that to
-  one candidate in pass 1 would silently diverge from the Python parser.
+- **Two passes.** Pass 1 reads with `sheetRows`, so every sheet yields its header row for almost
+  nothing, and decides the LAYOUT from headers alone — which is why it hands on *every* plausible
+  site sheet and lets `bestNameCol` pick the winner from full rows, exactly as `build_db.py` does.
+  Pass 2 parses the flat layout's one sheet, or **a group export WHOLE** (since 2026-10-02): the
+  new-site kit keeps every sheet's header and a donor's row on each, so the sheets the database
+  itself ignores have to be read too. Measured in Node on `Partner_May_26_V3.xlsx`: **6.9 s before,
+  8.9 s now** (the kit itself is ~0.8 s of that) — on an import done every few months, in a Worker.
+  The database it builds is unchanged by this: `buildMulti` uses `find()` with the same predicates,
+  and the shipped `partner.json` came out identical apart from the two new fields.
+- **The Worker loads `sitegen.js` too** (`importScripts('xlsx.full.min.js', 'sitegen.js')`), because
+  `makeKit()` lives there beside the clone it serves. `sitegen.js` therefore must stay free of
+  Worker wiring of its own — it had some until 2026-10-02, and inside this Worker it would have
+  replaced `onmessage`.
 
 ---
 
@@ -1722,7 +1746,9 @@ propagation settings, constraints, link configurations — keep the template's v
 being invented. **SheetJS is already vendored and writes `.xlsx`**, so this adds no dependency.
 The `Sites` sheet's `Longitude` / `Latitude` held **UTM 36N metres** in the photographed export
 (`622321.5` / `3452921`); `coordText()` already decides degrees-or-metres by magnitude and this
-must do the same, not assume.
+must do the same, not assume. *(Built 2026-10-02. Since that evening the rows come from the
+database's kit rather than a loaded export, and the user picks GEO or UTM 36N for the נ.צ — see
+"The kit" and "The view" below.)*
 
 **Step 2 — analyses.** An analysis is **a folder** under `C:\Projects\<project>\LTEFDD_Analyses\`:
 
@@ -1857,34 +1883,101 @@ transformation that makes Planet accept a file can be reproduced on the dev box 
 part. That turns "Planet refused it" from a question only TS can answer into one this box can
 mostly answer, which is worth remembering for the analysis-folder work.
 
+#### The kit — why the view needs no workbook (2026-10-02, evening)
+
+The first build of the view made the user **load a group export** (step 1) and **pick a template
+out of it** (step 2), because the clone needs columns the database does not keep — `Propagation
+Model`, `TAC`, `Carrier Name` and forty more. Elad's review the same evening: the databases are
+already loaded, so loading the workbook again is the step this app exists to remove — "move the
+learning of *Load a group export* into when you load the DB".
+
+**A clone never needed the whole workbook.** It needs every sheet's header, one Sites row, and ONE
+DONOR SECTOR PER BAND with its rows on every sheet. `makeKit()` in `sitegen.js` takes exactly that
+— ~6 KB for Partner's four bands — and the **database import keeps it** as the optional `kit` key.
+So the view searches the loaded databases, and **the site's database IS its network**: nobody says
+which operator it is. Things that are load-bearing:
+
+- **The template now only SEEDS the form; the donors still supply the rows.** That was already
+  true before — `cloneSite` cloned each sector from the first sector carrying its band, never from
+  the template — so nothing about what Planet receives changed. Verified rather than argued: for a
+  3-sector spec on `Partner_May_26_V3.xlsx`, the kit writer and the old full-workbook writer (the
+  one proven on TS) produce **identical workbooks, cell for cell, on all seven sheets**.
+- **Donors are matched by SITE + sector, never by the sector alone.** The old writer used
+  `rows.find(sector)`, which on IDF — whose Sector ID is `1`/`2`/`3` on every site — took whichever
+  site's `1` a sheet listed first. It never bit, because the quest had only been run on Partner.
+  The `quest` suite has a composite fixture that would catch it coming back.
+- **A donor with one row everywhere is preferred** (one carrier, one antenna). Every Partner sector
+  is that shape, so this changes nothing there; it matters for an export with MIMO sectors.
+- **The Sites row is the first donor's, and every column that names a site is cleared** before the
+  new identity goes in (`SITE_BLANK`: Site UID, Description, Site Name, Site Name 2). The old
+  writer copied the template's row; a donor's row would otherwise carry a stranger's name.
+  `BLANK` also clears `E-UTRAN Cell ID` and `Sector UID` now — empty in the Partner export, so a
+  no-op there, and identity everywhere else.
+- **`DEFAULTS` overrides a donor value with a fixed one.** One entry so far (Elad, 2026-10-03):
+  `Synchronization and broadcast power boosting (dB)` is written **0** for every new sector. All
+  16,510 sectors of the May-26 Partner export read **3**, which Elad called a mistake — so every
+  donor hands it on, and the existing sites in the project carry it too.
+- **`kit.idle` lists the export's sites that carry no sector.** The database drops those (no lookup
+  can reach them) but Planet still has them, so the collision guard checks every database's sites,
+  every sector's site, and every kit's `idle` — **across all four networks**, because they share one
+  Planet project.
+- **The band is matched back from `[freq, bw]`.** The importer stores each kit band's parse
+  (`fb`), and a template sector takes the band whose `fb` matches its own — **uniquely, or not at
+  all** (the select then asks). Partner's four bands are unique.
+- **Electrical tilt is now the fifth `ant` slot**, read from `Antenna_Electrical_Parameters`, so a
+  copied site keeps its template's tilt. Before, the form read it from the workbook it had loaded.
+- **`build_db.py` has the same contract** (`make_kit`, a typed sheet reader so numbers stay numbers
+  and strings are not trimmed, the way SheetJS reads with `raw:true`). On `Partner_May_26_V3.xlsx`
+  the two parsers produce **identical JSON text** — kit, `ant` and all.
+- **A database imported before the kit cannot seed a site, and says so** — on its DB card
+  (`אתרים חדשים: לעדכן מייצוא קבוצה`), under the search (a square per network), and on the template
+  card with a button to the databases. **One re-import from a group export fixes it.** Shipped:
+  Partner has a kit; **IDF does not** (built from the ENM dump) and neither do Cellcom or Pelephone
+  on TS until they are next imported.
+
 #### The view — `אתרים חדשים`
 
-Four numbered steps, each revealed by the one before it, because the order is not optional.
+Three steps on one rail, each revealed by the one before it, because the order is not optional.
 
-1. **Load a group export.** The clone needs the WORKBOOK, not the database: `partner.json` carries
-   names, carriers and plant, but not `Propagation Model`, `TAC`, `Carrier Name` or the other forty
-   columns a Planet row has. Only the export has those, which is the whole reason a new site is
-   cloned from a real row rather than written from nothing.
-2. **Pick a template site.** Its sectors **seed the form**, so the fields open holding real values
-   to adjust rather than empty boxes to fill. That is the job restated: copy a site, change its
-   data. The plant is read through the explicit sector→antenna join, never matched by azimuth — a
-   multi-band site has two antennas on one azimuth and matching by it would take whichever was
-   indexed first, the same silent-wrong-answer the Pelephone bandwidth path refuses to give.
-3. **Name the group**, which must already exist in Planet.
-4. **Edit and generate.** Only the identity starts blank: the Site ID and the name are the two
-   things that must be new. A Site ID the export already carries is refused outright.
+1. **Pick a template site** — one search across all four databases (exact Site ID first), Enter
+   takes the first hit. Its sectors **seed the form**, so the fields open holding real values to
+   adjust rather than empty boxes to fill: copy a site, change its data. **A ✕ on the template card
+   puts it back** (asked for by Elad: a template picked by mistake could not be cleared); it asks
+   first only if something was already typed into the sites it seeded.
+2. **Name the group**, which must already exist in Planet. The file name it produces is shown as
+   it is typed, because that name is load-bearing.
+3. **Edit and generate.** Only the identity starts blank. Partner-shaped sector ids fill in from the
+   Site ID as it is typed (and follow it, until the user types one themselves); IDF's `1`/`2`/`3`
+   are copied as they are. Sectors can be added and removed. **Every plant field is required** —
+   blank would not stay blank, it would quietly keep a DONOR's value from some other site. The plant
+   is azimuth, height, mechanical and electrical tilt, antenna, PA power and **CRS** (the
+   `Reference Signal Power Boosting (dB)` boost, added 2026-10-03 on request — written to whichever
+   sheet carries it, the carriers sheet in the May-26 export). **A field whose column the network's
+   export does not carry is switched off** (dashed, `—`) rather than required: a value typed there
+   would have nowhere to go.
 
-**The workbook stays in the Worker.** Reading all seven sheets in full is ~6.5 s — more than the
-database import, which reads only the two sheets it understands — so it cannot run on the main
-thread. But it also must not come BACK: handing the page 16,510 rows × 47 columns would be a
-structured clone of tens of megabytes. The worker instead answers small questions (the site list,
-one site's plant) and returns the finished bytes, transferred rather than copied. `sitegen.js`
-carries the same dual-load tail `dbparse.js` uses, so the Worker and the main-thread fallback are
-one copy of the logic rather than two that can drift.
+**The נ.צ is typed in GEO or UTM 36N**, a per-machine setting (`tablex_coord`); Planet reads either
+(Elad), so what is on screen is what is written. The other format is shown under the fields as a
+check, and a switch converts in place. A row remembers its coordinates **as typed**, in the format
+they were typed in, and converts only for display — so GEO → UTM → GEO shows exactly what was typed.
+The projection is `js/geo.js`: the Krüger series, checked against Wikipedia's worked UTM example
+(CN Tower, 630084 / 4833438) and against an independent Snyder implementation at five Israeli points
+(agreement under 0.1 mm).
+
+**The antenna field completes from the databases** — every `Antenna File` they carry, the template's
+own network first, then the ones on the sector's band, then the most used (`<Generic>` is never
+offered). Arrows, Enter, Tab and Escape behave like a combobox; any other name can still be typed.
 
 **The view states the Excel step every time it generates**, in the toast and in a panel under the
 button. It is the one thing between a generated file and a working import, and burying it in a
 README would mean rediscovering it.
+
+**It moves like the rest of the app** (Elad: the first build "felt static"): the steps sit on a rail
+whose pixel squares light and pop as each is satisfied; a revealed step, a picked template and a new
+site rise in; a removed site or sector leaves and the ones below GLIDE up (`flip()`); a filled or
+converted value flashes; a refused generate shakes the fields it is about and scrolls to the first;
+the antenna list's highlight glides like the seg thumbs. Every ✕ turns a quarter and every + turns a
+quarter, as everywhere else. All of it stops under reduced motion.
 
 #### What the writer is checked against
 
@@ -1896,8 +1989,12 @@ README would mean rediscovering it.
   a valid Planet group export, recovering all 6 sectors, the plant, the Hebrew name and the coords.
   The **`quest` e2e suite** holds the whole chain in a browser, including the two rules that cost
   three trips to TS — one group column named after the group, and a `sharedStrings` part with no
-  `t="str"` cell. Its fixture is a seven-sheet miniature built in the page, so it runs anywhere;
-  the real 8 MB export lives outside the repo and a test needing it would run on one machine only.
+  `t="str"` cell. Its fixture is a seven-sheet miniature built in the page, run through the app's
+  own importer and handed back as the Pelephone database through a fetch override, so it runs
+  anywhere and writes no database file; the real 8 MB export lives outside the repo and a test
+  needing it would run on one machine only.
+  Since the kit (2026-10-02): the kit writer matches the full-workbook writer cell for cell on the
+  May-26 export, and `tools/gen_site.mjs` builds a kit on the spot from the export it is given.
 - **On TS:** Planet's Import accepts it — see above for the two rules that trial corrected and the
   one question it left open.
 - **Not covered anywhere:** how a site generated this way behaves in an ANALYSIS. The import is
@@ -1964,7 +2061,7 @@ what is still genuinely new is an `AnalysisSpecification.xml` cloner and whateve
 
 ```
 .\server.ps1 -NoLaunch            # in one window
-node tools/e2e/run.mjs            # in another — 171 checks, ~85 s
+node tools/e2e/run.mjs            # in another — 200 checks, ~90 s
 node tools/e2e/run.mjs deck       # one suite
 node tools/e2e/run.mjs --keep-shots
 ```
@@ -1979,7 +2076,7 @@ server, `TABLEX_VERBOSE=1` prints passing checks too.
 | `engine` | `js/pptx.js` — parse a package, insert a picture, clone/reorder/delete slides, then **re-open the output** and assert on it, including that no relationship dangles |
 | `deck`   | the whole Decks flow — upload a template, mark slots, mark a slide repeating, save to the server, drop images, build, re-open, and confirm the report table came out as a native `<a:tbl>` |
 | `app`    | the lookup view, in-table editing, the site editor's add form, that a chained cell resolves under BOTH its ENM and its Planet spelling, the site-data sheet, the databases view, and the "?" tour end to end |
-| `quest`  | אתרים חדשים end to end — builds a seven-sheet group export in the page, loads it, picks a template, refuses a Site ID the export already carries, generates, and reads the workbook back: one group column named after the group and TRUE, the per-band donor's propagation model, PCI blanked, antennas renumbered, and a `sharedStrings` part with no `t="str"` cell |
+| `quest`  | אתרים חדשים end to end — builds a seven-sheet group export in the page, runs it through the app's importer and checks the kit (and a composite IDF-style one: donors matched by site + sector), seeds it as a database, picks a template from the search, clears and re-picks it, refuses Site IDs from ANOTHER network and from the kit's sector-less sites, follows the Site ID into the sector ids, converts GEO ↔ UTM and back exactly, picks an antenna from the list, generates in UTM, and reads the workbook back: one group column named after the group and TRUE, the per-band donor's propagation model, PCI blanked, electrical tilt carried, an edited CRS written, antennas renumbered, a `sharedStrings` part with no `t="str"` cell — and that a database without a kit says so |
 
 **Why a browser and not unit tests.** Everything worth testing here is interactive — clicking a
 slot onto a slide, dragging it, typing into a table cell, feeding a `.pptx` through a file input.
@@ -2293,7 +2390,18 @@ commits, `60557eb`, `6fc5511`, `09d5654`, plus `b31a88d` for the nav.
 under "Planet quests", and the confidence levels beside it — three trips to TS were spent because
 one trial changed three things at once.
 
+**That evening the quest lost its workbook step** (Elad's review): the database import now keeps a
+clone kit, so אתרים חדשים searches the loaded databases instead of asking for an export, and the view
+was redone to move like the rest of the app — clearable template, GEO/UTM entry, antenna completion.
+See "The kit" and "The view" under "Planet quests".
+
 Things raised with Elad and not settled. Each is small; none is a defect in what shipped.
+
+- **Cellcom, Pelephone and IDF need ONE re-import on TS before they can seed a new site.** Their
+  databases were imported before the kit existed (IDF's shipped one is the ENM build, which has no
+  workbook behind it at all). Their DB cards say so, and so does the quest view. Partner ships with
+  a kit. The first IDF import from `IDF_Share` is also the first real test of the composite-key kit
+  and of the IDF `Antenna File` spellings.
 
 - ~~**Partner is the 2024 export**, 434 sites short of today's network.~~ **Closed 2026-10-02** —
   rebuilt from `Partner_May_26_V3.xlsx`, which carried the plant all along (see "Sibling projects").
@@ -2422,7 +2530,8 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   colour in `main.css` and animated opacity in attributes — see "The floor".
 - When you touch the workbook contract, **touch both parsers** — `js/dbparse.js` and
   `tools/build_db.py` — **and check `js/sitegen.js`**, which reads the same export to clone a site
-  out of it and looks up a dozen headers by name.
+  out of it and looks up a dozen headers by name. Its `makeKit()` has a Python twin, `make_kit()` in
+  `build_db.py`; the two must keep writing the same JSON text, so diff them on a real export.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
   in `server.ps1`, `LABELS` in `tools/build_db.py`, and a `data/<net>.json` stub.
 - When you add a VIEW, **touch four places**: the `<main class="view">` in `index.html`, its nav
