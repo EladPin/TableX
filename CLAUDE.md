@@ -179,17 +179,20 @@ powershell -ExecutionPolicy Bypass -Command "npm run build"
 Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
 ```
 
-Last build **2026-09-29 at commit `251a296`**, version 1.2.0: electron 33.4.11 + electron-builder
+Last build **2026-10-03 at commit `d82df9a`**, version 1.3.0: electron 33.4.11 + electron-builder
 26.15.3, target `dir`, no winCodeSign symlink error. **`dist\TableX.zip`, 111.2 MB.** Carries the
-Signal redesign, the output styles and Stylish, the CRS column, the chip in the export, the
-maximized window, and the 2024 Partner export with its plant (1.8 MB of the growth). Verified on
-**the zip itself**, expanded to a scratch folder: its own `server.ps1` under all three suites,
-**144/144**; its `data/` holds the four databases with no `.bak` and no `tpl/`; and its exe,
-launched with `ELECTRON_RUN_AS_NODE` cleared and read through `user32`, showed a first visible frame
-already maximized, (−8,−8) → (1928,1048) on 1920×1080, and left no process behind on close.
-`main.js` was recreated from the 2026-09-23 build's own copy (`dist\win-unpacked\resources\app\`)
-with the `createWindow()` below swapped in. (Before that: 2026-09-23 at `a037fa7`, 110.8 MB,
-116/116; 2026-09-10 at `7e612e9`, 110.8 MB, 40/40; 2026-09-06 at `fd7ae0d`, 110.7 MB.)
+May-26 Partner database with its new-site kit and electrical tilt, the אתרים חדשים view working
+from the databases (GEO/UTM, antenna completion, CRS, the rail), and the renamed nav. Verified on
+**the zip itself**, expanded to a scratch folder: its own `server.ps1` under all four suites,
+**201/201**; its `data/` holds the four databases with no `.bak` and no `tpl/` (and its
+`partner.json` byte-identical to the repo's); and its exe, launched with `ELECTRON_RUN_AS_NODE`
+cleared and read through `user32`, showed a first visible frame already maximized, (−8,−8) →
+(1928,1040) on 1920×1080, served the page, and on close left zero `TableX` processes and port 8094
+released. **`main.js` was written from this section**, not copied: `dist\` was gone from the dev box,
+so there was no previous build to take it from. The copy that shipped is inside the zip at
+`resources\app\main.js` — take it from there next time. (Before: 2026-09-29 at `251a296`, 111.2 MB,
+144/144; 2026-09-23 at `a037fa7`, 110.8 MB, 116/116; 2026-09-10 at `7e612e9`, 110.8 MB, 40/40;
+2026-09-06 at `fd7ae0d`, 110.7 MB.)
 
 The app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`.
 **Point the suites at the PACKAGED server, not the repo one** — that is what makes the shipped
