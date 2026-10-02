@@ -1382,6 +1382,12 @@ it, pine ink, one mint, 6/12/20px geometry, the pixel square as the only ornamen
 landscape as the home page's floor, and a motion layer in which every button moves. Read its **Invariants** before
 touching the UI.
 
+**The nav names the five jobs, in the order they are done** (2026-10-02): `ניתוח נקודות` ·
+`מפרט אתר` · `אתרים חדשים` · `חיפוש אתר` · `מצגות`, then `מסדי נתונים`. The point analysis is no
+longer first because it is the only thing the app does — it is first because it is the oldest. The
+paste card keeps its own title (`paste.title`), which describes the action in the card rather than
+naming the view, so renaming the nav left it alone.
+
 **The home page is the paste and nothing else** (2026-09-29): no hero, no headline, no format
 note. The databases have their own view (`viewDb`, the nav's Databases link and the status chip
 both go there), and how to get the paste out of Planet is behind the "?" — see below.
@@ -2028,9 +2034,9 @@ times a day, and the answer was a Planet session.
 
 ---
 
-## Site data — the sheet a coverage request needs
+## Site spec — the sheet a coverage request needs
 
-`נתוני אתר` in the nav. Search sites across all four networks, pick any number of them,
+`מפרט אתר` in the nav (`Site spec`). Search sites across all four networks, pick any number of them,
 and get a white RTL sheet of every sector they carry — **סקטור · תדר מרכזי · רוחב פס ·
 אזימוט · גובה · דגם אנטנה · הספק · CRS** — under the site's Hebrew name, id, operator and
 coordinates. PPTX or print, same two buttons as the report. CRS was added 2026-09-29 (see the
