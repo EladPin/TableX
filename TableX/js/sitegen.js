@@ -6,11 +6,11 @@
    change its data by hand, 13+ times a round. This writes that workbook.
 
    THE ONE RULE, and it is the Decks rule one file over: we never author a
-   Planet row we do not understand. A new site is built by CLONING a real
-   one's rows across every sheet and overwriting only the fields the user
-   supplied. The 47 columns of LTE_FDD_Sector_Carriers — PUSCH power control,
-   Zadoff-Chu sequences, power recycling — keep whatever Planet itself wrote.
-   What comes out is a row Planet made, with our values in it.
+   Planet row we do not understand. A new site is built by CLONING real rows
+   across every sheet and overwriting only the fields the user supplied. The
+   47 columns of LTE_FDD_Sector_Carriers — PUSCH power control, Zadoff-Chu
+   sequences, power recycling — keep whatever Planet itself wrote. What comes
+   out is a row Planet made, with our values in it.
 
    THE DONOR IS PER SECTOR, NOT PER SITE. A band choice drags four other
    columns with it: 1800_20 means Propagation Model P3M_1800MHz_*.pmf,
@@ -20,28 +20,58 @@
    drift — each new sector clones a sector that ALREADY CARRIES ITS BAND. The
    derived columns then come out right because Planet set them.
 
+   THE KIT. Which means a clone never needs the whole workbook — only every
+   sheet's header, one Sites row, and one donor sector per band with its rows
+   on every sheet. That is a few kilobytes, so the DATABASE IMPORT keeps it
+   (dbparse.js and build_db.py both call makeKit's contract) and stores it in
+   data/<network>.json as `kit`. The new-site view then works from the
+   databases that are already loaded: pick any site in any network, and the
+   network's own kit supplies the rows. No second file to load, and no
+   "which operator is this" — the site's database says.
+
    EVERYTHING IS FOUND BY HEADER, never by column index, the same contract
    dbparse.js and build_db.py hold. An export with an extra column still works.
 
-   Loaded as a plain <script> by index.html (exposing self.TableXSiteGen) and
-   as a module by tools/gen_site.mjs, so the Node driver and the app share ONE
-   copy of this — the pattern dbparse.js already uses, for the same reason.
+   Loaded as a plain <script> by index.html (exposing self.TableXSiteGen), by
+   dbparse.js's Worker through importScripts, and as a module by
+   tools/gen_site.mjs — ONE copy of the clone contract for all three.
    ═══════════════════════════════════════════════════════════════════ */
 (function (scope) {
   'use strict';
 
   // The join columns. A clone is only safe if every row that points at the
-  // template site is found and re-pointed, so these are the whole contract.
+  // donor is found and re-pointed, so these are the whole contract.
   const SITE = 'site id', SECTOR = 'sector id', ANT = 'antenna id';
 
-  // Blanked on every clone. A cloned PCI is the template's PCI, and two
-  // sites radiating the same PCI in one area is the exact fault Interfex
-  // exists to find — a confident wrong answer, which this codebase does not
-  // ship. Blank is visible; wrong is not.
+  // Blanked on every clone. A cloned PCI is the donor's PCI, and two sites
+  // radiating the same PCI in one area is the exact fault Interfex exists to
+  // find — a confident wrong answer, which this codebase does not ship. Blank
+  // is visible; wrong is not. Proven accepted by Planet's import on TS
+  // (2026-10-02). The UIDs and the E-UTRAN cell id are identity of the same
+  // kind: empty in the Partner export, and a copied one would claim to be
+  // somebody else's cell.
   const BLANK = ['physical cell id', 'physical cell id group',
-                 'physical layer id', 'cell id'];
+                 'physical layer id', 'cell id', 'e-utran cell id', 'sector uid'];
+
+  // Set on every cloned row, whatever the donor carries. Elad, 2026-10-03:
+  // `Synchronization and broadcast power boosting (dB)` must be 0 for a new
+  // site — every one of the 16,510 sectors in the May-26 Partner export reads
+  // 3, so every donor would hand that 3 on. A column, its value; only applied
+  // where the export carries the column.
+  const DEFAULTS = { 'synchronization and broadcast power boosting (db)': 0 };
+
+  // The Sites row is the DONOR's, not the template's, so every column that
+  // names a site is cleared before the new identity is written in. Carrying
+  // a stranger's name or UID into a new site is the one thing worse than a
+  // blank.
+  const SITE_BLANK = ['site uid', 'description', 'site name', 'site name 2'];
+
+  // Bumped if the kit's shape ever changes, so a database imported by an
+  // older TableX can be told apart from a current one.
+  const KIT_VERSION = 1;
 
   const norm = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
+  const str = v => String(v == null ? '' : v).trim();
 
   /* ── reading a workbook as rows ──────────────────────────────────── */
 
@@ -55,10 +85,14 @@
       const grid = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
       if (!grid.length) return null;
       const head = grid[0];
-      const hdr = Object.create(null);
-      head.forEach((h, i) => { const k = norm(h); if (k && !(k in hdr)) hdr[k] = i; });
-      return { name, hdr, head, rows: grid.slice(1) };
+      return { name, hdr: hdrOf(head), head, rows: grid.slice(1) };
     }).filter(Boolean);
+  }
+
+  function hdrOf(head) {
+    const hdr = Object.create(null);
+    head.forEach((h, i) => { const k = norm(h); if (k && !(k in hdr)) hdr[k] = i; });
+    return hdr;
   }
 
   const at = (row, hdr, key) => {
@@ -73,32 +107,171 @@
     return true;
   }
 
-  /* ── what a site is made of ──────────────────────────────────────── */
+  // A header is trimmed of trailing blanks and every stored row is cut or
+  // padded to it. SheetJS pads a row to the sheet's range and build_db.py to
+  // the row's last cell, so without this the two parsers would store the
+  // same kit at two different widths.
+  function trimHead(head) {
+    let n = head.length;
+    while (n && (head[n - 1] === '' || head[n - 1] == null)) n--;
+    return head.slice(0, n);
+  }
+  const fit = (row, n) => {
+    const r = row.slice(0, n);
+    while (r.length < n) r.push('');
+    return r;
+  };
 
-  // Every row on every sheet that belongs to one site, which is what the
-  // clone has to reproduce. A six-sector Partner site is 37 rows over seven
-  // sheets; nothing here assumes that shape, it just follows Site ID.
-  function siteRows(sheets, siteId) {
-    const want = norm(siteId);
-    return sheets.map(sh => ({
-      sheet: sh,
-      rows: sh.hdr[SITE] == null ? []
-        : sh.rows.filter(r => norm(at(r, sh.hdr, SITE)) === want),
-    }));
+  /* ── the kit ─────────────────────────────────────────────────────── */
+
+  const isSiteRows = sh => sh.hdr[SITE] != null && sh.hdr[SECTOR] == null
+    && sh.hdr[ANT] == null && sh.hdr['longitude'] != null;
+
+  /**
+   * Everything a new site needs from a group export, and nothing else.
+   *
+   *   { v, sheets: [{name, head}],     every sheet, headers verbatim
+   *     site: {sheet, row},            one Sites row, the columns a site inherits
+   *     name: 'description',           the column the site name goes in
+   *     composite: bool,               Sector ID repeats per site (IDF)
+   *     bands: { '1800_20': { site, sector, fb: [freq, bw],
+   *                           rows: { <sheet>: [row, ...] } } },
+   *     idle: [site ids the export carries that hold no sector] }
+   *
+   * opts = { band: name -> [freq, bw], nameCol, composite } — supplied by the
+   * importer, which is what knows how this network's Band Name parses.
+   *
+   * Returns null when the workbook has no sectors sheet: nothing to clone.
+   */
+  function makeKit(sheets, opts) {
+    const o = opts || {};
+    const sec = sheets.find(sh => sh.hdr[SITE] != null && sh.hdr[SECTOR] != null
+      && sh.hdr['band name'] != null);
+    if (!sec) return null;
+
+    const pair = (site, sector) => norm(site) + '\u0000' + norm(sector);
+    const secKeyed = sheets.filter(sh => sh.hdr[SITE] != null && sh.hdr[SECTOR] != null);
+    const antKeyed = sheets.filter(sh => sh.hdr[SITE] != null && sh.hdr[ANT] != null
+      && sh.hdr[SECTOR] == null);
+    const join = secKeyed.find(sh => sh.hdr[ANT] != null);
+
+    // How many rows each sector has on every sector-keyed sheet. A donor with
+    // exactly one everywhere is preferred: one carrier, one antenna, nothing
+    // for the clone to have to choose between. Every sector in the May-26
+    // Partner export is that shape; a MIMO one is only taken when its band
+    // has nothing simpler.
+    const counts = secKeyed.map(sh => {
+      const m = new Map();
+      for (const r of sh.rows) {
+        const k = pair(at(r, sh.hdr, SITE), at(r, sh.hdr, SECTOR));
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      return m;
+    });
+    const simple = k => counts.every(m => m.get(k) === 1);
+
+    const chosen = new Map(), first = new Map();
+    for (const r of sec.rows) {
+      const band = str(at(r, sec.hdr, 'band name'));
+      const site = str(at(r, sec.hdr, SITE)), sector = str(at(r, sec.hdr, SECTOR));
+      if (!band || !site || !sector || chosen.has(band)) continue;
+      if (!first.has(band)) first.set(band, { site, sector });
+      if (simple(pair(site, sector))) chosen.set(band, { site, sector });
+    }
+    for (const [band, d] of first) if (!chosen.has(band)) chosen.set(band, d);
+
+    // The antenna serving a sector: the explicit join when the export states
+    // one, else an antenna sheet that names what it serves. Never matched by
+    // azimuth — a multi-band site has two antennas on one.
+    function antennaOf(site, sector) {
+      if (join) {
+        const r = join.rows.find(x =>
+          pair(at(x, join.hdr, SITE), at(x, join.hdr, SECTOR)) === pair(site, sector));
+        return r ? at(r, join.hdr, ANT) : null;
+      }
+      for (const sh of antKeyed) {
+        if (sh.hdr['sectors'] == null) continue;
+        const r = sh.rows.find(x => norm(at(x, sh.hdr, SITE)) === norm(site)
+          && String(at(x, sh.hdr, 'sectors')).split(',').some(t => norm(t) === norm(sector)));
+        if (r) return at(r, sh.hdr, ANT);
+      }
+      return null;
+    }
+
+    const width = new Map(sheets.map(sh => [sh.name, trimHead(sh.head).length]));
+    const bands = {};
+    // Map order is first appearance in the sectors sheet — the same order
+    // build_db.py's dict keeps, so both parsers write the same JSON.
+    for (const band of first.keys()) {
+      const d = chosen.get(band);
+      const antId = antennaOf(d.site, d.sector);
+      const rows = {};
+      for (const sh of sheets) {
+        const h = sh.hdr;
+        let got = [];
+        if (h[SITE] != null && h[SECTOR] != null) {
+          got = sh.rows.filter(r => pair(at(r, h, SITE), at(r, h, SECTOR)) === pair(d.site, d.sector)
+            // a join sheet carries one row per antenna; keep the one cloned
+            && (h[ANT] == null || antId == null || norm(at(r, h, ANT)) === norm(antId)));
+        } else if (h[SITE] != null && h[ANT] != null && antId != null) {
+          got = sh.rows.filter(r => norm(at(r, h, SITE)) === norm(d.site)
+            && norm(at(r, h, ANT)) === norm(antId));
+        }
+        if (got.length) rows[sh.name] = got.map(r => fit(r, width.get(sh.name)));
+      }
+      bands[band] = { site: d.site, sector: d.sector,
+                      fb: o.band ? o.band(band) : null, rows };
+    }
+
+    // One Sites row: the first donor's own, so it comes from a site that is
+    // known to be whole. Every column that names a site is cleared at clone
+    // time (SITE_BLANK), so whose row it was never reaches the output.
+    const siteSheet = sheets.find(isSiteRows);
+    let site = null;
+    if (siteSheet) {
+      const d = chosen.get(first.keys().next().value);
+      const r = (d && siteSheet.rows.find(x => norm(at(x, siteSheet.hdr, SITE)) === norm(d.site)))
+        || siteSheet.rows.find(x => str(at(x, siteSheet.hdr, SITE)));
+      if (r) site = { sheet: siteSheet.name, row: fit(r, width.get(siteSheet.name)) };
+    }
+
+    // Site ids the export carries that the DATABASE will not: a site with no
+    // sector is dropped from it (unreachable by any lookup), but it is still
+    // a site in Planet, and a new site must not reuse its id.
+    const withSectors = new Set();
+    for (const r of sec.rows) withSectors.add(norm(at(r, sec.hdr, SITE)));
+    const idle = [], seen = new Set();
+    for (const sh of sheets) {
+      if (sh.hdr[SITE] == null) continue;
+      for (const r of sh.rows) {
+        const id = str(at(r, sh.hdr, SITE));
+        if (!id || withSectors.has(norm(id)) || seen.has(id)) continue;
+        seen.add(id);
+        idle.push(id);
+      }
+    }
+
+    return {
+      v: KIT_VERSION,
+      sheets: sheets.map(sh => ({ name: sh.name, head: trimHead(sh.head) })),
+      site,
+      name: o.nameCol || 'description',
+      composite: !!o.composite,
+      bands,
+      idle,
+    };
   }
 
-  // Which bands the workbook carries, each with a sector that uses it. That
-  // sector is the donor for a new sector on that band.
-  function bandDonors(sheets) {
-    const sec = sheets.find(sh => sh.hdr[SECTOR] != null && sh.hdr['band name'] != null);
-    const out = new Map();
-    if (!sec) return out;
-    for (const r of sec.rows) {
-      const band = String(at(r, sec.hdr, 'band name') || '').trim();
-      const id = String(at(r, sec.hdr, SECTOR) || '').trim();
-      if (band && id && !out.has(band)) out.set(band, id);
-    }
-    return out;
+  // The band a database sector is on, by the [freq, bw] the importer parsed
+  // it to. Unique or nothing: where two bands parse alike the form asks
+  // rather than picks — the rule the Pelephone bandwidth path follows.
+  function bandFor(kit, freq, bw) {
+    if (!kit || freq == null) return '';
+    const hits = Object.keys(kit.bands).filter(b => {
+      const fb = kit.bands[b].fb;
+      return fb && fb[0] === freq && (bw == null || fb[1] === bw);
+    });
+    return hits.length === 1 ? hits[0] : '';
   }
 
   /* ── the clone ───────────────────────────────────────────────────── */
@@ -106,120 +279,81 @@
   /**
    * One new site, as rows per sheet.
    *
-   * spec = { siteId, name, lon, lat, templateSite, sectors: [ {
-   *            sectorId, band, az, height, tilt, etilt, model, pwr,
-   *            donorSector     // optional; defaults to a sector on that band
-   *          } ] }
+   * spec = { siteId, name, lon, lat, sectors: [ {
+   *            sectorId, band, az, height, tilt, etilt, model, pwr, crs } ] }
    *
    * Returns { rows: Map<sheet name, row[]>, warnings: [] }.
    */
-  function cloneSite(sheets, spec) {
+  function cloneSite(kit, spec) {
     const warn = [];
     const out = new Map();
-    const donors = bandDonors(sheets);
+    const heads = new Map(kit.sheets.map(s => [s.name, hdrOf(s.head)]));
     const add = (name, row) => {
       if (!out.has(name)) out.set(name, []);
       out.get(name).push(row);
     };
 
-    /* the Sites row — cloned from the template site, which is where the
-       columns nobody set (Candidate Priority, Site UID) come from. */
-    const tmpl = siteRows(sheets, spec.templateSite);
-    const siteSheet = tmpl.find(t => t.sheet.hdr[SITE] != null
-      && t.sheet.hdr[SECTOR] == null && t.sheet.hdr[ANT] == null
-      && t.sheet.hdr['longitude'] != null);
-    if (!siteSheet || !siteSheet.rows.length) {
-      warn.push('template site ' + spec.templateSite + ' has no Sites row');
+    if (!kit.site) {
+      warn.push('the template carries no Sites row — the site was not written');
     } else {
-      const sh = siteSheet.sheet, row = siteSheet.rows[0].slice();
-      put(row, sh.hdr, SITE, spec.siteId);
-      if (spec.lon != null) put(row, sh.hdr, 'longitude', spec.lon);
-      if (spec.lat != null) put(row, sh.hdr, 'latitude', spec.lat);
-      // The Hebrew name lives in Description — Planet's `Site Name` column is
-      // empty in all 3,129 rows of the Partner export (see the DB contract).
-      if (spec.name != null) put(row, sh.hdr, 'description', spec.name);
-      add(sh.name, row);
+      const h = heads.get(kit.site.sheet), row = kit.site.row.slice();
+      for (const k of SITE_BLANK) put(row, h, k, '');
+      put(row, h, SITE, spec.siteId);
+      if (spec.lon != null) put(row, h, 'longitude', spec.lon);
+      if (spec.lat != null) put(row, h, 'latitude', spec.lat);
+      // The name goes in whichever column the importer found it in —
+      // `Description` for Partner, whose `Site Name` is empty in all 3,129
+      // rows (see the DB contract).
+      if (spec.name != null) put(row, h, kit.name || 'description', spec.name);
+      add(kit.site.sheet, row);
     }
 
-    /* one antenna per sector, numbered 1..N for the new site. The template's
-       own numbering is not followed: EA0402C uses 1,2,7,8,9,10, and the join
-       only has to be internally consistent, not to match anyone else's. */
+    /* one antenna per sector, numbered 1..N for the new site. The donor's
+       own numbering is not followed: the join only has to be internally
+       consistent, not to match anyone else's. */
     spec.sectors.forEach((s, i) => {
       const antId = i + 1;
-      const band = String(s.band || '').trim();
-      const donorId = s.donorSector || donors.get(band);
-      if (!donorId) {
-        warn.push('no sector in the template workbook carries band "' + band
+      const band = str(s.band);
+      const d = kit.bands[band];
+      if (!d) {
+        warn.push('no sector in the export carries band "' + band
           + '" — sector ' + s.sectorId + ' was not written');
         return;
       }
-      const donor = String(donorId);
-      const dSite = sectorsSite(sheets, donor);
+      for (const name of Object.keys(d.rows)) {
+        const h = heads.get(name);
+        if (!h) continue;
+        for (const src of d.rows[name]) {
+          const row = src.slice();
+          put(row, h, SITE, spec.siteId);
+          if (h[SECTOR] != null) put(row, h, SECTOR, s.sectorId);
+          if (h[ANT] != null) put(row, h, ANT, antId);
+          // The antenna sheet names the sector it serves in its own column.
+          if (h['sectors'] != null) put(row, h, 'sectors', s.sectorId);
 
-      for (const sh of sheets) {
-        const h = sh.hdr;
-        if (h[SITE] == null) continue;
+          // user values, each only where that sheet carries the column
+          if (spec.lon != null) put(row, h, 'longitude', spec.lon);
+          if (spec.lat != null) put(row, h, 'latitude', spec.lat);
+          if (s.az != null) put(row, h, 'azimuth', s.az);
+          if (s.height != null) put(row, h, 'height (m)', s.height);
+          if (s.tilt != null) put(row, h, 'mechanical tilt', s.tilt);
+          if (s.etilt != null) put(row, h, 'electrical tilt', s.etilt);
+          if (s.model) put(row, h, 'antenna file', s.model);
+          if (s.pwr != null) put(row, h, 'pa power (dbm)', s.pwr);
+          // the CRS boost, on whichever sheet carries it — LTE_FDD_Sectors in
+          // the 2024 Partner export, the carriers sheet in the May-26 one
+          if (s.crs != null) put(row, h, 'reference signal power boosting (db)', s.crs);
 
-        // A sheet keyed by Sector ID clones the donor's row for that sector;
-        // a sheet keyed by Antenna ID alone clones the donor's antenna row.
-        let src = null;
-        if (h[SECTOR] != null) {
-          src = sh.rows.find(r => norm(at(r, h, SECTOR)) === norm(donor));
-        } else if (h[ANT] != null && dSite) {
-          const aId = donorAntenna(sheets, donor);
-          src = aId == null ? null : sh.rows.find(r =>
-            norm(at(r, h, SITE)) === norm(dSite) && norm(at(r, h, ANT)) === norm(aId));
+          // `keepIdentity` predates the TS trial that proved a blank is
+          // accepted; it is kept as the fallback, with no known use.
+          if (!spec.keepIdentity) for (const k of BLANK) if (h[k] != null) put(row, h, k, '');
+          for (const k in DEFAULTS) if (h[k] != null) put(row, h, k, DEFAULTS[k]);
+          add(name, row);
         }
-        if (!src) continue;
-
-        const row = src.slice();
-        put(row, h, SITE, spec.siteId);
-        if (h[SECTOR] != null) put(row, h, SECTOR, s.sectorId);
-        if (h[ANT] != null) put(row, h, ANT, antId);
-
-        // The antenna sheet names the sector it serves in its own column.
-        if (h['sectors'] != null) put(row, h, 'sectors', s.sectorId);
-
-        // user values, each only where that sheet carries the column
-        if (spec.lon != null) put(row, h, 'longitude', spec.lon);
-        if (spec.lat != null) put(row, h, 'latitude', spec.lat);
-        if (s.az != null) put(row, h, 'azimuth', s.az);
-        if (s.height != null) put(row, h, 'height (m)', s.height);
-        if (s.tilt != null) put(row, h, 'mechanical tilt', s.tilt);
-        if (s.etilt != null) put(row, h, 'electrical tilt', s.etilt);
-        if (s.model) put(row, h, 'antenna file', s.model);
-        if (s.pwr != null) put(row, h, 'pa power (dbm)', s.pwr);
-
-        // Identity Planet must assign, never us. `keepIdentity` exists only
-        // because whether Planet's import ACCEPTS a blank here is unknown
-        // until someone tries it on TS; it is the fallback, not the default.
-        if (!spec.keepIdentity) {
-          for (const k of BLANK) if (h[k] != null) put(row, h, k, '');
-        }
-
-        add(sh.name, row);
       }
     });
 
     return { rows: out, warnings: warn };
-  }
-
-  // Which site a sector belongs to, and which antenna serves it — both read
-  // off the workbook rather than derived from the id, since only Partner's
-  // ids encode their site.
-  function sectorsSite(sheets, sectorId) {
-    for (const sh of sheets) {
-      if (sh.hdr[SECTOR] == null || sh.hdr[SITE] == null) continue;
-      const r = sh.rows.find(x => norm(at(x, sh.hdr, SECTOR)) === norm(sectorId));
-      if (r) return String(at(r, sh.hdr, SITE) || '').trim();
-    }
-    return '';
-  }
-  function donorAntenna(sheets, sectorId) {
-    const join = sheets.find(sh => sh.hdr[SECTOR] != null && sh.hdr[ANT] != null);
-    if (!join) return null;
-    const r = join.rows.find(x => norm(at(x, join.hdr, SECTOR)) === norm(sectorId));
-    return r ? at(r, join.hdr, ANT) : null;
   }
 
   /* ── groups ──────────────────────────────────────────────────────── */
@@ -239,17 +373,16 @@
    * column is renamed to the group the user made and set TRUE on every row.
    *
    * EVERY OTHER `Group:` COLUMN IS DELETED, and that is the load-bearing
-   * half. A cloned row arrives carrying the template's memberships — the
-   * Partner export's rows are `Group: PARTNER = TRUE` and one `PHI_*` column
-   * TRUE — so importing one unchanged would quietly add the new site to two
-   * of the team's real groups in a SHARED project. A quest may add clearly
-   * named new things; it must never change something that was already there.
+   * half. A cloned row arrives carrying the donor's memberships — the Partner
+   * export's rows are `Group: PARTNER = TRUE` and one `PHI_*` column TRUE —
+   * so importing one unchanged would quietly add the new site to two of the
+   * team's real groups in a SHARED project. A quest may add clearly named
+   * new things; it must never change something that was already there.
    *
-   * DELETED rather than set FALSE, because that is what was PROVEN on TS
-   * (2026-10-02): an import carrying the other group columns was refused, and
-   * the same workbook with them removed was accepted. Setting them FALSE was
-   * this file's first answer and it was reasoning, not evidence — keeping the
-   * shape Planet produced sounded safer right up until Planet disagreed.
+   * Deleting them was never proven NECESSARY for the import (the TS trial
+   * that removed them also re-saved the file in Excel, which is what made it
+   * import). They are deleted for the membership reason above, which stands
+   * on its own — do not "simplify" this back to FALSE.
    */
   function applyGroup(head, rows, groupName) {
     const warn = [];
@@ -299,17 +432,17 @@
    * of the source export. The team imports single sites routinely, so a small
    * file of new rows is what their own routine already expects.
    */
-  function buildWorkbook(XLSX, sheets, specs, opts) {
+  function buildWorkbook(XLSX, kit, specs, opts) {
     const groupName = opts && opts.groupName ? String(opts.groupName).trim() : '';
-    const all = specs.map(s => cloneSite(sheets, s));
+    const all = specs.map(s => cloneSite(kit, s));
     const out = XLSX.utils.book_new();
     const warnings = all.flatMap(c => c.warnings);
 
-    for (const sh of sheets) {
+    for (const sh of kit.sheets) {
       const rows = [];
       for (const c of all) if (c.rows.has(sh.name)) rows.push(...c.rows.get(sh.name));
-      // The header is COPIED before the group column is renamed, so the source
-      // sheets stay as they were read and a second build is not affected.
+      // The header is COPIED before the group column is renamed, so the kit
+      // stays as it was read and a second build is not affected.
       const head = sh.head.slice();
       if (rows.length) warnings.push(...applyGroup(head, rows, groupName));
       // Every sheet is emitted, headers and all, even when empty — the export
@@ -325,183 +458,51 @@
    * `bookSST: true` IS NOT OPTIONAL. Without it SheetJS writes every text cell
    * as `t="str"`, which in OOXML means a FORMULA's cached string result, not a
    * literal text cell — a literal is `t="s"` indexing `sharedStrings.xml`, or
-   * `t="inlineStr"`. Excel is lenient and reads `t="str"` happily; Planet is
-   * not, and refused the file (TS, 2026-10-02). Opening it in Excel and
-   * saving fixed it precisely because Excel rewrote every cell as `t="s"` and
-   * built the shared-strings table SheetJS had left out.
-   *
-   * With it, our Sites row comes out the same shape as the row in Planet's
-   * own export, shared-string indices and all.
+   * `t="inlineStr"`. Excel is lenient and reads `t="str"` happily; Planet's
+   * own export and Excel's re-save both use `t="s"`, and ours now does too.
+   * (It did not, on its own, make Planet accept the file — the Excel re-save
+   * still does that. See CLAUDE.md "The Excel round trip".)
    */
   function writeWorkbook(XLSX, wb) {
-    return XLSX.write(wb, { bookType: 'xlsx', type: 'buffer', bookSST: true });
+    return XLSX.write(wb, { bookType: 'xlsx', type: 'array', bookSST: true });
   }
 
   /* ── helpers the form needs ──────────────────────────────────────── */
 
-  // THE FILE NAME IS THE GROUP NAME. Proven on TS 2026-10-02: the same
-  // workbook was refused as `TableX_new_site_TX9001A.xlsx` and accepted as
-  // `TableX_Test.xlsx`, the name of the group made in Planet beforehand. So
-  // the download name is load-bearing, not cosmetic, and ONE FILE IS ONE
-  // GROUP — several groups in a round means several files.
+  // THE FILE NAME IS THE GROUP NAME — Elad's own knowledge of how Planet
+  // names a group, and the TS trial is consistent with it. So the download
+  // name is load-bearing, not cosmetic, and ONE FILE IS ONE GROUP — several
+  // groups in a round means several files.
   const groupFileName = groupName => (String(groupName || '').trim() || 'sites') + '.xlsx';
 
   // Partner names a sector L + the site id without its trailing letter + the
   // sector code: EA0402C -> LEA0402Da. A SUGGESTION for the form to prefill,
-  // never applied on its own — the other three operators name sectors their
-  // own way, and nothing here should guess an id that goes into Planet.
+  // never applied on its own — the other operators name sectors their own
+  // way, and nothing here should guess an id that goes into Planet.
   function suggestSectorId(siteId, sector) {
     const s = String(siteId || '').trim();
     if (!/^[A-Z]{2}\d{4}[A-Z]$/i.test(s)) return '';
     return 'L' + s.slice(0, -1).toUpperCase() + String(sector || '');
   }
 
-  // Every Site ID the source export already carries, so a generated one can
-  // be refused before it reaches a shared project. An import that reuses an
-  // id overwrites a real site for the whole team.
+  // Every Site ID a full export carries, for tools/gen_site.mjs. (The app
+  // checks against the loaded databases plus each kit's `idle` instead.)
   function existingSiteIds(sheets) {
     const out = new Set();
     for (const sh of sheets) {
       if (sh.hdr[SITE] == null) continue;
       for (const r of sh.rows) {
-        const v = String(at(r, sh.hdr, SITE) || '').trim();
+        const v = str(at(r, sh.hdr, SITE));
         if (v) out.add(v.toLowerCase());
       }
     }
     return out;
   }
 
-  /* ── what the form needs to SHOW ─────────────────────────────────── */
-
-  // Every site in the export, as {id, name}. Small enough to hand to the
-  // page: 3,129 entries for Partner, against the 16,510 x 47 grid behind it.
-  function siteList(sheets) {
-    const sh = sheets.find(s => s.hdr[SITE] != null && s.hdr[SECTOR] == null
-      && s.hdr[ANT] == null && s.hdr['longitude'] != null);
-    if (!sh) return [];
-    const out = [];
-    for (const r of sh.rows) {
-      const id = String(at(r, sh.hdr, SITE) || '').trim();
-      if (!id) continue;
-      out.push({
-        id,
-        name: String(at(r, sh.hdr, 'description') || '').trim(),
-        lon: at(r, sh.hdr, 'longitude'),
-        lat: at(r, sh.hdr, 'latitude'),
-      });
-    }
-    return out;
-  }
-
-  // One site's sectors with the plant the form seeds itself from. The job
-  // this replaces is "copy an existing site and change its data", so the
-  // form opens holding the template's own values rather than empty fields.
-  function siteDetail(sheets, siteId) {
-    const want = norm(siteId);
-    const sec = sheets.find(s => s.hdr[SECTOR] != null && s.hdr['band name'] != null);
-    const antSh = sheets.find(s => s.hdr[ANT] != null && s.hdr['azimuth'] != null);
-    const join = sheets.find(s => s.hdr[SECTOR] != null && s.hdr[ANT] != null);
-    const pwrSh = sheets.find(s => s.hdr[SECTOR] != null && s.hdr['pa power (dbm)'] != null);
-    const eSh = sheets.find(s => s.hdr[ANT] != null && s.hdr['electrical tilt'] != null);
-    if (!sec) return { sectors: [] };
-
-    const sectors = [];
-    for (const r of sec.rows) {
-      if (norm(at(r, sec.hdr, SITE)) !== want) continue;
-      const id = String(at(r, sec.hdr, SECTOR) || '').trim();
-      const o = { sectorId: id, band: String(at(r, sec.hdr, 'band name') || '').trim() };
-
-      // antenna, found through the explicit sector->antenna join rather than
-      // matched by azimuth: a multi-band site has two antennas on one azimuth
-      // and matching by it would take whichever was indexed first.
-      let aId = null;
-      if (join) {
-        const j = join.rows.find(x => norm(at(x, join.hdr, SECTOR)) === norm(id));
-        if (j) aId = at(j, join.hdr, ANT);
-      }
-      if (antSh && aId != null) {
-        const a = antSh.rows.find(x => norm(at(x, antSh.hdr, SITE)) === want
-          && norm(at(x, antSh.hdr, ANT)) === norm(aId));
-        if (a) {
-          o.az = at(a, antSh.hdr, 'azimuth');
-          o.height = at(a, antSh.hdr, 'height (m)');
-          o.tilt = at(a, antSh.hdr, 'mechanical tilt');
-          o.model = String(at(a, antSh.hdr, 'antenna file') || '').trim();
-        }
-      }
-      if (eSh && aId != null) {
-        const e = eSh.rows.find(x => norm(at(x, eSh.hdr, SITE)) === want
-          && norm(at(x, eSh.hdr, ANT)) === norm(aId));
-        if (e) o.etilt = at(e, eSh.hdr, 'electrical tilt');
-      }
-      if (pwrSh) {
-        const p = pwrSh.rows.find(x => norm(at(x, pwrSh.hdr, SECTOR)) === norm(id));
-        if (p) o.pwr = at(p, pwrSh.hdr, 'pa power (dbm)');
-      }
-      sectors.push(o);
-    }
-    return { sectors };
-  }
-
-  const API = { readSheets, siteRows, bandDonors, cloneSite, buildWorkbook,
+  const API = { readSheets, makeKit, bandFor, cloneSite, buildWorkbook,
                 suggestSectorId, existingSiteIds, groupCols, applyGroup,
-                groupFileName, writeWorkbook, siteList, siteDetail, BLANK };
+                groupFileName, writeWorkbook, BLANK, DEFAULTS, KIT_VERSION };
 
   scope.TableXSiteGen = API;
   if (typeof module === 'object' && module.exports) module.exports = API;
-
-  /* ── the Worker ──────────────────────────────────────────────────────
-     Reading ALL seven sheets of a group export in full is ~6.5 s of
-     straight-line CPU — more than the database import, which reads only the
-     two sheets it understands. On the main thread that is long enough for
-     Chrome to raise "page unresponsive".
-
-     The workbook STAYS IN THE WORKER. Handing the page 16,510 rows x 47
-     columns so it could build the file itself would be a structured clone of
-     tens of megabytes; instead the worker answers small questions (the site
-     list, one site's plant) and returns the finished bytes. Same reason
-     dbparse.js runs in one, one step further.
-
-     Loaded as a plain <script> by index.html too, which only defines
-     self.TableXSiteGen — the wiring below is behind the importScripts check,
-     so there is a main-thread fallback without a second copy of the logic. */
-  if (typeof importScripts === 'function') {
-    importScripts('xlsx.full.min.js');
-    let sheets = null;                       // the loaded export, kept here
-
-    scope.onmessage = ev => {
-      const m = ev.data || {};
-      try {
-        if (m.op === 'load') {
-          const wb = scope.XLSX.read(new Uint8Array(m.buf), { type: 'array' });
-          sheets = readSheets(scope.XLSX, wb);
-          scope.postMessage({ result: {
-            sites: siteList(sheets),
-            bands: [...bandDonors(sheets).keys()],
-            sheets: sheets.map(s => s.name),
-            taken: [...existingSiteIds(sheets)],
-          } });
-          return;
-        }
-        if (!sheets) throw new Error('no export loaded');
-        if (m.op === 'site') {
-          scope.postMessage({ result: siteDetail(sheets, m.siteId) });
-          return;
-        }
-        if (m.op === 'build') {
-          const { wb, warnings } = buildWorkbook(scope.XLSX, sheets, m.specs,
-            { groupName: m.groupName });
-          const buf = writeWorkbook(scope.XLSX, wb);
-          // A fresh ArrayBuffer the page will take ownership of, so the
-          // bytes are moved rather than copied.
-          const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-          scope.postMessage({ result: { file: ab, warnings } }, [ab]);
-          return;
-        }
-        throw new Error('unknown op: ' + m.op);
-      } catch (e) {
-        scope.postMessage({ error: (e && e.message) ? e.message : String(e) });
-      }
-    };
-  }
 })(typeof self !== 'undefined' ? self : globalThis);

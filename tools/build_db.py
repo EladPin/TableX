@@ -59,6 +59,7 @@ parseWorkbook() in TableX/js/app.js implements this SAME contract in the
 browser. Change one, change the other.
 """
 import datetime
+import html
 import json
 import os
 import re
@@ -362,6 +363,14 @@ def is_power_sheet(hdr):
     return 'site id' in hdr and 'sector id' in hdr and 'pa power (dbm)' in hdr
 
 
+def is_elec_sheet(hdr):
+    """Electrical tilt, per antenna -- Antenna_Electrical_Parameters in the
+    Partner export. Found by header, so an export carrying it on the Antennas
+    sheet itself works too. It is what lets a new site copied from a database
+    keep its template's tilt."""
+    return 'site id' in hdr and 'antenna id' in hdr and 'electrical tilt' in hdr
+
+
 # CRS -- `Reference Signal Power Boosting (dB)`. Beside PA Power on
 # LTE_FDD_Sectors in the 2024 Partner export; found by header on its own, like
 # power, so a Planet version that moves one does not take the other with it.
@@ -518,6 +527,21 @@ def build_multi(sheets, mode=None):
             if is_number(x) and is_number(y):
                 coords[site_id] = [x, y]
 
+    # electrical tilt by antenna, read first so each antenna row can carry it
+    et_by = {}
+    elec_sheet = next((sh for sh in sheets if is_elec_sheet(sh[1])), None)
+    if elec_sheet:
+        _, e_hdr, e_rows = elec_sheet
+        for row in e_rows:
+            site_id = cell(row, e_hdr, 'site id')
+            ant_id = cell(row, e_hdr, 'antenna id')
+            v = num(cell(row, e_hdr, 'electrical tilt'))
+            if not site_id or ant_id == '' or not is_number(v):
+                continue
+            k = (site_id, ant_id)
+            # an antenna listed twice with two tilts has no tilt
+            et_by[k] = None if (k in et_by and et_by[k] != v) else v
+
     ant_by = {}
     ant_by_id = {}
     ant_sheet = next((sh for sh in sheets if is_antenna_sheet(sh[1])), None)
@@ -527,11 +551,12 @@ def build_multi(sheets, mode=None):
             site_id = cell(row, a_hdr, 'site id')
             if not site_id:
                 continue
+            ant_id = cell(row, a_hdr, 'antenna id')
             a = [num(cell(row, a_hdr, 'height (m)')),
                  num(cell(row, a_hdr, 'azimuth')),
                  num(cell(row, a_hdr, 'mechanical tilt')),
-                 cell(row, a_hdr, 'antenna file') or None]
-            ant_id = cell(row, a_hdr, 'antenna id')
+                 cell(row, a_hdr, 'antenna file') or None,
+                 et_by.get((site_id, ant_id))]
             if ant_id not in (None, ''):
                 ant_by_id[(site_id, str(ant_id))] = a
             # The Antennas sheet names what it serves, and one antenna can
@@ -563,6 +588,11 @@ def build_multi(sheets, mode=None):
         if key not in sectors:                 # an antenna on no sector
             continue
         rowv = [agreed([a[i] for a in lst]) for i in range(4)]
+        # The fifth slot, electrical tilt, only when there is one, so a
+        # database from an export without it keeps the four-slot shape.
+        et = agreed([a[4] for a in lst])
+        if et is not None:
+            rowv.append(et)
         if any(v is not None for v in rowv):
             ant[key] = rowv
 
@@ -635,7 +665,7 @@ def build_multi(sheets, mode=None):
                  '(e.g. %r).\nThe Sector ID column is not a unique key, so this '
                  'import would silently drop rows.\nExport with a sector code '
                  'unique across the whole network.' % (dupes, rows, dupe_example))
-    return sites, notes, sectors, coords, ant, pwr, crs, desc
+    return sites, notes, sectors, coords, ant, pwr, crs, desc, name_col, composite
 
 
 def build_flat(sheets):
@@ -677,8 +707,223 @@ def build_flat(sheets):
                      % (dupes, n_rows, dupe_example))
         # Six columns, none of them plant: a legacy workbook imports exactly
         # as it always did.
-        return sites, notes, sectors, {}, {}, {}, {}, desc
+        return sites, notes, sectors, {}, {}, {}, {}, desc, None, False
     return None
+
+
+# -- the new-site kit ---------------------------------------------------------
+# TableX/js/sitegen.js makeKit() keeps, with the database, what a new site is
+# cloned from: every sheet's header, one Sites row, and one donor sector per
+# band with its rows on every sheet. This is the SAME contract in Python, and
+# it has to produce the same JSON -- so the kit is read with CELL TYPES (a
+# number stays a number, a string is not trimmed), the way SheetJS reads it
+# with raw:true, rather than through rows_of(), which strips every value.
+
+def shared_strings_raw(zf):
+    """Shared strings as SheetJS reads them: rich-text runs joined, phonetic
+    runs (<rPh>) left out, entities decoded, nothing trimmed."""
+    if 'xl/sharedStrings.xml' not in zf.namelist():
+        return []
+    xml = zf.read('xl/sharedStrings.xml').decode('utf8')
+    out = []
+    for si in re.findall(r'<si>(.*?)</si>', xml, re.S):
+        si = re.sub(r'<rPh\b.*?</rPh>', '', si, flags=re.S)
+        out.append(html.unescape(''.join(re.findall(r'<t[^>]*>(.*?)</t>', si, re.S))))
+    return out
+
+
+def typed_rows_of(zf, sheet_path, sst):
+    """Each row as a list of typed values, cells placed by column index."""
+    xml = zf.read(sheet_path).decode('utf8')
+    for rm in re.finditer(r'<row[^>]*>(.*?)</row>', xml, re.S):
+        cells = {}
+        for cm in re.finditer(r'<c\b([^>]*?)(?:/>|>(.*?)</c>)', rm.group(1), re.S):
+            attrs, body = cm.group(1), cm.group(2) or ''
+            ref = re.search(r'r="([A-Z]+\d+)"', attrs)
+            if not ref:
+                continue
+            typ = re.search(r't="([^"]+)"', attrs)
+            typ = typ.group(1) if typ else 'n'
+            val = re.search(r'<v>(.*?)</v>', body, re.S)
+            if typ == 'inlineStr':
+                v = html.unescape(''.join(re.findall(r'<t[^>]*>(.*?)</t>', body, re.S)))
+            elif val is None:
+                v = ''
+            elif typ == 's':
+                idx = int(val.group(1))
+                v = sst[idx] if idx < len(sst) else ''
+            elif typ == 'b':
+                v = val.group(1).strip() == '1'
+            elif typ in ('str', 'e', 'd'):
+                v = html.unescape(val.group(1))
+            else:
+                f = float(val.group(1))
+                v = int(f) if f == int(f) else f
+            cells[col_index(ref.group(1))] = v
+        if cells:
+            yield [cells.get(i, '') for i in range(max(cells) + 1)]
+
+
+def js_str(v):
+    """String(v) as JavaScript prints it, for the values a kit compares."""
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if v is None:
+        return ''
+    return str(v)
+
+
+def knorm(v):
+    return re.sub(r'\s+', ' ', js_str(v)).strip().lower()
+
+
+def typed_sheets(zf):
+    """Every sheet with at least one row: (name, hdr, head, rows)."""
+    sst = shared_strings_raw(zf)
+    out = []
+    for name, path in sheet_index(zf):
+        try:
+            rows = list(typed_rows_of(zf, path, sst))
+        except KeyError:
+            continue
+        if not rows:
+            continue
+        head = rows[0]
+        hdr = {}
+        for i, h in enumerate(head):
+            k = knorm(h)
+            if k and k not in hdr:
+                hdr[k] = i
+        out.append((name, hdr, head, rows[1:]))
+    return out
+
+
+def make_kit(sheets, band=None, name_col=None, composite=False):
+    """sitegen.js makeKit(), line for line. See that function for the why."""
+    def at(row, hdr, key):
+        i = hdr.get(key)
+        return '' if i is None or i >= len(row) else row[i]
+
+    def pair(site, sector):
+        return knorm(site) + '\u0000' + knorm(sector)
+
+    def trim_head(head):
+        n = len(head)
+        while n and head[n - 1] in ('', None):
+            n -= 1
+        return head[:n]
+
+    def fit(row, n):
+        r = list(row[:n])
+        return r + [''] * (n - len(r))
+
+    sec = next((sh for sh in sheets if 'site id' in sh[1] and 'sector id' in sh[1]
+                and 'band name' in sh[1]), None)
+    if not sec:
+        return None
+    sec_keyed = [sh for sh in sheets if 'site id' in sh[1] and 'sector id' in sh[1]]
+    ant_keyed = [sh for sh in sheets if 'site id' in sh[1] and 'antenna id' in sh[1]
+                 and 'sector id' not in sh[1]]
+    join = next((sh for sh in sec_keyed if 'antenna id' in sh[1]), None)
+
+    counts = []
+    for _, h, _, rows in sec_keyed:
+        m = {}
+        for r in rows:
+            k = pair(at(r, h, 'site id'), at(r, h, 'sector id'))
+            m[k] = m.get(k, 0) + 1
+        counts.append(m)
+
+    def simple(k):
+        return all(m.get(k) == 1 for m in counts)
+
+    _, sec_hdr, _, sec_rows = sec
+    chosen, first = {}, {}
+    for r in sec_rows:
+        b = js_str(at(r, sec_hdr, 'band name')).strip()
+        site = js_str(at(r, sec_hdr, 'site id')).strip()
+        sector = js_str(at(r, sec_hdr, 'sector id')).strip()
+        if not b or not site or not sector or b in chosen:
+            continue
+        if b not in first:
+            first[b] = (site, sector)
+        if simple(pair(site, sector)):
+            chosen[b] = (site, sector)
+    for b, d in first.items():
+        chosen.setdefault(b, d)
+
+    def antenna_of(site, sector):
+        if join:
+            _, h, _, rows = join
+            r = next((x for x in rows if pair(at(x, h, 'site id'), at(x, h, 'sector id'))
+                      == pair(site, sector)), None)
+            return at(r, h, 'antenna id') if r is not None else None
+        for _, h, _, rows in ant_keyed:
+            if 'sectors' not in h:
+                continue
+            for x in rows:
+                if (knorm(at(x, h, 'site id')) == knorm(site) and
+                        any(knorm(t) == knorm(sector)
+                            for t in js_str(at(x, h, 'sectors')).split(','))):
+                    return at(x, h, 'antenna id')
+        return None
+
+    width = {name: len(trim_head(head)) for name, _, head, _ in sheets}
+    bands = {}
+    for b in first:
+        site, sector = chosen[b]
+        ant_id = antenna_of(site, sector)
+        rows_by = {}
+        for name, h, _, rows in sheets:
+            got = []
+            if 'site id' in h and 'sector id' in h:
+                got = [r for r in rows
+                       if pair(at(r, h, 'site id'), at(r, h, 'sector id')) == pair(site, sector)
+                       and ('antenna id' not in h or ant_id is None
+                            or knorm(at(r, h, 'antenna id')) == knorm(ant_id))]
+            elif 'site id' in h and 'antenna id' in h and ant_id is not None:
+                got = [r for r in rows if knorm(at(r, h, 'site id')) == knorm(site)
+                       and knorm(at(r, h, 'antenna id')) == knorm(ant_id)]
+            if got:
+                rows_by[name] = [fit(r, width[name]) for r in got]
+        bands[b] = {'site': site, 'sector': sector,
+                    'fb': list(band(b)) if band else None, 'rows': rows_by}
+
+    site_row = None
+    site_sheet = next((sh for sh in sheets if 'site id' in sh[1] and 'sector id' not in sh[1]
+                       and 'antenna id' not in sh[1] and 'longitude' in sh[1]), None)
+    if site_sheet:
+        name, h, _, rows = site_sheet
+        d = chosen.get(next(iter(first))) if first else None
+        r = None
+        if d:
+            r = next((x for x in rows if knorm(at(x, h, 'site id')) == knorm(d[0])), None)
+        if r is None:
+            r = next((x for x in rows if js_str(at(x, h, 'site id')).strip()), None)
+        if r is not None:
+            site_row = {'sheet': name, 'row': fit(r, width[name])}
+
+    with_sectors = set(knorm(at(r, sec_hdr, 'site id')) for r in sec_rows)
+    idle, seen = [], set()
+    for _, h, _, rows in sheets:
+        if 'site id' not in h:
+            continue
+        for r in rows:
+            i = js_str(at(r, h, 'site id')).strip()
+            if not i or knorm(i) in with_sectors or i in seen:
+                continue
+            seen.add(i)
+            idle.append(i)
+
+    return {
+        'v': 1,
+        'sheets': [{'name': name, 'head': trim_head(head)} for name, _, head, _ in sheets],
+        'site': site_row,
+        'name': name_col or 'description',
+        'composite': bool(composite),
+        'bands': bands,
+        'idle': idle,
+    }
 
 
 def main():
@@ -702,8 +947,18 @@ def main():
                  'OR a Planet group export with a Sites sheet (Site ID + a '
                  'name column)\nand a Sectors sheet (Sector ID + Site ID + '
                  'Band Name).' % ' | '.join(WANT))
-    sites, notes, sectors, coords, ant, pwr, crs, desc = built
+    sites, notes, sectors, coords, ant, pwr, crs, desc, name_col, composite = built
     print('layout: %s' % desc)
+
+    # The new-site kit -- a group export only; the flat layout has nothing to
+    # clone from. See make_kit().
+    kit = None
+    if name_col is not None:
+        kit = make_kit(typed_sheets(zf), lambda b: parse_band(b, mode),
+                       name_col, composite)
+        if kit:
+            print('kit:     %d bands (%s), %d sheets'
+                  % (len(kit['bands']), ', '.join(kit['bands']), len(kit['sheets'])))
 
     out = {
         'network': network,
@@ -716,7 +971,7 @@ def main():
     # Optional, and each omitted when empty, so a database with none of them
     # stays byte-identical to one built before they existed.
     for key, val in (('notes', notes), ('coords', coords),
-                     ('ant', ant), ('pwr', pwr), ('crs', crs)):
+                     ('ant', ant), ('pwr', pwr), ('crs', crs), ('kit', kit)):
         if val:
             out[key] = val
     os.makedirs(DATA, exist_ok=True)

@@ -7,9 +7,12 @@
  * it in the app, and a Planet import that accepts this one accepts that one.
  * Zero dependencies: SheetJS is already vendored, Node has the rest.
  *
+ * The export only supplies the KIT (sitegen.js makeKit) — each sector is
+ * cloned from a donor on its band, so every field the spec states is the
+ * new site's own; there is no template site to name.
+ *
  * spec.json:
- *   { "templateSite": "EA0402C",
- *     "groupName": "TableX_Test",      // the Planet group, created FIRST
+ *   { "groupName": "TableX_Test",      // the Planet group, created FIRST
  *     "sites": [ { "siteId": "...", "name": "...", "lon": 0, "lat": 0,
  *                  "sectors": [ { "sectorId": "...", "band": "1800_20",
  *                                 "az": 0, "height": 30, "tilt": 2,
@@ -53,18 +56,24 @@ if (clash.length) {
   process.exit(2);
 }
 
-const bands = SG.bandDonors(sheets);
-console.log('bands available:', [...bands.keys()].join(', '));
+// The same kit the app's database import keeps — this driver just builds it
+// on the spot from the export it was handed.
+const kit = SG.makeKit(sheets);
+if (!kit) {
+  console.error('REFUSED — no sectors sheet (Site ID + Sector ID + Band Name) in', src);
+  process.exit(2);
+}
+console.log('bands available:', Object.keys(kit.bands).join(', '));
 
-const specs = spec.sites.map(s => ({ ...s, templateSite: s.templateSite || spec.templateSite }));
+const specs = spec.sites;
 // The group a sector joins is a `Group: <name>` column headed with that
 // group's exact name, so the group must exist in Planet before the import.
 if (spec.groupName) console.log('group:', 'Group: ' + spec.groupName, '(must already exist in Planet)');
-const { wb: outWb, warnings } = SG.buildWorkbook(XLSX, sheets, specs,
+const { wb: outWb, warnings } = SG.buildWorkbook(XLSX, kit, specs,
   { groupName: spec.groupName });
 for (const w of warnings) console.warn('  WARNING:', w);
 
-writeFileSync(out, SG.writeWorkbook(XLSX, outWb));
+writeFileSync(out, new Uint8Array(SG.writeWorkbook(XLSX, outWb)));
 
 // What was written, sheet by sheet — the line to photograph on TS, the same
 // job the import toast's band list does for the database path.

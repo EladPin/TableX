@@ -2957,103 +2957,512 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 }
 
 /* ═══ QUEST — new sites for Planet ═══════════════════════════════════
-   Four numbered steps, each revealed by the one before it, because the
-   order is not optional: nothing can be cloned before an export is loaded
-   and no site can be seeded before a template is picked. The sector grid is
-   eight fixed columns rather than a table, so a row reads the same whichever
-   way the page runs.
-   ═══════════════════════════════════════════════════════════════════ */
-.q-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+   Three steps on ONE RAIL: a hairline down the start edge carrying a pixel
+   square per step — the eyebrow's square, as a timeline. A square lights
+   mint (and pops) the moment its step is satisfied, the rail draws mint
+   down to the next one, and the next step rises in. The order is not
+   optional — nothing can be seeded before a template is picked — so the
+   page shows it rather than numbering it.
 
+   Everything else is the system's own: the search bar and result rows are
+   the site sheet's, inputs are wells that come up to paper when you are in
+   them, ✕ turns a quarter, + turns a quarter, and every card that arrives
+   rises while every card that leaves lets the ones below it GLIDE up
+   (quest.js flip()). The sector grid is fixed columns rather than a table,
+   so a row reads the same whichever way the page runs.
+   ═══════════════════════════════════════════════════════════════════ */
+.q-top { padding-top: 64px; }
+.q-top .section-head, .q-flow { max-width: 1040px; }
+
+.q-flow { list-style: none; margin: 0; padding: 0; }
 .q-step {
+  position: relative;
+  padding-inline-start: 34px;
+  padding-bottom: 48px;
+}
+.q-step:last-child { padding-bottom: 0; }
+
+/* the rail, and the mint that draws down it once a step is done */
+.q-step::before,
+.q-step::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 5px;
+  top: 24px;
+  bottom: 8px;
+  width: 1px;
+  background: var(--rule);
+}
+.q-step::after {
+  background: var(--mint);
+  transform-origin: top;
+  scale: 1 0;
+  transition: scale 0.7s var(--ease-out);
+}
+.q-step.done::after { scale: 1 1; }
+.q-step:last-child::before, .q-step:last-child::after,
+.q-step:has(+ .q-step.hidden)::before, .q-step:has(+ .q-step.hidden)::after { display: none; }
+
+.q-mark {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 9px;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  border: 1px solid var(--cloud);
+  background: var(--canvas);
+  transition: background var(--t-med) var(--ease), border-color var(--t-med) var(--ease);
+}
+.q-step.done .q-mark {
+  background: var(--mint);
+  border-color: var(--mint);
+  animation: qPop 0.5s var(--spring);
+}
+@keyframes qPop {
+  0%   { scale: 0.6; }
+  60%  { scale: 1.3; }
+  100% { scale: 1; }
+}
+
+.q-h {
+  font-size: 21px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: var(--ink);
+}
+.q-h-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; }
+.q-note {
+  margin: 6px 0 18px;
+  max-width: 64ch;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* a step that has just been revealed rises in, after the one above it */
+.q-step.q-enter {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: rise 0.55s var(--ease-out) both;
+  animation-delay: var(--d, 0ms);
+}
+
+/* ── 1. the template ── */
+.q-pick .lk-bar { margin-bottom: 10px; }
+
+/* which networks can seed a new site — the squares the DB ledger uses */
+.q-nets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0 2px 14px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.q-net {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+  margin-inline: -4px;
+  font-size: 13px;
+  color: var(--muted);
+  border-radius: 4px;
+  transition: color var(--t-fast) var(--ease), translate var(--t-med) var(--spring);
+}
+.q-net::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  border: 1px solid var(--cloud);
+}
+.q-net.on { color: var(--black); }
+.q-net.on::before { background: var(--mint); border-color: var(--mint); }
+.q-net:hover { color: var(--ink); translate: 0 -1px; }
+
+.q-results { display: grid; gap: 2px; }
+.q-hit {
+  animation: rowIn 0.32s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 22ms);
+}
+.q-hit .grow { flex: 1; }
+.q-hit-n { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.q-hit.nokit .sd-hit-name { color: var(--muted); font-weight: 500; }
+.q-empty { padding: 32px 24px; }
+
+.q-tmpl {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 16px 16px 18px;
+  border: 1px solid var(--mint-line);
+  border-radius: var(--r-card);
+  background: var(--mint-wash);
+  opacity: 0;
+  transform: translateY(12px);
+  animation: rise 0.48s var(--ease-out) both;
+}
+:root[dir="rtl"] .q-tmpl { padding: 16px 18px 16px 16px; }
+.q-tmpl-sq {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  background: var(--mint);
+  animation: qPop 0.5s var(--spring) 0.18s both;
+}
+.q-tmpl-main { flex: 1; min-width: 0; }
+.q-tmpl-name {
+  font-size: 18px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.q-tmpl-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.q-dot { width: 3px; height: 3px; border-radius: 1px; background: var(--cloud); }
+.q-tmpl.nokit { border-color: var(--cloud); background: var(--mist); }
+.q-tmpl.nokit .q-tmpl-sq { background: transparent; border: 1px solid var(--cloud); }
+
+/* every ✕ in this view: clear the template, remove a site. It turns a
+   quarter, and — because both throw away what was typed — reddens. */
+.q-x {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 19px;
+  line-height: 1;
+  color: var(--muted);
+  border-radius: var(--r-btn);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              rotate 0.4s var(--spring);
+}
+.q-x:hover {
+  background: color-mix(in srgb, var(--err) 10%, transparent);
+  color: var(--err);
+  rotate: 90deg;
+}
+
+.q-warn {
+  margin-top: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  background: var(--paper);
+  opacity: 0;
+  transform: translateY(8px);
+  animation: rise 0.46s var(--ease-out) 0.08s both;
+}
+.q-warn-main { font-size: 14px; line-height: 1.55; color: var(--black); }
+.q-warn-sub { margin: 4px 0 14px; font-size: 13px; line-height: 1.55; color: var(--muted); }
+
+/* ── 2. the group ── */
+.q-group-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; }
+.q-in.q-group { width: min(380px, 100%); font-size: 15px; padding: 10px 12px; }
+.q-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  transition: color var(--t-med) var(--ease);
+}
+.q-file.on { color: var(--ink); }
+.q-file-arrow { display: inline-block; color: var(--mint); }
+:root[dir="rtl"] .q-file-arrow { transform: scaleX(-1); }
+.q-file .mono { font-size: 13px; animation: chipIn 0.34s var(--spring); }
+
+/* ── inputs: a well until you are in it, then paper and a mint ring ── */
+.q-in {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--black);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-input);
+  padding: 7px 9px;
+  outline: none;
+  transition: border-color var(--t-med) var(--ease), box-shadow var(--t-med) var(--ease),
+              background var(--t-med) var(--ease);
+}
+.q-in:hover { border-color: var(--cloud); }
+.q-in:focus { background: var(--paper); border-color: var(--mint); box-shadow: 0 0 0 3px var(--mint-wash); }
+.q-in.mono { font-family: var(--mono); font-size: 13px; }
+.q-in::placeholder { color: var(--muted); opacity: 0.6; }
+.q-in:disabled { cursor: not-allowed; background: transparent; border-style: dashed; }
+.q-in.bad { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 12%, transparent); }
+/* a value the form filled or converted flashes, so a change you did not
+   type is a change you saw */
+.q-in.flash { animation: qFlash 0.8s var(--ease-out); }
+@keyframes qFlash { 0% { background: var(--mint-line); border-color: var(--mint); } }
+/* a refused generate shakes the fields it is about — the one "no" in here */
+.q-in.q-shake { animation: qShake 0.42s var(--ease-out); }
+@keyframes qShake {
+  20% { translate: -4px 0; }
+  40% { translate: 4px 0; }
+  60% { translate: -2px 0; }
+  80% { translate: 2px 0; }
+}
+
+/* A band is a code (`1800_20`), and inside an RTL page the bidi algorithm
+   paints it `20_1800` — so the select runs LTR like every other code field
+   here, chevron and all. */
+.q-sel { position: relative; display: block; direction: ltr; }
+.q-sel select.q-in {
+  -webkit-appearance: none;
+  appearance: none;
+  cursor: pointer;
+  padding-inline-end: 26px;
+}
+.q-sel::after {
+  content: '';
+  position: absolute;
+  inset-inline-end: 11px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+  transition: border-color var(--t-fast) var(--ease), translate var(--t-med) var(--spring);
+}
+.q-sel:hover::after { border-color: var(--ink); }
+.q-sel:focus-within::after { border-color: var(--mint); translate: 0 2px; }
+
+/* ── 3. the new sites ── */
+.q-fmt-label { font-size: 13px; color: var(--muted); }
+.q-fmt { min-width: 180px; }
+
+.q-rows { display: grid; gap: 14px; }
+.q-site {
   background: var(--paper);
   border: 1px solid var(--rule);
   border-radius: var(--r-card);
-  padding: 16px 18px;
   box-shadow: var(--sh-card);
+  padding: 16px 18px 10px;
+  transition: border-color var(--t-med) var(--ease);
 }
-.q-step.hidden { display: none; }
-
-.q-h {
-  display: flex; align-items: center; gap: 10px;
-  margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--ink);
-}
-.q-num {
-  display: grid; place-items: center;
-  width: 22px; height: 22px; flex: none;
-  border-radius: 6px;
-  background: var(--mint-wash); color: var(--mint);
-  border: 1px solid var(--mint-line);
-  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
-}
-/* A finished step keeps its number, tinted, rather than swapping in a tick —
-   the step is still editable and a tick would say it is not. */
-.q-step.q-done .q-num { background: var(--mint); color: var(--paper); }
-
-.q-note { margin: 0 0 12px 32px; font-size: 13px; color: var(--muted); line-height: 1.5; }
-:root[dir="rtl"] .q-note { margin-left: 0; margin-right: 32px; }
-
-.q-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.q-source, .q-count { font-size: 13px; color: var(--muted); }
-.q-busy { margin: 12px 0 0; font-size: 13px; color: var(--mint); }
-.q-after {
-  margin: 12px 0 0; padding: 10px 12px;
-  background: var(--mint-wash); border: 1px solid var(--mint-line);
-  border-radius: var(--r-input);
-  font-size: 13px; color: var(--ink); line-height: 1.5;
+.q-site:focus-within { border-color: var(--cloud); }
+.q-site.q-new {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: rise 0.5s var(--ease-out) both;
 }
 
-.q-results { max-height: 220px; overflow: auto; margin-top: 8px; }
-.q-tmpl {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  margin-top: 10px; padding: 10px 12px;
-  background: var(--mint-wash); border: 1px solid var(--mint-line);
-  border-radius: var(--r-input);
-}
-.q-tmpl-n { font-size: 12px; color: var(--muted); }
-
-/* ── inputs ── */
-.q-in {
-  font: inherit; font-size: 13px;
-  color: var(--ink); background: var(--canvas);
-  border: 1px solid var(--rule); border-radius: var(--r-input);
-  padding: 6px 8px; min-width: 0; width: 100%;
-}
-.q-in:focus-visible { outline: 2px solid var(--mint); outline-offset: 1px; }
-.q-in.mono { font-family: var(--mono, ui-monospace, monospace); }
-.q-group { max-width: 360px; }
-
-/* ── one new site ── */
-.q-rows { display: grid; gap: 10px; margin-bottom: 12px; }
-.q-site {
-  border: 1px solid var(--rule); border-radius: var(--r-input);
-  background: var(--canvas); padding: 10px;
-}
 .q-site-head {
-  display: grid; align-items: center; gap: 8px;
-  grid-template-columns: 22px 1.1fr 1.6fr 0.9fr 0.9fr auto;
-  margin-bottom: 8px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) 30px;
+  grid-template-areas: "n id name a b x" ". . . hint hint .";
+  gap: 4px 10px;
+  align-items: end;
 }
 .q-site-n {
-  display: grid; place-items: center; width: 22px; height: 22px;
-  font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+  grid-area: n;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: var(--mist);
+  border-radius: var(--r-btn);
+  font-variant-numeric: tabular-nums;
 }
-.q-del { min-width: 30px; padding-inline: 8px; }
+.q-f { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.q-f-siteId { grid-area: id; }
+.q-f-name   { grid-area: name; }
+.q-f-a      { grid-area: a; }
+.q-f-b      { grid-area: b; }
+.q-site-head .q-x { grid-area: x; margin-bottom: 2px; }
+.q-lab { font-size: 12px; font-weight: 500; color: var(--muted); }
 
-/* ── the sectors ── */
-.q-secs { display: grid; gap: 6px; }
+/* the same point in the other format — a check, read by eye */
+.q-co-hint {
+  grid-area: hint;
+  min-height: 17px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--t-med) var(--ease);
+}
+:root[dir="rtl"] .q-co-hint { text-align: right; }
+.q-co-hint.bad { color: var(--err); font-family: var(--font); white-space: normal; }
+
+.q-secs { display: grid; gap: 6px; margin-top: 12px; }
 .q-sec {
-  display: grid; gap: 6px;
-  grid-template-columns: 1.3fr 1fr .7fr .7fr .7fr .8fr 1.6fr .7fr;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.05fr) repeat(3, minmax(0, 0.58fr))
+                         minmax(0, 0.78fr) minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 0.66fr) 24px;
+  gap: 6px;
   align-items: center;
 }
 .q-sec-head span {
-  font-size: 11px; color: var(--muted); text-transform: uppercase;
-  letter-spacing: .04em; padding-inline: 2px;
+  padding-inline: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.q-c { display: block; min-width: 0; }
+.q-site.q-new .q-sec, .q-sec.q-new {
+  animation: rowIn 0.36s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 35ms + 140ms);
+}
+.q-sec.q-new { animation-delay: 0ms; }
+.q-sec .ed-rm { opacity: 0.5; transition: opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease),
+                color var(--t-fast) var(--ease), scale var(--t-med) var(--spring); }
+.q-sec:hover .ed-rm, .q-sec .ed-rm:focus-visible { opacity: 1; }
+.q-addsec { margin-top: 6px; margin-inline-start: -10px; }
+
+.q-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+.q-count { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.q-after {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px 14px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  background: var(--mint-wash);
+  border: 1px solid var(--mint-line);
+  border-radius: var(--r-input);
+}
+.q-after::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 7px;
+  border-radius: 1px;
+  background: var(--mint);
+}
+.q-after.q-enter { opacity: 0; transform: translateY(8px); animation: rise 0.46s var(--ease-out) both; }
+
+/* ── the antenna list: a popover like the settings one, whose highlight
+   glides to the active option the way the nav bar and the seg thumbs do ── */
+.q-ac {
+  position: fixed;
+  z-index: 140;
+  isolation: isolate;
+  max-height: 304px;
+  overflow-y: auto;
+  padding: 4px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  box-shadow: var(--sh-float);
+  transform-origin: top center;
+}
+.q-ac.up { transform-origin: bottom center; }
+.q-ac.q-pop { animation: popIn 0.3s var(--spring); }
+.q-ac.up.q-pop { animation-name: popUp; }
+@keyframes popUp { from { opacity: 0; transform: translateY(6px) scale(0.96); } }
+.q-ac::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: 4px;
+  right: 4px;
+  top: 0;
+  height: var(--ac-h, 0);
+  translate: 0 var(--ac-y, 0);
+  background: var(--mist);
+  border-radius: 6px;
+  opacity: 0;
+  transition: translate 0.24s var(--ease-out), height 0.24s var(--ease-out),
+              opacity var(--t-fast) var(--ease);
+}
+.q-ac.has-active::before { opacity: 1; }
+.q-ac-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--black);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.q-ac-opt:hover { background: color-mix(in srgb, var(--mist) 60%, transparent); }
+.q-ac-file {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  direction: ltr;
+  unicode-bidi: isolate;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:root[dir="rtl"] .q-ac-file { text-align: right; }
+.q-ac-opt.on .q-ac-file { color: var(--mint); font-weight: 600; }
+.q-ac-n { flex: none; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.q-ac .tag { flex: none; }
+.q-ac-empty { padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 
 @media (max-width: 900px) {
-  .q-site-head { grid-template-columns: 22px 1fr 1fr auto; }
-  .q-sec, .q-sec-head { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .q-site-head {
+    grid-template-columns: 26px minmax(0, 1fr) minmax(0, 1fr) 30px;
+    grid-template-areas: "n id id x" ". name name ." ". a b ." ". hint hint .";
+  }
   .q-sec-head { display: none; }
+  .q-sec {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* dense: the antenna spans three columns, so power and CRS fill the row
+       it cannot fit into instead of leaving it half empty */
+    grid-auto-flow: row dense;
+    padding: 10px 0;
+    border-top: 1px dashed var(--rule);
+  }
+  .q-c::before {
+    content: attr(data-l);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11.5px;
+    color: var(--muted);
+  }
+  .q-c-model { grid-column: span 3; }
+  .q-sec .ed-rm { opacity: 1; justify-self: end; }
+}
+@media (max-width: 560px) {
+  .q-step { padding-inline-start: 26px; }
+  .q-sec { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .q-c-model { grid-column: span 2; }
+  .q-fmt { min-width: 0; }
+}
+@media print {
+  #viewQuest, .q-ac { display: none !important; }
 }

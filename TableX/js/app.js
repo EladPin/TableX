@@ -21,7 +21,11 @@
   // The optional keys of the file shape, in one place: the import, the backup
   // and the site editor's Save all have to carry every one of them or a save
   // silently drops what the import worked to collect.
-  const OPTIONAL = ['notes', 'coords', 'ant', 'pwr', 'crs'];
+  //
+  // `kit` is the new-site template (js/sitegen.js makeKit): every sheet's
+  // header and one donor sector per band, kept from the group export so the
+  // אתרים חדשים view can clone a site out of the database already loaded.
+  const OPTIONAL = ['notes', 'coords', 'ant', 'pwr', 'crs', 'kit'];
 
   // Networks whose תדר מרכזי is the raw EARFCN rather than MHz. IDF only:
   // requested 2026-09-06 because the team reads ENM and the EARFCN is the
@@ -224,10 +228,14 @@
     $('dbGrid').innerHTML = NETWORKS.map((net, i) => {
       const db = DB[net], empty = isEmpty(net);
       const sectors = count(net, 'sectors'), sites = count(net, 'sites');
+      // Whether this network can seed a new site. A database imported before
+      // the kit existed (or built from the ENM dump) cannot, and the only fix
+      // is one more import — so the card says which it is.
       const meta = empty
         ? T('db.none')
         : T('db.source') + ': ' + esc(db.source || '—') + '<br/>' +
-          T('db.built') + ': ' + esc(db.built || '—');
+          T('db.built') + ': ' + esc(db.built || '—') + '<br/>' +
+          T(db.kit ? 'db.kitYes' : 'db.kitNo');
       return `
         <div class="card db-card reveal ${empty ? '' : 'loaded'}"
              id="dbCard-${net}" style="--d:${i * 70}ms">
@@ -659,11 +667,14 @@
       // is: on a machine whose files never leave, the toast is the only place
       // the import can be checked. A database that quietly re-keyed itself is
       // exactly the thing someone should see.
+      // The kit is said out loud too: it is what makes the network usable in
+      // \u05d0\u05ea\u05e8\u05d9\u05dd \u05d7\u05d3\u05e9\u05d9\u05dd, and the band count is a check of its own.
       await persistDb(net, payload, T('toast.dbSaved', {
         label: label(net),
         n: fmt(Object.keys(parsed.sectors).length),
         f: bandList(parsed.sectors, net),
-      }) + (parsed.composite ? ' \u00b7 ' + T('toast.compositeKey') : ''));
+      }) + (parsed.composite ? ' \u00b7 ' + T('toast.compositeKey') : '')
+         + (parsed.kit ? ' \u00b7 ' + T('toast.kit', { n: Object.keys(parsed.kit.bands).length }) : ''));
       if (card) card.classList.remove('busy');
     };
     reader.readAsArrayBuffer(file);
@@ -2224,7 +2235,9 @@
     // Templates live on the server, so another copy of the app may have
     // added one since this tab loaded.
     if (dk && global.TableXDeck) global.TableXDeck.reload();
-    if (qu && global.TableXQuest) global.TableXQuest.render();
+    // The databases may have changed since the view was last open (an
+    // import adds a kit), so it re-reads them on the way in.
+    if (qu && global.TableXQuest) global.TableXQuest.enter();
   }
 
   /* ── lookup view ─────────────────────────────────────────────────────
@@ -2831,6 +2844,21 @@
      drifts, or fall back to window.confirm() (see "Prompts are in-app"). */
   global.TableXUI = { toast, ask, T };
 
+  /* The new-site view (js/quest.js) works from the databases already loaded
+     rather than from a workbook of its own, so it has to read them — through
+     this, the way deck.js reads the report through TableXReport, rather than
+     by reaching into DB. */
+  global.TableXDB = {
+    NETWORKS,
+    get: net => DB[net] || null,
+    label,
+    ready: () => dbsReady,
+    // the band a stored frequency is in, in MHz — IDF stores the EARFCN
+    mhz: (v, net) => (v == null ? null : EARFCN_NETS.has(net) ? mhzOf(v) : v),
+    freqText,
+    goto: which => show(GOTO.includes(which) ? which : 'home'),
+  };
+
   global.TableXReport = {
     TBL,
     matrix: () => (lastRows ? tableMatrix(lastRows) : null),
@@ -2860,18 +2888,17 @@
 
   function openEditor(net) {
     const src = DB[net] || { sites: {}, sectors: {} };
+    const clone = v => JSON.parse(JSON.stringify(v || {}));
     ed = {
       net: net,
-      sites: JSON.parse(JSON.stringify(src.sites || {})),
-      // Staged and written back even though nothing here edits them: a Save
-      // posts the WHOLE database, so leaving any of them out would silently
-      // wipe every one the next time somebody added a sector.
-      notes: JSON.parse(JSON.stringify(src.notes || {})),
-      coords: JSON.parse(JSON.stringify(src.coords || {})),
-      ant: JSON.parse(JSON.stringify(src.ant || {})),
-      pwr: JSON.parse(JSON.stringify(src.pwr || {})),
-      crs: JSON.parse(JSON.stringify(src.crs || {})),
-      sectors: JSON.parse(JSON.stringify(src.sectors || {})),
+      sites: clone(src.sites),
+      sectors: clone(src.sectors),
+      // Staged and written back even though nothing here edits most of them:
+      // a Save posts the WHOLE database, so leaving any of them out would
+      // silently wipe every one the next time somebody added a sector. Read
+      // through OPTIONAL rather than listed by hand, which is how the kit
+      // would otherwise have been the next key a Save quietly dropped.
+      ...OPTIONAL.reduce((o, k) => { o[k] = clone(src[k]); return o; }, {}),
       open: new Set(),
       dirty: 0,
       q: '',

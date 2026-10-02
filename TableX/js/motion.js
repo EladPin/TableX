@@ -29,7 +29,7 @@
   // List rows and the tiny on-thumbnail controls press, but do not transmit:
   // rings off every row of a search result would be noise, not an answer.
   const QUIET = '.sd-hit, .ins-head, .tr-ops button, .dk-x, .dk-move, [data-copy], .tpl-stage *';
-  const DANGER = '.btn-danger, .danger, .ed-rm, .sd-chip-x, .dk-x';
+  const DANGER = '.btn-danger, .danger, .ed-rm, .sd-chip-x, .dk-x, .q-x';
   const SPRING = 'cubic-bezier(0.34, 1.56, 0.64, 1)';
 
   const pressable = t => {

@@ -382,58 +382,92 @@
   </section>
 </main>
 
+<!-- ══ NEW SITES ══ a Planet site, copied from any site in the databases.
+     The databases' import keeps the clone kit (js/sitegen.js), so there is
+     no workbook to load here: search, pick, change, generate. ══ -->
 <main class="view hidden" id="viewQuest">
-  <section class="section">
+  <section class="section q-top">
     <div class="section-head">
       <p class="eyebrow"><span class="dot"></span><span data-i18n="q.eyebrow"></span></p>
       <h2 class="section-title" data-i18n="q.title"></h2>
       <p class="section-sub" data-i18n="q.sub"></p>
     </div>
 
-    <ol class="q-steps">
+    <!-- Three steps on one rail: each lights its square when it is satisfied,
+         and the next one rises in. -->
+    <ol class="q-flow">
       <li class="q-step" id="qStep1">
-        <h3 class="q-h"><span class="q-num">1</span><span data-i18n="q.s1"></span></h3>
+        <span class="q-mark" aria-hidden="true"></span>
+        <h3 class="q-h" data-i18n="q.s1"></h3>
         <p class="q-note" data-i18n="q.s1note"></p>
-        <div class="q-row">
-          <button class="btn btn-primary btn-sm" id="qLoad" data-i18n="q.load"></button>
-          <span class="q-source" id="qSource"></span>
+
+        <div class="q-pick" id="qPickBox">
+          <div class="lk-bar">
+            <svg class="lk-ico" viewBox="0 0 18 18" fill="none" aria-hidden="true">
+              <circle cx="8" cy="8" r="5.2" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M11.8 11.8 16 16" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <input class="lk-search" id="qPick" type="search" autocomplete="off"
+                   spellcheck="false" dir="auto" data-i18n-placeholder="q.pick"/>
+          </div>
+          <div class="q-results" id="qPickResults"><!-- rendered by quest.js --></div>
         </div>
-        <input type="file" id="qFile" accept=".xlsx" hidden/>
+        <div id="qTmpl"><!-- rendered by quest.js --></div>
       </li>
 
       <li class="q-step hidden" id="qStep2">
-        <h3 class="q-h"><span class="q-num">2</span><span data-i18n="q.s2"></span></h3>
+        <span class="q-mark" aria-hidden="true"></span>
+        <h3 class="q-h" data-i18n="q.s2"></h3>
         <p class="q-note" data-i18n="q.s2note"></p>
-        <input class="lk-search" id="qPick" type="search" autocomplete="off"
-               data-i18n-placeholder="q.pick"/>
-        <div class="q-results" id="qPickResults"></div>
-        <div id="qTmpl"></div>
+        <div class="q-group-row">
+          <input class="q-in q-group" id="qGroup" autocomplete="off" spellcheck="false"
+                 dir="auto" data-i18n-placeholder="q.phGroup"/>
+          <span class="q-file" id="qFile"></span>
+        </div>
       </li>
 
       <li class="q-step hidden" id="qStep3">
-        <h3 class="q-h"><span class="q-num">3</span><span data-i18n="q.s3"></span></h3>
+        <span class="q-mark" aria-hidden="true"></span>
+        <div class="q-h-row">
+          <h3 class="q-h" data-i18n="q.s3"></h3>
+          <span class="grow"></span>
+          <span class="q-fmt-label" data-i18n="q.coord"></span>
+          <!-- how the נ.צ is typed; motion.js slides the thumb -->
+          <div class="seg q-fmt" id="qFmt" role="group" data-i18n-title="q.coordTitle">
+            <button class="seg-btn" data-q-fmt="geo" data-i18n="q.geo"></button>
+            <button class="seg-btn" data-q-fmt="utm" data-i18n="q.utm"></button>
+          </div>
+        </div>
         <p class="q-note" data-i18n="q.s3note"></p>
-        <input class="q-in q-group" id="qGroup" autocomplete="off" spellcheck="false"
-               data-i18n-placeholder="q.phGroup"/>
-      </li>
 
-      <li class="q-step hidden" id="qStep4">
-        <h3 class="q-h"><span class="q-num">4</span><span data-i18n="q.s4"></span></h3>
-        <p class="q-note" data-i18n="q.s4note"></p>
-        <div class="q-rows" id="qRows"></div>
-        <div class="q-row">
-          <button class="btn btn-ghost btn-sm" id="qAdd" data-i18n="q.add"></button>
+        <div class="q-rows" id="qRows"><!-- rendered by quest.js --></div>
+
+        <div class="q-foot">
+          <button class="btn btn-ghost btn-sm" id="qAdd">
+            <span class="ed-plus" aria-hidden="true">+</span>
+            <span data-i18n="q.add"></span>
+          </button>
           <span class="q-count" id="qCount"></span>
           <span class="grow"></span>
-          <button class="btn btn-primary btn-sm" id="qGo" data-i18n="q.go"></button>
+          <button class="btn btn-primary" id="qGo">
+            <span data-i18n="q.go"></span>
+            <svg class="btn-arrow" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
         </div>
         <p class="q-after hidden" id="qAfter" data-i18n="q.after"></p>
       </li>
     </ol>
-
-    <p class="q-busy hidden" id="qBusy"></p>
   </section>
 </main>
+
+<!-- The antenna list, one for the whole view; quest.js places it under
+     whichever antenna field has focus. Outside the view on purpose: a view
+     arrives with a transform, and a transformed ancestor would make this
+     fixed-position list measure from the wrong corner. -->
+<div class="q-ac hidden" id="qAc" role="listbox"></div>
 
 <main class="view hidden" id="viewTable">
   <div class="toolbar">
@@ -649,6 +683,8 @@
 <!-- after app.js: deck.js uses the TableXUI / TableXReport bridges it exposes -->
 <script src="js/deck.js"></script>
 <script src="js/sitegen.js"></script>
+<script src="js/geo.js"></script>
+<!-- after app.js (the TableXDB / TableXUI bridges), sitegen.js and geo.js -->
 <script src="js/quest.js"></script>
 <!-- the shared press / rings / sliding-indicator layer; depends on nothing -->
 <script src="js/motion.js"></script>

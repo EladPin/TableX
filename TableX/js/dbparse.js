@@ -26,7 +26,9 @@
   'use strict';
 
   const IN_WORKER = typeof importScripts === 'function';
-  if (IN_WORKER) importScripts('xlsx.full.min.js');
+  // sitegen.js carries the new-site clone contract; the import keeps its kit
+  // (see makeKit there). As a plain script, index.html loads it too.
+  if (IN_WORKER) importScripts('xlsx.full.min.js', 'sitegen.js');
 
   // Header rows are in row 1 in every Planet export seen so far; readSheets
   // scans the first five, and this leaves a row of margin on top of that.
@@ -195,6 +197,13 @@
   const isPowerSheet = sh =>
     'site id' in sh.hdr && 'sector id' in sh.hdr && 'pa power (dbm)' in sh.hdr;
 
+  // Electrical tilt, per antenna. `Antenna_Electrical_Parameters` in the
+  // Partner export (Site ID + Antenna ID + Electrical Tilt); found by header,
+  // so an export that carries it on the Antennas sheet itself works too. It
+  // is what lets a new site copied from a database keep its template's tilt.
+  const isElecSheet = sh =>
+    'site id' in sh.hdr && 'antenna id' in sh.hdr && 'electrical tilt' in sh.hdr;
+
   // CRS — `Reference Signal Power Boosting (dB)`. It sits beside PA Power on
   // LTE_FDD_Sectors in the 2024 Partner export, and is found by header on its
   // own for the same reason power is: a Planet version that moves one of the
@@ -223,7 +232,8 @@
     // and the site-data slide simply shows nothing for those columns rather
     // than inventing them.
     const extra = heads.filter(sh => isAntennaSheet(sh) || isJoinSheet(sh) ||
-                                     isPowerSheet(sh) || isCrsSheet(sh)).map(sh => sh.name);
+                                     isPowerSheet(sh) || isCrsSheet(sh) ||
+                                     isElecSheet(sh)).map(sh => sh.name);
     return { layout: 'multi',
              names: [sec.name].concat(sites.map(s => s.name)).concat(extra) };
   }
@@ -440,9 +450,24 @@
       }
     }
 
-    // sector key -> [[height, azimuth, tilt, file], ...] before agreement
+    // sector key -> [[height, azimuth, tilt, file, etilt], ...] before agreement
     const antBy = Object.create(null);
     const push = (key, v) => { (antBy[key] || (antBy[key] = [])).push(v); };
+
+    // Electrical tilt by antenna, read first so each antenna row can carry it.
+    const etBy = Object.create(null);             // siteId + '\u0000' + antId
+    const elecSheet = sheets.find(isElecSheet);
+    if (elecSheet) {
+      for (const row of elecSheet.rows) {
+        const siteId = cellAt(row, elecSheet.hdr, 'site id');
+        const antId = cellAt(row, elecSheet.hdr, 'antenna id');
+        const v = num(cellAt(row, elecSheet.hdr, 'electrical tilt'));
+        if (!siteId || antId === '' || typeof v !== 'number') continue;
+        const k = siteId + '\u0000' + antId;
+        // an antenna listed twice with two tilts has no tilt — agreed or nothing
+        etBy[k] = (k in etBy && etBy[k] !== v) ? null : v;
+      }
+    }
 
     const antSheet = sheets.find(isAntennaSheet);
     const antById = Object.create(null);          // siteId + '\u0000' + antId
@@ -451,10 +476,12 @@
         const siteId = cellAt(row, antSheet.hdr, 'site id');
         const antId = cellAt(row, antSheet.hdr, 'antenna id');
         if (!siteId) continue;
+        const et = etBy[siteId + '\u0000' + antId];
         const a = [num(cellAt(row, antSheet.hdr, 'height (m)')),
                    num(cellAt(row, antSheet.hdr, 'azimuth')),
                    num(cellAt(row, antSheet.hdr, 'mechanical tilt')),
-                   cellAt(row, antSheet.hdr, 'antenna file') || null];
+                   cellAt(row, antSheet.hdr, 'antenna file') || null,
+                   et === undefined ? null : et];
         if (antId !== undefined && antId !== null && antId !== '') {
           antById[siteId + '\u0000' + antId] = a;
         }
@@ -488,6 +515,11 @@
       const list = antBy[key];
       const row = [agreed(list.map(a => a[0])), agreed(list.map(a => a[1])),
                    agreed(list.map(a => a[2])), agreed(list.map(a => a[3]))];
+      // The fifth slot, electrical tilt, is written only when there is one,
+      // so a database from an export without it keeps the four-slot shape
+      // every reader was written against.
+      const et = agreed(list.map(a => a[4]));
+      if (et !== null) row.push(et);
       if (row.some(v => v !== null)) ant[key] = row;
     }
 
@@ -538,7 +570,8 @@
 
     return { layout: 'multi', sheet: siteSheet.name + ' + ' + secSheet.name,
              sites, notes, sectors, coords, ant, pwr, crs,
-             rows, dupes, dupeExample, composite, unknownBand, bandExample };
+             rows, dupes, dupeExample, composite, unknownBand, bandExample,
+             nameCol };
   }
 
   /* ── inspector ───────────────────────────────────────────────────── */
@@ -650,12 +683,33 @@
     if (!pick) return null;
 
     if (report) report('dbBuild');
-    // Pass 2 — full parse of ONLY the sheets pass 1 matched.
-    const full = XLSX.read(data, { type: 'array', sheets: pick.names });
+    // Pass 2 — a full parse. The flat layout needs its one sheet; a group
+    // export is read WHOLE, because the new-site kit (below) keeps every
+    // sheet's header and a donor's row on each. That costs the two sheets
+    // the database itself does not use — Antenna_Electrical_Parameters and
+    // LTE_FDD_Sectors in the Partner export — on an import done every few
+    // months, in a Worker.
+    const full = XLSX.read(data, pick.layout === 'flat'
+      ? { type: 'array', sheets: pick.names } : { type: 'array' });
     const sheets = readSheets(full);
-    return pick.layout === 'flat'
-      ? buildFlat(sheets)
-      : buildMulti(sheets, opts && opts.freq);
+    if (pick.layout === 'flat') return buildFlat(sheets);
+
+    const mode = opts && opts.freq;
+    const out = buildMulti(sheets, mode);
+    if (!out) return null;
+    // THE KIT: what a new site is cloned from, kept with the database so the
+    // new-site view needs no workbook of its own. Optional — a database
+    // without one still imports, it just cannot seed a new site.
+    const SG = scope.TableXSiteGen;
+    if (SG && SG.makeKit) {
+      if (report) report('dbKit');
+      out.kit = SG.makeKit(SG.readSheets(XLSX, full), {
+        band: name => parseBand(name, mode),
+        nameCol: out.nameCol,
+        composite: out.composite,
+      });
+    }
+    return out;
   }
 
   // Main-thread fallbacks for app.js when a Worker cannot start.
