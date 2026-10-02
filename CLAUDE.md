@@ -68,20 +68,39 @@ site names matched byte-for-byte, zero mismatches**, which is the verification t
 survives the xlsx→JSON conversion. If either dataset is refreshed, the other is probably stale;
 re-run that comparison rather than trusting one blindly.
 
-**Which Partner ships changed twice.** On 2026-09-05 `partner.json` was rebuilt from the
-`Partner_May_26_V3` group export (3,129 sites / 16,510 sectors), which made Interfex's copy the
-stale side. On **2026-09-29 Elad re-imported `Partner_170924_V3.xlsx`** — the 2024 export, the same
-workbook the 2026-09-04 cross-check was run against — because it is the one that carries the
-**physical plant** (antennas, heights, azimuths, tilt, PA power, CRS, coordinates) that the site
-sheet and Stylish need; the May-26 build carried names and carriers only. That is what ships now:
-2,898 sites / 14,252 sectors. **The price, measured against the May-26 file:** 434 of its sites and
-2,502 of its sectors are absent from the 2024 export (and 203 sites of the 2024 export are gone from
-May-26), so a point inspect from today's Planet will hit some codes this database cannot name. The
-cure is not in this repo — `Partner_May_26_V3.xlsx` is not on the dev box (only
-`D:\Downloads\Partner_170924_V3.xlsx` is) — it is `export group` on `Partner_Share` in the current
-Planet, which carries both. `git show cfd7b62:TableX/data/partner.json` is the May-26 build if it
-is ever wanted back. Interfex's `partner_cells.json` is from the 2024 export too, so the two should agree again;
-`c:\projects\interfex` is not on this dev box, so that was not re-checked.
+**Which Partner ships changed three times, and the middle move was made on a wrong premise.**
+On 2026-09-05 `partner.json` was rebuilt from the `Partner_May_26_V3` group export (3,129 sites /
+16,510 sectors). On 2026-09-29 it was reverted to `Partner_170924_V3.xlsx` — the 2024 export —
+on the grounds that the May-26 one "carried names and carriers only" and the 2024 one carried the
+**physical plant**. **That was true of the BUILD, not of the FILE.** The optional `coords` / `ant` /
+`pwr` / `crs` keys were not added to either parser until 2026-09-29, three weeks *after* the May-26
+import ran, so the plant was never missing from the workbook — it was simply not being read. Nobody
+re-parsed it before reverting.
+
+**On 2026-10-02 Partner was rebuilt from `Partner_May_26_V3.xlsx` again**, and today's parser takes
+everything out of it: **3,129 sites / 16,510 sectors, with 3,129 coords, 16,510 antennas, 16,510
+power values and 16,510 CRS values** — the full plant, on the current network. That is what ships
+now, and it closes the "434 sites short" gap the revert accepted. Measured against the 2024 build it
+replaced: 434 sites and 2,502 sectors added, 203 sites and 244 sectors gone, 2,803 PA-power values
+and 2,500 antennas changed (real swaps — `742270_1800.pafx` → `ODI2065R15M18JJ02Q.pafx`), and 807
+sector rows whose *site id* moved between the two exports. The e2e suites were 144/144 after it,
+which is the evidence that they assert against the database's own values rather than fixed counts.
+
+**The cost is ANT_DIMS coverage**, and it is a fair trade rather than a regression: 67% of the
+16,510 antennas now match a datasheet entry and 33% fall through to `TYPICAL`, against roughly 80%
+before — because the current network carries models the 2024 one did not. The top unmatched, each
+one `ANT_DIMS` line away: `80020899` (2,654), `ODI065R12M15JJJ02GQ` (505), `80020892` (479),
+`ODI2065R15M18JJ02Q` (416), `84510891` (130). `<GENERIC>` (752) is Planet's own placeholder for a
+site with no real antenna assigned, not a model, and must never be given a size.
+
+The source file is **`C:\Users\<user>\OneDrive\Desktop\Partner_May_26_V3.xlsx`** — it IS on the dev
+box, contrary to what this file said until 2026-10-02 (`D:` and `F:` do not exist on this machine at
+all, so the `D:\Downloads\` and `F:\IDF_DB_FOR_CLAUDE\` paths recorded elsewhere here are dead too).
+`git show cfd7b62:TableX/data/partner.json` is the 2026-09-05 May-26 build and
+`git show e9bf098:TableX/data/partner.json` the 2024 one, if either is ever wanted back;
+`partner.json.bak` is now the 2024 database rather than the 90-byte empty file the gotchas warn
+about. Interfex's `partner_cells.json` is from the 2024 export, so the two are **out of step again**
+and the cross-check is due; `c:\projects\interfex` is not on this dev box, so it was not re-run.
 
 Shared house style: **no internet on the target machines**, so everything is vendored and
 nothing loads from a CDN; Hebrew RTL UI; a PowerShell static server started by a `start.bat`;
@@ -284,6 +303,7 @@ tools/
   build_idf.py                ENM CLI dump + name list → data/idf.json (stdlib only)
   build_fonts.py              downloads + subsets Plex (+ Inter/Heebo) into TableX/fonts/
   build_icon.py               the ghost -> .ico / .png / .svg + the nav snippet
+  gen_site.mjs                new-site workbook writer — drives TableX/js/sitegen.js
   e2e/run.mjs                 the end-to-end suites — see "Tests" (no npm install)
   e2e/cdp.mjs                 shared DevTools-Protocol harness
   e2e/{engine,deck,app}.mjs   one suite each
@@ -295,6 +315,8 @@ TableX/
   js/deck.js                  the Decks view: templates, slots, the build
   js/scene.js                 the home page's pixel floor + the ghost that walks it
   js/dbparse.js               the workbook contract — runs as a Web Worker
+  js/sitegen.js               a new site, cloned from a real one — the first Planet
+                              quest. Loaded by tools/gen_site.mjs; no view yet
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/motion.js                press, rings and sliding indicators, for every button
   js/tour.js                  the "?" on the paste card — Planet -> paste -> table, in 5 steps
@@ -1585,6 +1607,288 @@ two-maps-per-slide layout therefore just works.
 
 ---
 
+## Planet quests — driving Planet 7.10 from TableX
+
+> **STEP 1 IS BUILT AND UNPROVEN; STEPS 2 AND 3 ARE NOT BUILT.** The site writer
+> (`TableX/js/sitegen.js` + `tools/gen_site.mjs`) exists and is verified as far as it can be
+> verified out here — what it has never done is pass through Planet's own Import. The rest is
+> design plus what photographs taken on TS on **2026-09-18** established. Read "What is still
+> unknown" before believing any of it is settled.
+
+Asked for by Elad, 2026-09-18: an app that "rides" on Planet and does the repetitive jobs the RF
+team gives it. **Decided the same day: a menu of recipes, not an AI.**
+
+**Why no AI, written down so it is not re-litigated.** TS has no internet, so nothing can call
+Claude from there. A model running locally means several GB through הלבנת תוכנה, a machine with a
+GPU, approval for an AI on a classified network, and — once all that is paid for — a small model
+that drives tools *worse* than a fixed recipe does. The recipes have to exist either way, because
+an AI layer could only ever choose between them. So the recipes are the product; if a local model
+is ever approved it can be added on top of them without changing anything underneath.
+
+### The first quest: בחינות אתרים
+
+What the team does by hand today, and what the quest replaces:
+
+1. Data arrives for a site that will be built — a נ.צ plus its plant.
+2. **Copy an existing site in Planet and change its data** to the new site's: נ.צ, azimuth,
+   height, tilt, frequency, **PA power** (49 dBm ≈ 80 W is the default) and **antenna model**
+   (`80010866`, Vega `CC12W`, `ODI32`, and a few more — the same models `ANT_DIMS` already draws).
+3. Run an **LTE FDD Analysis** per scenario. Four are in use, and they are **combinations of
+   groups**, not settings: `מצב קיים` · the new site **alone** · `קיים + the new site` ·
+   `קיים + the new site, without Partner_Share`.
+4. Screenshot the result — **usually the RSRP layer only** — into the commander's deck.
+
+**This is 13+ sites in a round**, three or four analyses each. That is the whole reason the quest
+exists, and the arithmetic is the same one the point-analysis table removed: a job that is purely
+mechanical, repeated dozens of times, where every repetition is a chance to get one field wrong.
+
+**The analysis AREA is a polygon the team sets per job**, not per site and not the country — "I
+take all of this area when working here, not less, because I can ruin the כיסוי by taking fewer
+sites". The spec file names it (`AreaGridName`), so a cloned analysis inherits whichever area the
+template analysis used. Do not try to compute an area per site.
+
+### The one rule: write Planet's INPUTS, never drive its UI or its database
+
+Planet 7.10 is a .NET application hosted on **MapInfo Pro 64-bit** (its ribbon carries MapInfo's
+own `Table` / `Map` / `Spatial` / `Raster` tabs, and MapInfo's Tool Manager and
+`Run MapBasic Program` are both reachable). That opens three plausible ways in — clicking the UI
+through Windows automation, calling .NET assemblies, or writing files Planet already reads — and
+**only the third is worth building**. The first breaks on any dialog change; the second has no
+public surface (see below); the third uses code Infovista wrote and the team already trusts.
+
+So each of the three steps rides a channel that already exists:
+
+```
+TableX: new sites + a template site ──► group-export .xlsx ──► Planet: Import (the team's own routine)
+TableX: scenarios × sites           ──► analysis folders   ──► Planet: Scheduler → Start, once
+MapBasic inside Planet: open each result, zoom, Save Window ──► PNGs ──► TableX מצגות ──► PPTX
+```
+
+**There is no desktop API, and that was checked rather than assumed.** The install carries no SDK
+or scripting documentation (`Help\` is MadCap web help plus `Getting Started Guide.pdf` and
+`ReleaseNote.pdf`; `Assembly\` is 551 files of implementation — `aexio.*`, `Accord.*`, `EFAL\`),
+and Infovista's published "open APIs" belong to **Planet Cloud**, not to the desktop product.
+
+**Three constraints that shape every decision here**, all of them already familiar from Interfex:
+
+- **The project is SHARED** (`Hoshen_MASTER_03-2026`, with the `*_Share` groups the whole team
+  depends on). A quest may **add** clearly-named new things; it must never edit or delete anything
+  that was already there, and **a generated Site ID must never collide with an existing one** —
+  an import that reuses an id would overwrite a real site in everyone's project.
+- **Development is blind.** Planet is on TS, software goes in through הלבנת תוכנה, and nothing
+  comes out but photographs. Same rule the workbook parsers were built under: prefer rules
+  grounded in a published format over rules fitted to one sample, and give every quest a line a
+  soldier can photograph to prove it worked — the import toast's band list is the model.
+- **A program that operates Planet is a different category from a static app** for whoever
+  approves הלבנת תוכנה. Say so up front rather than discovering it at the gate.
+
+**v1 should hand the user files to download and let them do the import themselves.** The server
+writes only under `TableX/data`, and pointing a write route at `C:\Projects\<project>\` to save a
+few clicks would put the app's one dangerous capability next to the team's live project. Download,
+then import, is the same number of decisions and none of the risk.
+
+### What the photographs established
+
+**Step 1 — sites.** The team imports and exports groups *and single sites* routinely; that is
+already how they refresh TableX's own databases. The export is the workbook
+[the contract](#updating-a-database) describes, with more sheets than the importer reads
+(`Sites`, `Antennas`, `Antenna_Electrical_Parameters`, `Antenna_Constraints`,
+`Link_Configurations`, `Antenna_Model_Bands`, `Summary`, and the sectors sheets). **TableX writes
+one back**: load an export of the template site, clone its rows across *every* sheet once per new
+site, rewrite the ids and the changed fields, leave every other column alone. That is exactly what
+"copy a site and change its data" does by hand, and it means the columns nobody here understands —
+propagation settings, constraints, link configurations — keep the template's values instead of
+being invented. **SheetJS is already vendored and writes `.xlsx`**, so this adds no dependency.
+The `Sites` sheet's `Longitude` / `Latitude` held **UTM 36N metres** in the photographed export
+(`622321.5` / `3452921`); `coordText()` already decides degrees-or-metres by magnitude and this
+must do the same, not assume.
+
+**Step 2 — analyses.** An analysis is **a folder** under `C:\Projects\<project>\LTEFDD_Analyses\`:
+
+```
+17092026_סע_למעלה\
+  AnalysisSpecification.xml      ~161 KB — the settings
+  Sectors.bin                    2-3 KB  — contents unknown
+  <name>_RSRP_Common_M.mrr/.TAB/.ghx     — the results, as MapInfo rasters
+  <name>_BestServer_1..3, _BestServerRSRP_2..3, _RSRQ_Common_M, one .PPRC
+```
+
+`AnalysisSpecification.xml` is plain text: .NET `DataContractSerializer` output (namespace
+`http://mentum.com/planetservice/v1`, `z:Id` reference ids) holding `LTEAnalysisSettings` —
+`AnalysisAreaTypeSelection = Predictions`, `AreaGridName` (the area polygon),
+`CoverageProbability 85`, `EquipmentType Man-LEX20`, `Bound`, and an `LTERapidAnalysisSettings`
+block. **Cloning it means changing VALUES, never structure**: `z:Id` ids must stay unique and the
+references that point at them must keep pointing, so adding or removing elements is a different
+and much riskier job than editing the text inside one.
+
+**The Scheduler already solves running them.** `Automation → Schedule` lists every saved analysis
+with a checkbox and a `Start` button, and the team's list is full of exactly these jobs
+(`15 מצב קיים`, `504 small zval + partner`, `הר דוב_אזימוט 340`). Nothing needs to be built to run
+39 analyses — only to *create* them.
+
+**Step 3 — images.** The results are MapInfo tables (`..._RSRP_Common_M.TAB`, with the `.mrr`
+raster and a `.ghx` carrying the colours), which the team opens in MapInfo. So MapBasic can open
+each one, add it to the map the user already has set up, zoom to the site and `Save Window ... As
+... Type "PNG"`. The PNGs then go to `מצגות` in order, which is positional — so **name them in the
+order the deck consumes them** (site 1 קיים, site 1 + new, site 1 without Partner, site 2 …).
+
+### The site writer — `sitegen.js`, built 2026-10-02
+
+Elad's idea, and it is better than waiting for the single-site photograph: **a full group export is
+already a complete specimen of the format.** `Partner_May_26_V3.xlsx` is on the dev box, so unknown
+#1 below stopped being a photograph and became a file that was read. A new site is written by
+cloning a real one.
+
+**The donor is per SECTOR, not per site, and that is the whole trick.** A band choice drags four
+other columns with it — `1800_20` means `Propagation Model P3M_1800MHz_FinishTuned_2018.pmf`,
+`Carrier Name 1800_20_SB1_PHI`, `Carrier: 1800_20_SB1_PHI = Allocated` with the other three
+`Unused`, and `Group: PHI_1800 = TRUE`. None of that is hardcoded. Each new sector clones a sector
+that **already carries its band**, so Planet's own configuration supplies every derived column and
+there is no second copy of it here to drift. Verified on a 6-sector test site: the 1800 sectors came
+out with the 1800 propagation model and carrier, the 700 ones with `P3M_750MHz_FinishTuned_2018.pmf`
+and `700_10_SB1_PHI`, all six with the right group flags.
+
+#### The group: the FILE NAME decides it, the column marks it
+
+**`Group: <name>` is a TRUE/FALSE column on the `Sectors` sheet and nowhere else** (`Group: PARTNER`,
+`Group: PHI_1800`, `Group: PHI_2600`, `Group: PHI_700`, `Group: PHI_700_9435` in the Partner
+export). Group membership is **a column in the workbook**, which is a partial answer to unknown #2
+and was not known before: the scenario combinations may be expressible by writing a column rather
+than by cloning `AnalysisSpecification.xml` at all.
+
+**How the team actually uses it** (Elad, 2026-10-02). The group is created **in Planet first**, and
+a sector joins it by the sheet carrying a column headed with that group's **exact** name. So the
+writer takes a group name, renames the FIRST `Group:` column to `Group: <name>`, and writes `TRUE`
+on every row — all the new sectors go into the one group. The remaining `Group:` columns are
+removed, for the reason below.
+
+**They are not merely irrelevant, they are dangerous, and that is the load-bearing half.** A cloned
+row arrives carrying the TEMPLATE's memberships — every Partner row is `Group: PARTNER = TRUE` and
+one of the `PHI_*` columns `TRUE` — so importing one unchanged adds the new site to two of the
+team's **real** groups in a shared project. That is exactly what "a quest may add clearly-named new
+things; it must never change something that was already there" forbids.
+
+**PROVEN ON TS, 2026-10-02 — and two of this file's own answers were wrong.** The first test
+workbooks were refused; the same data imported once Elad renamed the file and deleted columns. What
+that settled:
+
+- **THE FILE NAME IS THE GROUP NAME.** The identical workbook was refused as
+  `TableX_new_site_TX9001A.xlsx` and accepted as `TableX_Test.xlsx`, the name of the group created
+  in Planet beforehand. **The download name is load-bearing, not cosmetic**, and **one file is one
+  group** — a round covering several groups is several files. Nothing inside the workbook says this;
+  it could not have been derived by reading the format, only by trying it.
+- **The other `Group:` columns must be DELETED, not set FALSE.** This file's first answer was to keep
+  them and write `FALSE`, reasoning that the export should keep the shape Planet produced and that a
+  missing column is a guess about what the importer tolerates. That was reasoning, not evidence, and
+  Planet disagreed with it. `dropCols()` removes them (18 columns → 14 on the Sectors sheet).
+- **A blank `Physical Cell ID` / `Cell ID` is ACCEPTED.** The file that imported was `TX9001A`, the
+  variant with those four fields emptied, so the design under `BLANK` stands and TableX never has to
+  invent a PCI. The `keepIdentity` fallback stays in the module but has no known use.
+
+#### The Excel round trip is the accepted recipe, and why
+
+**Planet will not import the workbook as TableX writes it. Opening it in Excel and saving makes it
+import.** Three trials on TS (Elad, 2026-10-02) narrowed this and then stopped, because the
+workaround costs about ten seconds and the feature is worth having now:
+
+1. **Unblocked, never opened in Excel → refused.** That ruled out the Mark of the Web, which had
+   been the leading theory, and put the fault in the package itself.
+2. **`bookSST: true` added → still refused.** It is kept anyway, because it fixed a REAL defect:
+   SheetJS writes `t="str"` for every text cell, which in OOXML means a FORMULA's cached string
+   result, where a literal text cell must be `t="s"` indexing `sharedStrings.xml`. Planet's own
+   export and Excel's re-save both use `t="s"`; ours now does too, shared-string indices and all.
+   Excel reads `t="str"` happily, which is why the Excel round trip hid this for so long.
+3. **Opened in Excel and saved → imports.** Every time.
+
+**`writeWorkbook()` in `sitegen.js` is the only place the bytes are produced**, and it passes
+`bookSST: true`. Never call `XLSX.write` directly for a Planet workbook.
+
+**What is still different, after diffing our output against Excel's re-save of that same file part
+by part — and it is now exactly one thing:** `xl/metadata.xml`, which SheetJS 0.20.3 writes
+unconditionally (it is there even for a two-cell workbook) and which neither file Planet accepts
+carries. Everything else is cosmetic: Excel adds `mc`/`x14ac` namespaces, `<pageMargins>`,
+`spans`/`ht`/`dyDescent` on rows, and orders two attributes differently. `[Content_Types].xml` was
+checked for the classic fault and is clean in both — no Override names a part that does not exist,
+and no part is undeclared.
+
+**So `metadata.xml` is the last suspect, and it is UNTESTED.** Nothing references it from a cell (no
+`vm=` attribute anywhere), so it can be dropped — but only together with its `[Content_Types].xml`
+Override and its `workbook.xml.rels` Relationship, or the package ships a dangling relationship,
+the exact defect the Decks engine's suite checks for. Doing it needs a zip rewrite: JSZip is on
+`window` in the app (from `pptxgen.bundle.js`) but that bundle throws when required in Node, so the
+Node driver needs its own. **Not built** — it is one more trip to TS to test a guess, and Elad
+decided the Excel step is cheap enough to live with.
+
+**If it is ever worth removing the step entirely, the server can do the round trip itself.** Excel
+is automatable over COM from PowerShell — `New-Object -ComObject Excel.Application`, `.Open()`,
+`.Save()`, `.Quit()` — which is exactly how the diffs above were produced on the dev box. That
+would make `server.ps1` depend on Office being installed and activated on the TS machines, which is
+a heavier dependency than anything else in this repo, so it is an option and not a plan.
+
+**The diagnosis technique is the reusable part.** Excel being automatable here means the exact
+transformation that makes Planet accept a file can be reproduced on the dev box and diffed part by
+part. That turns "Planet refused it" from a question only TS can answer into one this box can
+mostly answer, which is worth remembering for the analysis-folder work.
+
+#### What the writer is checked against
+
+- **Out here:** 37 rows over all seven sheets for a 6-sector site, the shape a real one has; every
+  user field applied; every derived column correct, including the per-band propagation model and
+  carrier; one group column kept TRUE and the rest dropped, with the no-name and
+  name-already-exists paths both exercised; the collision guard refusing a Site ID the export
+  already carries and writing nothing; and **`build_db.py` parsing the generated workbook back** as
+  a valid Planet group export, recovering all 6 sectors, the plant, the Hebrew name and the coords.
+- **On TS:** Planet's Import accepts it — see above for the two rules that trial corrected and the
+  one question it left open.
+- **Not covered anywhere:** how a site generated this way behaves in an ANALYSIS. The import is
+  proven; that its predictions are sane is not, and the first real round is the test.
+
+`TX9001A` is the test site and **`TX` is a prefix no real Partner site uses**, so a test import
+cannot collide with anything in `Hoshen_MASTER`. Delete it and its group afterwards — a shared
+project should not keep our scaffolding.
+
+### What is still unknown — the next session starts here
+
+Round 3 was asked for on 2026-09-18 and has not come back. In rough order of how much it blocks:
+
+1. ~~**Every sheet of a single-site export.**~~ **Answered 2026-10-02 without a photograph** — a
+   group export is a complete specimen of the format and `Partner_May_26_V3.xlsx` is on the dev box.
+   Seven sheets, every column, every join (Site ID / Sector ID / Antenna ID) read directly. What
+   remains is not knowledge but a trial: **does Planet's Import accept what we write.**
+2. **Where `AnalysisSpecification.xml` records WHICH sectors or group it covers**, and what
+   `Sectors.bin` holds. At 161 KB the XML is big enough to carry a few thousand sector ids
+   outright. Notepad + Ctrl+F for `Group`, `Sector`, the analysis's own name and `Partner`, plus
+   the last screen (Ctrl+End), answers it. **Until this is known, step 2 is a guess** — and if the
+   selection turns out to be a static sector list rather than a group reference, TableX computes
+   it from group exports, which it can already read.
+3. **Whether Planet discovers an analysis folder written by hand.** The test costs five minutes
+   and no software: copy `AnalysisSpecification.xml` + `Sectors.bin` into a new
+   `LTEFDD_Analyses\TEST_COPY\`, reopen Planet, look at the Scheduler, then delete the folder (and
+   don't press Synchronize while it is there). If Planet only learns about analyses from its own
+   project registry, step 2 needs a different route.
+4. **Whether MapInfo's MapBasic window is reachable inside Planet and runs typed statements**
+   (`Note "TableX"` is the whole test; Ctrl+Q searches the ribbon for it). If yes, step 3 needs no
+   compiled program at all — TableX generates the script text and the user pastes it. If no, it
+   needs a `.mbx`, and then **MapInfo Pro's exact version matters**, because a compiled MapBasic
+   program has to match it (`Planet 7.10\mapinfo\MapInfoPro.exe` → Properties → Details).
+5. **Predictions.** A copied site's sectors presumably need `Generate Predictions` (it is on the
+   group right-click menu) before an analysis can use them. Nobody has said whether the analysis
+   or the Scheduler does that itself.
+6. **What coordinate format the incoming נ.צ arrive in** — the export is UTM 36N metres; if the
+   data arrives as ITM or degrees, TableX converts, and that conversion is published mathematics
+   that can be verified against a known point rather than against a photograph.
+7. **The naming convention for new sites**, so generated ids cannot collide with real ones.
+
+### What TableX already has that this needs
+
+Most of the quest is glue, which is the reason to build it here rather than as a new app: the
+group-export parser (`dbparse.js`), SheetJS to write one back, `coords` / `ant` / `pwr` already
+carried per sector, the site search, the Decks engine for the PPTX, and `ask()` / toasts /
+i18n for anything it says. What is genuinely new is a quests view, a workbook *writer*, and an
+`AnalysisSpecification.xml` cloner.
+
+---
+
 ## Tests
 
 ```
@@ -1908,9 +2212,14 @@ the raw key.
 
 Things raised with Elad and not settled. Each is small; none is a defect in what shipped.
 
-- **Partner is the 2024 export**, 434 sites short of today's network — see "Sibling projects". The
-  next Partner refresh should be a current `Partner_Share` group export, which the importer reads
-  plant and all.
+- ~~**Partner is the 2024 export**, 434 sites short of today's network.~~ **Closed 2026-10-02** —
+  rebuilt from `Partner_May_26_V3.xlsx`, which carried the plant all along (see "Sibling projects").
+  What is now open instead: **33% of its antennas have no `ANT_DIMS` entry** and draw at `TYPICAL`,
+  `80020899` alone being 2,654 of them, and **Interfex's `partner_cells.json` is out of step again**.
+- **The site writer imported into Planet on 2026-10-02** — the gate is cleared. What is left before
+  the view is built: one import of a file Excel has never opened, since the accepted workbook had
+  been re-saved by Excel on the way. `TableX_Test.xlsx` on the Desktop is that test. See
+  "Planet quests".
 - **Levels show their minus on the right in the Hebrew report** — `72.42-`, in all three styles
   and in the old table too. It is the bidi algorithm placing a neutral `-` in an RTL cell. Offered
   and not changed, because it changes the deliverable; the fix is to isolate the level cell as LTR
@@ -1929,6 +2238,9 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   `crsGain [dB]` per cell, ~26.6k rows each — beside `Book1.xlsx` (cell id, EARFCN, eNB id). Not a
   Planet export and no importer reads it; noted only as a possible source for sectors the 2024
   export lacks, if that is ever wanted.
+- **The Planet quests are waiting on seven photographs** — see "Planet quests", which is the
+  design for the next feature and the record of everything known about Planet's own file formats.
+  Nothing is built, and the round-3 list there is what unblocks it.
 
 ## Known gaps
 
