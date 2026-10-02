@@ -306,7 +306,7 @@ tools/
   gen_site.mjs                new-site workbook writer — drives TableX/js/sitegen.js
   e2e/run.mjs                 the end-to-end suites — see "Tests" (no npm install)
   e2e/cdp.mjs                 shared DevTools-Protocol harness
-  e2e/{engine,deck,app}.mjs   one suite each
+  e2e/{engine,deck,app,quest}.mjs   one suite each
 TableX/
   index.html                  whole UI: nav, paste card (+ the floor), DB view, lookup, table view
   css/main.css                the Signal system: tokens at the top, MOTION at the bottom
@@ -315,8 +315,10 @@ TableX/
   js/deck.js                  the Decks view: templates, slots, the build
   js/scene.js                 the home page's pixel floor + the ghost that walks it
   js/dbparse.js               the workbook contract — runs as a Web Worker
-  js/sitegen.js               a new site, cloned from a real one — the first Planet
-                              quest. Loaded by tools/gen_site.mjs; no view yet
+  js/sitegen.js               a new site, cloned from a real one — the format
+                              contract. Also runs as a Web Worker
+  js/quest.js                 the אתרים חדשים view: load an export, pick a
+                              template, edit, generate
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/motion.js                press, rings and sliding indicators, for every button
   js/tour.js                  the "?" on the paste card — Planet -> paste -> table, in 5 steps
@@ -1609,11 +1611,11 @@ two-maps-per-slide layout therefore just works.
 
 ## Planet quests — driving Planet 7.10 from TableX
 
-> **STEP 1 IS BUILT AND UNPROVEN; STEPS 2 AND 3 ARE NOT BUILT.** The site writer
-> (`TableX/js/sitegen.js` + `tools/gen_site.mjs`) exists and is verified as far as it can be
-> verified out here — what it has never done is pass through Planet's own Import. The rest is
-> design plus what photographs taken on TS on **2026-09-18** established. Read "What is still
-> unknown" before believing any of it is settled.
+> **STEP 1 IS BUILT AND WORKING ON TS; STEPS 2 AND 3 ARE NOT BUILT.** `אתרים חדשים` in the nav
+> (`TableX/js/quest.js`, engine in `TableX/js/sitegen.js`) writes a new-site workbook, and Planet
+> imports it — after the file is opened in Excel and saved, which is the one manual step and is
+> explained below. The rest of this section is design plus what photographs taken on TS on
+> **2026-09-18** established. Read "What is still unknown" before believing any of it is settled.
 
 Asked for by Elad, 2026-09-18: an app that "rides" on Planet and does the repetitive jobs the RF
 team gives it. **Decided the same day: a menu of recipes, not an AI.**
@@ -1830,6 +1832,35 @@ transformation that makes Planet accept a file can be reproduced on the dev box 
 part. That turns "Planet refused it" from a question only TS can answer into one this box can
 mostly answer, which is worth remembering for the analysis-folder work.
 
+#### The view — `אתרים חדשים`
+
+Four numbered steps, each revealed by the one before it, because the order is not optional.
+
+1. **Load a group export.** The clone needs the WORKBOOK, not the database: `partner.json` carries
+   names, carriers and plant, but not `Propagation Model`, `TAC`, `Carrier Name` or the other forty
+   columns a Planet row has. Only the export has those, which is the whole reason a new site is
+   cloned from a real row rather than written from nothing.
+2. **Pick a template site.** Its sectors **seed the form**, so the fields open holding real values
+   to adjust rather than empty boxes to fill. That is the job restated: copy a site, change its
+   data. The plant is read through the explicit sector→antenna join, never matched by azimuth — a
+   multi-band site has two antennas on one azimuth and matching by it would take whichever was
+   indexed first, the same silent-wrong-answer the Pelephone bandwidth path refuses to give.
+3. **Name the group**, which must already exist in Planet.
+4. **Edit and generate.** Only the identity starts blank: the Site ID and the name are the two
+   things that must be new. A Site ID the export already carries is refused outright.
+
+**The workbook stays in the Worker.** Reading all seven sheets in full is ~6.5 s — more than the
+database import, which reads only the two sheets it understands — so it cannot run on the main
+thread. But it also must not come BACK: handing the page 16,510 rows × 47 columns would be a
+structured clone of tens of megabytes. The worker instead answers small questions (the site list,
+one site's plant) and returns the finished bytes, transferred rather than copied. `sitegen.js`
+carries the same dual-load tail `dbparse.js` uses, so the Worker and the main-thread fallback are
+one copy of the logic rather than two that can drift.
+
+**The view states the Excel step every time it generates**, in the toast and in a panel under the
+button. It is the one thing between a generated file and a working import, and burying it in a
+README would mean rediscovering it.
+
 #### What the writer is checked against
 
 - **Out here:** 37 rows over all seven sheets for a 6-sector site, the shape a real one has; every
@@ -1893,7 +1924,7 @@ i18n for anything it says. What is genuinely new is a quests view, a workbook *w
 
 ```
 .\server.ps1 -NoLaunch            # in one window
-node tools/e2e/run.mjs            # in another — 144 checks, ~70 s
+node tools/e2e/run.mjs            # in another — 171 checks, ~85 s
 node tools/e2e/run.mjs deck       # one suite
 node tools/e2e/run.mjs --keep-shots
 ```
@@ -1908,6 +1939,7 @@ server, `TABLEX_VERBOSE=1` prints passing checks too.
 | `engine` | `js/pptx.js` — parse a package, insert a picture, clone/reorder/delete slides, then **re-open the output** and assert on it, including that no relationship dangles |
 | `deck`   | the whole Decks flow — upload a template, mark slots, mark a slide repeating, save to the server, drop images, build, re-open, and confirm the report table came out as a native `<a:tbl>` |
 | `app`    | the lookup view, in-table editing, the site editor's add form, that a chained cell resolves under BOTH its ENM and its Planet spelling, the site-data sheet, the databases view, and the "?" tour end to end |
+| `quest`  | אתרים חדשים end to end — builds a seven-sheet group export in the page, loads it, picks a template, refuses a Site ID the export already carries, generates, and reads the workbook back: one group column named after the group and TRUE, the per-band donor's propagation model, PCI blanked, antennas renumbered, and a `sharedStrings` part with no `t="str"` cell |
 
 **Why a browser and not unit tests.** Everything worth testing here is interactive — clicking a
 slot onto a slide, dragging it, typing into a table cell, feeding a `.pptx` through a file input.
@@ -2327,6 +2359,11 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   `tools/build_db.py`.
 - When you add a network, **touch four places**: `NETWORKS` and `LABELS` in `app.js`, `$NETWORKS`
   in `server.ps1`, `LABELS` in `tools/build_db.py`, and a `data/<net>.json` stub.
+- When you add a VIEW, **touch four places**: the `<main class="view">` in `index.html`, its nav
+  button, `show()` in `app.js`, and **`GOTO` in `app.js`** — that last one is a list of the views a
+  `data-goto` button may reach, and a name missing from it silently sends the button HOME instead.
+  It was an if-chain with a fall-through until 2026-10-02, when `quest` landed and did exactly that.
+  Anything the view renders from JS also needs a line in `relocalize()`.
 - **Never re-author a template's slide content.** If a deck feature seems to need it, it is the
   wrong feature; see "Decks".
 - **Run the suites before you push**: `node tools/e2e/run.mjs` (the server must be up). They are

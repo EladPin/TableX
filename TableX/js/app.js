@@ -2202,18 +2202,20 @@
   /* ── views ───────────────────────────────────────────────────────── */
   function show(which) {
     const table = which === 'table', lk = which === 'lookup', dk = which === 'decks';
-    const sd = which === 'site', db = which === 'db';
-    $('viewHome').classList.toggle('hidden', table || lk || dk || sd || db);
+    const sd = which === 'site', db = which === 'db', qu = which === 'quest';
+    $('viewHome').classList.toggle('hidden', table || lk || dk || sd || db || qu);
     $('viewDb').classList.toggle('hidden', !db);
     $('viewLookup').classList.toggle('hidden', !lk);
     $('viewDecks').classList.toggle('hidden', !dk);
     $('viewSite').classList.toggle('hidden', !sd);
+    $('viewQuest').classList.toggle('hidden', !qu);
     $('viewTable').classList.toggle('hidden', !table);
     // The nav hides for the TABLE view only — that one is the deliverable
     // and carries its own toolbar. The others are places you leave again, so
     // they keep the nav.
     $('nav').classList.toggle('hidden', table);
-    const at = lk ? 'lookup' : dk ? 'decks' : sd ? 'site' : db ? 'db' : 'home';
+    const at = lk ? 'lookup' : dk ? 'decks' : sd ? 'site' : db ? 'db'
+      : qu ? 'quest' : 'home';
     document.querySelectorAll('.nav-link[data-goto]').forEach(b =>
       b.classList.toggle('active', b.dataset.goto === at));
     window.scrollTo({ top: 0, behavior: 'auto' });
@@ -2222,6 +2224,7 @@
     // Templates live on the server, so another copy of the app may have
     // added one since this tab loaded.
     if (dk && global.TableXDeck) global.TableXDeck.reload();
+    if (qu && global.TableXQuest) global.TableXQuest.render();
   }
 
   /* ── lookup view ─────────────────────────────────────────────────────
@@ -2493,13 +2496,13 @@
   $('btnPrint').onclick = () => window.print();
   $('brandHome').onclick = e => { e.preventDefault(); show('home'); };
 
-  document.querySelectorAll('[data-goto]').forEach(b => b.onclick = () => {
-    if (b.dataset.goto === 'lookup') return show('lookup');
-    if (b.dataset.goto === 'site') return show('site');
-    if (b.dataset.goto === 'decks') return show('decks');
-    if (b.dataset.goto === 'db') return show('db');
-    show('home');
-  });
+  // Named rather than an if-chain: this used to list the views one by one and
+  // fall through to home, so a NEW view's nav button silently went home
+  // instead — which is what `quest` did until 2026-10-02. An unknown target
+  // still goes home, but adding a view is one entry here.
+  const GOTO = ['lookup', 'site', 'decks', 'db', 'quest'];
+  document.querySelectorAll('[data-goto]').forEach(b => b.onclick = () =>
+    show(GOTO.includes(b.dataset.goto) ? b.dataset.goto : 'home'));
 
   $('lkSearch').addEventListener('input', renderLookup);
   $('viewLookup').addEventListener('click', e => {
@@ -3183,6 +3186,7 @@
     if (!$('viewLookup').classList.contains('hidden')) renderLookup();
     if (!$('viewSite').classList.contains('hidden')) renderSite();
     if (global.TableXDeck) global.TableXDeck.render();
+    if (global.TableXQuest) global.TableXQuest.relocalize();
     markActive();
   }
 

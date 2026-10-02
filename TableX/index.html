@@ -118,6 +118,7 @@
       <button class="nav-link" data-goto="lookup" data-i18n="nav.lookup"></button>
       <button class="nav-link" data-goto="site" data-i18n="nav.site"></button>
       <button class="nav-link" data-goto="decks" data-i18n="nav.decks"></button>
+      <button class="nav-link" data-goto="quest" data-i18n="nav.quest"></button>
       <button class="nav-link" data-goto="db" data-i18n="nav.db"></button>
     </nav>
 
@@ -381,6 +382,59 @@
   </section>
 </main>
 
+<main class="view hidden" id="viewQuest">
+  <section class="section">
+    <div class="section-head">
+      <p class="eyebrow"><span class="dot"></span><span data-i18n="q.eyebrow"></span></p>
+      <h2 class="section-title" data-i18n="q.title"></h2>
+      <p class="section-sub" data-i18n="q.sub"></p>
+    </div>
+
+    <ol class="q-steps">
+      <li class="q-step" id="qStep1">
+        <h3 class="q-h"><span class="q-num">1</span><span data-i18n="q.s1"></span></h3>
+        <p class="q-note" data-i18n="q.s1note"></p>
+        <div class="q-row">
+          <button class="btn btn-primary btn-sm" id="qLoad" data-i18n="q.load"></button>
+          <span class="q-source" id="qSource"></span>
+        </div>
+        <input type="file" id="qFile" accept=".xlsx" hidden/>
+      </li>
+
+      <li class="q-step hidden" id="qStep2">
+        <h3 class="q-h"><span class="q-num">2</span><span data-i18n="q.s2"></span></h3>
+        <p class="q-note" data-i18n="q.s2note"></p>
+        <input class="lk-search" id="qPick" type="search" autocomplete="off"
+               data-i18n-placeholder="q.pick"/>
+        <div class="q-results" id="qPickResults"></div>
+        <div id="qTmpl"></div>
+      </li>
+
+      <li class="q-step hidden" id="qStep3">
+        <h3 class="q-h"><span class="q-num">3</span><span data-i18n="q.s3"></span></h3>
+        <p class="q-note" data-i18n="q.s3note"></p>
+        <input class="q-in q-group" id="qGroup" autocomplete="off" spellcheck="false"
+               data-i18n-placeholder="q.phGroup"/>
+      </li>
+
+      <li class="q-step hidden" id="qStep4">
+        <h3 class="q-h"><span class="q-num">4</span><span data-i18n="q.s4"></span></h3>
+        <p class="q-note" data-i18n="q.s4note"></p>
+        <div class="q-rows" id="qRows"></div>
+        <div class="q-row">
+          <button class="btn btn-ghost btn-sm" id="qAdd" data-i18n="q.add"></button>
+          <span class="q-count" id="qCount"></span>
+          <span class="grow"></span>
+          <button class="btn btn-primary btn-sm" id="qGo" data-i18n="q.go"></button>
+        </div>
+        <p class="q-after hidden" id="qAfter" data-i18n="q.after"></p>
+      </li>
+    </ol>
+
+    <p class="q-busy hidden" id="qBusy"></p>
+  </section>
+</main>
+
 <main class="view hidden" id="viewTable">
   <div class="toolbar">
     <div class="toolbar-inner">
@@ -594,6 +648,8 @@
 <script src="js/app.js"></script>
 <!-- after app.js: deck.js uses the TableXUI / TableXReport bridges it exposes -->
 <script src="js/deck.js"></script>
+<script src="js/sitegen.js"></script>
+<script src="js/quest.js"></script>
 <!-- the shared press / rings / sliding-indicator layer; depends on nothing -->
 <script src="js/motion.js"></script>
 <!-- the "?" walkthrough; reads I18N and presses #btnSample, nothing else -->

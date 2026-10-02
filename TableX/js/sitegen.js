@@ -371,10 +371,137 @@
     return out;
   }
 
+  /* ── what the form needs to SHOW ─────────────────────────────────── */
+
+  // Every site in the export, as {id, name}. Small enough to hand to the
+  // page: 3,129 entries for Partner, against the 16,510 x 47 grid behind it.
+  function siteList(sheets) {
+    const sh = sheets.find(s => s.hdr[SITE] != null && s.hdr[SECTOR] == null
+      && s.hdr[ANT] == null && s.hdr['longitude'] != null);
+    if (!sh) return [];
+    const out = [];
+    for (const r of sh.rows) {
+      const id = String(at(r, sh.hdr, SITE) || '').trim();
+      if (!id) continue;
+      out.push({
+        id,
+        name: String(at(r, sh.hdr, 'description') || '').trim(),
+        lon: at(r, sh.hdr, 'longitude'),
+        lat: at(r, sh.hdr, 'latitude'),
+      });
+    }
+    return out;
+  }
+
+  // One site's sectors with the plant the form seeds itself from. The job
+  // this replaces is "copy an existing site and change its data", so the
+  // form opens holding the template's own values rather than empty fields.
+  function siteDetail(sheets, siteId) {
+    const want = norm(siteId);
+    const sec = sheets.find(s => s.hdr[SECTOR] != null && s.hdr['band name'] != null);
+    const antSh = sheets.find(s => s.hdr[ANT] != null && s.hdr['azimuth'] != null);
+    const join = sheets.find(s => s.hdr[SECTOR] != null && s.hdr[ANT] != null);
+    const pwrSh = sheets.find(s => s.hdr[SECTOR] != null && s.hdr['pa power (dbm)'] != null);
+    const eSh = sheets.find(s => s.hdr[ANT] != null && s.hdr['electrical tilt'] != null);
+    if (!sec) return { sectors: [] };
+
+    const sectors = [];
+    for (const r of sec.rows) {
+      if (norm(at(r, sec.hdr, SITE)) !== want) continue;
+      const id = String(at(r, sec.hdr, SECTOR) || '').trim();
+      const o = { sectorId: id, band: String(at(r, sec.hdr, 'band name') || '').trim() };
+
+      // antenna, found through the explicit sector->antenna join rather than
+      // matched by azimuth: a multi-band site has two antennas on one azimuth
+      // and matching by it would take whichever was indexed first.
+      let aId = null;
+      if (join) {
+        const j = join.rows.find(x => norm(at(x, join.hdr, SECTOR)) === norm(id));
+        if (j) aId = at(j, join.hdr, ANT);
+      }
+      if (antSh && aId != null) {
+        const a = antSh.rows.find(x => norm(at(x, antSh.hdr, SITE)) === want
+          && norm(at(x, antSh.hdr, ANT)) === norm(aId));
+        if (a) {
+          o.az = at(a, antSh.hdr, 'azimuth');
+          o.height = at(a, antSh.hdr, 'height (m)');
+          o.tilt = at(a, antSh.hdr, 'mechanical tilt');
+          o.model = String(at(a, antSh.hdr, 'antenna file') || '').trim();
+        }
+      }
+      if (eSh && aId != null) {
+        const e = eSh.rows.find(x => norm(at(x, eSh.hdr, SITE)) === want
+          && norm(at(x, eSh.hdr, ANT)) === norm(aId));
+        if (e) o.etilt = at(e, eSh.hdr, 'electrical tilt');
+      }
+      if (pwrSh) {
+        const p = pwrSh.rows.find(x => norm(at(x, pwrSh.hdr, SECTOR)) === norm(id));
+        if (p) o.pwr = at(p, pwrSh.hdr, 'pa power (dbm)');
+      }
+      sectors.push(o);
+    }
+    return { sectors };
+  }
+
   const API = { readSheets, siteRows, bandDonors, cloneSite, buildWorkbook,
                 suggestSectorId, existingSiteIds, groupCols, applyGroup,
-                groupFileName, writeWorkbook, BLANK };
+                groupFileName, writeWorkbook, siteList, siteDetail, BLANK };
 
   scope.TableXSiteGen = API;
   if (typeof module === 'object' && module.exports) module.exports = API;
+
+  /* ── the Worker ──────────────────────────────────────────────────────
+     Reading ALL seven sheets of a group export in full is ~6.5 s of
+     straight-line CPU — more than the database import, which reads only the
+     two sheets it understands. On the main thread that is long enough for
+     Chrome to raise "page unresponsive".
+
+     The workbook STAYS IN THE WORKER. Handing the page 16,510 rows x 47
+     columns so it could build the file itself would be a structured clone of
+     tens of megabytes; instead the worker answers small questions (the site
+     list, one site's plant) and returns the finished bytes. Same reason
+     dbparse.js runs in one, one step further.
+
+     Loaded as a plain <script> by index.html too, which only defines
+     self.TableXSiteGen — the wiring below is behind the importScripts check,
+     so there is a main-thread fallback without a second copy of the logic. */
+  if (typeof importScripts === 'function') {
+    importScripts('xlsx.full.min.js');
+    let sheets = null;                       // the loaded export, kept here
+
+    scope.onmessage = ev => {
+      const m = ev.data || {};
+      try {
+        if (m.op === 'load') {
+          const wb = scope.XLSX.read(new Uint8Array(m.buf), { type: 'array' });
+          sheets = readSheets(scope.XLSX, wb);
+          scope.postMessage({ result: {
+            sites: siteList(sheets),
+            bands: [...bandDonors(sheets).keys()],
+            sheets: sheets.map(s => s.name),
+            taken: [...existingSiteIds(sheets)],
+          } });
+          return;
+        }
+        if (!sheets) throw new Error('no export loaded');
+        if (m.op === 'site') {
+          scope.postMessage({ result: siteDetail(sheets, m.siteId) });
+          return;
+        }
+        if (m.op === 'build') {
+          const { wb, warnings } = buildWorkbook(scope.XLSX, sheets, m.specs,
+            { groupName: m.groupName });
+          const buf = writeWorkbook(scope.XLSX, wb);
+          // A fresh ArrayBuffer the page will take ownership of, so the
+          // bytes are moved rather than copied.
+          const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+          scope.postMessage({ result: { file: ab, warnings } }, [ab]);
+          return;
+        }
+        throw new Error('unknown op: ' + m.op);
+      } catch (e) {
+        scope.postMessage({ error: (e && e.message) ? e.message : String(e) });
+      }
+    };
+  }
 })(typeof self !== 'undefined' ? self : globalThis);

@@ -32,6 +32,7 @@ const SUITES = {
   engine: './engine.mjs',
   deck:   './deck.mjs',
   app:    './app.mjs',
+  quest:  './quest.mjs',
 };
 
 const args = process.argv.slice(2);

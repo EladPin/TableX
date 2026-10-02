@@ -2955,3 +2955,105 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   .data-table thead { display: table-header-group; }
   .data-table tr { break-inside: avoid; }
 }
+
+/* ═══ QUEST — new sites for Planet ═══════════════════════════════════
+   Four numbered steps, each revealed by the one before it, because the
+   order is not optional: nothing can be cloned before an export is loaded
+   and no site can be seeded before a template is picked. The sector grid is
+   eight fixed columns rather than a table, so a row reads the same whichever
+   way the page runs.
+   ═══════════════════════════════════════════════════════════════════ */
+.q-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+
+.q-step {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+  padding: 16px 18px;
+  box-shadow: var(--sh-card);
+}
+.q-step.hidden { display: none; }
+
+.q-h {
+  display: flex; align-items: center; gap: 10px;
+  margin: 0 0 4px; font-size: 15px; font-weight: 600; color: var(--ink);
+}
+.q-num {
+  display: grid; place-items: center;
+  width: 22px; height: 22px; flex: none;
+  border-radius: 6px;
+  background: var(--mint-wash); color: var(--mint);
+  border: 1px solid var(--mint-line);
+  font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums;
+}
+/* A finished step keeps its number, tinted, rather than swapping in a tick —
+   the step is still editable and a tick would say it is not. */
+.q-step.q-done .q-num { background: var(--mint); color: var(--paper); }
+
+.q-note { margin: 0 0 12px 32px; font-size: 13px; color: var(--muted); line-height: 1.5; }
+:root[dir="rtl"] .q-note { margin-left: 0; margin-right: 32px; }
+
+.q-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.q-source, .q-count { font-size: 13px; color: var(--muted); }
+.q-busy { margin: 12px 0 0; font-size: 13px; color: var(--mint); }
+.q-after {
+  margin: 12px 0 0; padding: 10px 12px;
+  background: var(--mint-wash); border: 1px solid var(--mint-line);
+  border-radius: var(--r-input);
+  font-size: 13px; color: var(--ink); line-height: 1.5;
+}
+
+.q-results { max-height: 220px; overflow: auto; margin-top: 8px; }
+.q-tmpl {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 10px; padding: 10px 12px;
+  background: var(--mint-wash); border: 1px solid var(--mint-line);
+  border-radius: var(--r-input);
+}
+.q-tmpl-n { font-size: 12px; color: var(--muted); }
+
+/* ── inputs ── */
+.q-in {
+  font: inherit; font-size: 13px;
+  color: var(--ink); background: var(--canvas);
+  border: 1px solid var(--rule); border-radius: var(--r-input);
+  padding: 6px 8px; min-width: 0; width: 100%;
+}
+.q-in:focus-visible { outline: 2px solid var(--mint); outline-offset: 1px; }
+.q-in.mono { font-family: var(--mono, ui-monospace, monospace); }
+.q-group { max-width: 360px; }
+
+/* ── one new site ── */
+.q-rows { display: grid; gap: 10px; margin-bottom: 12px; }
+.q-site {
+  border: 1px solid var(--rule); border-radius: var(--r-input);
+  background: var(--canvas); padding: 10px;
+}
+.q-site-head {
+  display: grid; align-items: center; gap: 8px;
+  grid-template-columns: 22px 1.1fr 1.6fr 0.9fr 0.9fr auto;
+  margin-bottom: 8px;
+}
+.q-site-n {
+  display: grid; place-items: center; width: 22px; height: 22px;
+  font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.q-del { min-width: 30px; padding-inline: 8px; }
+
+/* ── the sectors ── */
+.q-secs { display: grid; gap: 6px; }
+.q-sec {
+  display: grid; gap: 6px;
+  grid-template-columns: 1.3fr 1fr .7fr .7fr .7fr .8fr 1.6fr .7fr;
+  align-items: center;
+}
+.q-sec-head span {
+  font-size: 11px; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .04em; padding-inline: 2px;
+}
+
+@media (max-width: 900px) {
+  .q-site-head { grid-template-columns: 22px 1fr 1fr auto; }
+  .q-sec, .q-sec-head { grid-template-columns: 1fr 1fr 1fr 1fr; }
+  .q-sec-head { display: none; }
+}
