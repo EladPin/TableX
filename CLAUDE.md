@@ -201,41 +201,57 @@ powershell -ExecutionPolicy Bypass -Command "npm run build"
 Compress-Archive -Path 'dist\win-unpacked\*' -DestinationPath 'dist\TableX.zip' -Force
 ```
 
-Last build **2026-10-03 at commit `d82df9a`**, version 1.3.0: electron 33.4.11 + electron-builder
-26.15.3, target `dir`, no winCodeSign symlink error. **`dist\TableX.zip`, 111.2 MB.** Carries the
-May-26 Partner database with its new-site kit and electrical tilt, the אתרים חדשים view working
-from the databases (GEO/UTM, antenna completion, CRS, the rail), and the renamed nav. Verified on
-**the zip itself**, expanded to a scratch folder: its own `server.ps1` under all four suites,
-**201/201**; its `data/` holds the four databases with no `.bak` and no `tpl/` (and its
-`partner.json` byte-identical to the repo's); and its exe, launched with `ELECTRON_RUN_AS_NODE`
-cleared and read through `user32`, showed a first visible frame already maximized, (−8,−8) →
-(1928,1040) on 1920×1080, served the page, and on close left zero `TableX` processes and port 8094
-released. **`main.js` was written from this section**, not copied: `dist\` was gone from the dev box,
-so there was no previous build to take it from. The copy that shipped is inside the zip at
-`resources\app\main.js` — take it from there next time. (Before: 2026-09-29 at `251a296`, 111.2 MB,
-144/144; 2026-09-23 at `a037fa7`, 110.8 MB, 116/116; 2026-09-10 at `7e612e9`, 110.8 MB, 40/40;
-2026-09-06 at `fd7ae0d`, 110.7 MB.)
+Last build **2026-10-03 (afternoon) at commit `5eb4b13`**, version **1.4.0**: electron 33.4.11 +
+electron-builder 26.15.3, target `dir`, no winCodeSign symlink error. **`dist\TableX.zip`, 111.3 MB**,
+on the office box. Carries everything up to that commit: saved new-site groups (with the
+`!TableX/data/grp/**` negation, new in this build), the antenna file following its band, the ghost's
+peek / cheer / lost / blink, the footer on every view, the LTR level cell and the paginated PPTX.
+Verified on **the zip itself**, expanded to a scratch folder: its own `server.ps1` under all four
+suites, **263/263**; its `data/` holds the four databases with no `.bak`, no `tpl/` and no `grp/`
+(and its `partner.json` byte-identical to the repo's); and its exe, launched with
+`ELECTRON_RUN_AS_NODE` cleared and read through `user32`, showed its first visible frame after
+3.2 s already maximized, (−8,−8) → (1928,1040) on 1920×1080, titled `TableX`, served the page, and
+on close left zero `TableX` processes and port 8094 released. **`main.js` came out of the previous
+zip** (`resources\app\main.js`), as this section says to do; **`package.json` did NOT** — the copy
+inside a build is stripped by electron-builder to name/version/main, so the whole file used is
+below. (Before: 2026-10-03 at `d82df9a`, 1.3.0, 111.2 MB, 201/201 — `main.js` written from this
+section, `dist\` having been gone; 2026-09-29 at `251a296`, 111.2 MB, 144/144; 2026-09-23 at
+`a037fa7`, 110.8 MB, 116/116; 2026-09-10 at `7e612e9`, 110.8 MB, 40/40; 2026-09-06 at `fd7ae0d`,
+110.7 MB.)
 
 The app (`main.js`, `server.ps1`, `icon.ico`, all of `TableX/**`) lands in `resources/app/`.
 **Point the suites at the PACKAGED server, not the repo one** — that is what makes the shipped
 build checked rather than assumed.
 
-`package.json` — the settings that matter:
+`package.json` — the whole file the 1.4.0 build used (bump `version`; the build's own copy is
+stripped, so this is the only complete one):
 
 ```json
-{ "main": "main.js",
+{
+  "name": "tablex",
+  "version": "1.4.0",
+  "description": "TableX — Planet point analysis to PPTX, and new Planet sites",
+  "author": "Elad Pinhasov",
+  "main": "main.js",
+  "scripts": { "build": "electron-builder --win dir" },
   "devDependencies": { "electron": "33.4.11", "electron-builder": "26.15.3" },
-  "build": { "productName": "TableX", "asar": false, "win": { "target": "dir", "icon": "icon.ico" },
-  "files": ["main.js","package.json","server.ps1","icon.ico","TableX/**",
-            "!TableX/data/*.bak","!TableX/data/tpl/**","!TableX/data/grp/**"] } }
+  "build": {
+    "appId": "com.eladpin.tablex",
+    "productName": "TableX",
+    "asar": false,
+    "win": { "target": "dir", "icon": "icon.ico" },
+    "files": ["main.js", "package.json", "server.ps1", "icon.ico", "TableX/**",
+              "!TableX/data/*.bak", "!TableX/data/tpl/**", "!TableX/data/grp/**"]
+  }
+}
 ```
 
 **The negations are not optional.** `"TableX/**"` sweeps in `data/*.bak`, `data/tpl/` and `data/grp/` alike,
 and the 2026-09-10 build shipped a stale `idf.json.bak` before they were added — a rollback copy of
 somebody's database riding inside everyone's install, which is the same leak the `tpl/` warning
 below describes, one directory over. All three are gitignored, so `git status` says nothing either
-way. **`data/grp/` was added 2026-10-03, after the last build** — the next `package.json` must carry
-its line, or the dev box's test groups ship inside everyone's install.
+way. **`data/grp/` joined them on 2026-10-03** (the 1.4.0 build is the first to carry its line) —
+without it, whatever groups the building machine holds ship inside everyone's install.
 
 `asar: false` and `target: "dir"` are both deliberate: `dir` avoids the winCodeSign symlink failure
 that `--win portable` hits, and an unpacked app means `server.ps1` can read `TableX/` off disk.
