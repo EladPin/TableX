@@ -240,11 +240,18 @@ sweep, and the markers jump instead of sliding.
    the chrome changing face is no reason for the document to. The PPTX writers use Arial
    and are untouched.
 
-2. **Illustration lives in exactly two places: the home page's floor and the loader.** The
-   scene is drawn in nothing but its own teal ramp and one mint, and stays in the floor.
-   Neither is licence to illustrate the working UI. (The tour's drawings are diagrams of the
-   UI and the data, not illustration.) The scene has a settings switch (תפאורה / Night
-   scene).
+2. **Illustration lives in exactly four places: the home page's floor, the loader, the peek,
+   and a search with no results.** The scene is drawn in nothing but its own teal ramp and one
+   mint, and stays in the floor (the floor stands under every view for its footer, but the
+   night is home's alone). The peek (2026-10-03, asked for by name) is the mark itself,
+   sneaking out from behind a card now and then — only into EMPTY page beside the card, never
+   over a word or a control, never a pointer target, on the pixel grid (it leans by whole
+   cells, never rotates) — and coming out to cheer when something is finished. The no-results
+   ghost shrugs under a "?" in that one state of the three searches, so the answer reads as an
+   answer. All of it is the mark, never a new character. None of the four is licence to
+   illustrate the working UI. (The tour's drawings are diagrams of the UI and the data, not
+   illustration.) One settings switch (תפאורה / Scenery) turns off the floor, the peek and
+   the no-results ghost; the loader stays.
 
 3. **The dark theme is a token swap only** (`:root[data-theme="dark"]`); every component
    has exactly one definition. Two things the swap must never touch:
@@ -269,5 +276,6 @@ use `translate` / `rotate` / `scale` for hover motion · put every string in `i1
 
 **Don't** add all-caps or tracked labels · add a second accent colour to the chrome · put
 a gradient or a blur anywhere outside the floor · put explanation on the home page
-(it goes behind the "?") · animate something nobody pressed · restyle the report or the
+(it goes behind the "?") · animate something nobody pressed (the floor, the loader and the
+peek are the decoration, and the scenery switch turns them off) · restyle the report or the
 template preview · append elements to a button to animate it.

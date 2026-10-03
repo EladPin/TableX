@@ -6,6 +6,10 @@ TableX/data/*.bak
 # not something to carry in the repo.
 TableX/data/tpl/
 
+# Saved new-site groups (the אתרים חדשים view), written by server.ps1. The
+# groups someone made on their machine, for the same reason as tpl/ above.
+TableX/data/grp/
+
 # Scratch output from tools/build_icon.py (the inline SVG snippet, which is
 # pasted into index.html rather than shipped as a file).
 tools/_ghost-inline.svg.txt

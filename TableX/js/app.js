@@ -1098,9 +1098,12 @@
         // Editable cell. The address travels in data-e so a commit can find
         // its row again after the table is rebuilt; `td-edited` marks a
         // hand-typed value and, like every .tag, is app-only.
+        // The level runs LTR too: in an RTL cell the bidi algorithm puts a
+        // leading minus on the RIGHT, so -72.42 read 72.42- on the sheet and
+        // on the slide alike (fixed 2026-10-03, with `ltr` in both matrices).
         const ec = (f, v, extra, st) =>
           `<td class="${extra || ''} td-ed${r.edited && r.edited[f] ? ' td-edited' : ''}` +
-          `${f === 'site' && isLtrText(v) ? ' td-ltr' : ''}"` +
+          `${(f === 'site' && isLtrText(v)) || f === 'power' ? ' td-ltr' : ''}"` +
           (st ? ` style="${st}"` : '') +
           ` data-e="${nk}:${ri}:${f}" tabindex="0">${esc(v)}`;
         const lv = outStyle === 'coverage' ? rsrpClass(r.power) : null;
@@ -1995,7 +1998,7 @@
             '<span class="sd-hit-name">' + esc(h.name || h.id) + '</span>' +
             '<span class="sd-hit-id mono">' + esc(h.id) + '</span>' +
             '<span class="tag tag-net">' + esc(netTag(h.net)) + '</span></button>').join('')
-        : '<p class="ed-msg">' + esc(T('sd.noHits')) + '</p>';
+        : '<p class="ed-msg">' + lostGhost() + esc(T('sd.noHits')) + '</p>';
 
     // the chosen sites
     $('sdPicked').innerHTML = sd.picked.map(p =>
@@ -2099,6 +2102,7 @@
         await stylishSlides(pptx);
         await pptx.writeFile({ fileName: 'TableX-sites.pptx' });
         toast(T('toast.pptxDone'));
+        if (global.TableXPeek) global.TableXPeek.cheer();
         return;
       }
       const lean = () => siteStyle === 'clean';
@@ -2148,6 +2152,7 @@
 
       await pptx.writeFile({ fileName: 'TableX-sites.pptx' });
       toast(T('toast.pptxDone'));
+      if (global.TableXPeek) global.TableXPeek.cheer();
     } catch (e) {
       toast(T('toast.pptxFail', { e: e.message }), true);
     } finally {
@@ -2281,8 +2286,12 @@
   // databases that ship empty) belongs INSIDE it rather than as a second
   // orphaned paragraph. Deliberately not .ed-msg: deck.js styles its own
   // empty states with that class and has no reason to change.
-  const lkPanel = (main, sub) =>
-    '<div class="lk-empty">' +
+  // `lost`: no results, which is the one state that gets the ghost — shrugging
+  // under a "?" (js/peek.js lostSvg), so it reads as an answer.
+  // (hoisted: the site sheet's search, far above, uses it too)
+  function lostGhost() { return global.TableXPeek ? global.TableXPeek.lostSvg() : ''; }
+  const lkPanel = (main, sub, lost) =>
+    '<div class="lk-empty">' + (lost ? lostGhost() : '') +
       '<p class="lk-empty-main">' + esc(main) + '</p>' +
       (sub ? '<p class="lk-empty-sub">' + esc(sub) + '</p>' : '') +
     '</div>';
@@ -2363,7 +2372,7 @@
       const dark = NETWORKS.filter(n => isEmpty(n)).map(label);
       list.innerHTML = lkPanel(
         T('lk.noHits', { q: bidiIso(raw) }),
-        dark.length ? T('lk.noHitsEmpty', { list: dark.join(', ') }) : '');
+        dark.length ? T('lk.noHitsEmpty', { list: dark.join(', ') }) : '', true);
       return;
     }
 
@@ -2482,6 +2491,8 @@
     tableAnim = true;
     renderTable(groups);
     show('table');
+    // The ghost comes out to see, once the sheet has risen (js/peek.js).
+    setTimeout(() => { if (global.TableXPeek) global.TableXPeek.cheer({ box: '#docPage' }); }, 650);
   };
 
   // Click or keyboard-focus a cell to edit it; delegated, because the table
@@ -2691,6 +2702,54 @@
   };
   TBL.frac = TBL.colW.map(w => w / TBL.colW.reduce((a, b) => a + b, 0));
 
+  // The slide the standalone writer fills: LAYOUT_WIDE, 7.5 in tall, the
+  // table from 1.0 in. At the normal 0.36 in a row that holds five points —
+  // and a typical job is seven, which ran 1.4 in off the bottom of the slide
+  // (22 rows ending at 8.92 in, measured 2026-10-03). So the rows first close
+  // up, as far as PAGE.min, to keep a table on ONE slide; past that the table
+  // goes on over more slides: a point never cut in two, the points spread
+  // evenly (4 + 4, not 7 + 1), the title and header on every one. A table
+  // that already fitted comes out exactly as it did.
+  const PAGE = { h: 7.5, top: 1.0, foot: 0.3, legend: 0.45, min: 0.28 };
+
+  // sizes: rows per point, in order. Returns the matrix row indices on each
+  // slide (the header, row 0, is on all of them) and the one row height
+  // every slide uses.
+  function paginate(sizes, legend) {
+    const avail = PAGE.h - PAGE.top - PAGE.foot - (legend ? PAGE.legend : 0);
+    const cap = Math.floor(avail / PAGE.min + 1e-9) - 1;      // body rows a slide holds
+    const groups = [];
+    let at = 1;
+    for (const n of sizes) { groups.push(Array.from({ length: n }, (_, i) => at + i)); at += n; }
+    // Greedy over whole points. Only a point taller than a whole slide (a
+    // long legacy paste) is cut, because nothing else can be done with it.
+    const pack = limit => {
+      const pages = [];
+      let cur = [];
+      for (const g of groups) {
+        let rest = g;
+        while (rest.length) {
+          if (cur.length && cur.length + rest.length > limit) { pages.push(cur); cur = []; }
+          const take = rest.slice(0, limit - cur.length);
+          cur = cur.concat(take);
+          rest = rest.slice(take.length);
+          if (rest.length) { pages.push(cur); cur = []; }
+        }
+      }
+      if (cur.length) pages.push(cur);
+      return pages;
+    };
+    // As few slides as fit, then as even as those slides allow.
+    let pages = pack(cap);
+    const k = pages.length;
+    for (let t = Math.ceil((at - 1) / k); t < cap; t++) {
+      const p = pack(t);
+      if (p.length <= k) { pages = p; break; }
+    }
+    const most = Math.max(...pages.map(p => p.length));
+    return { pages, rowH: Math.min(TBL.rowH, Math.floor(avail / (most + 1) * 100) / 100) };
+  }
+
   // The network chip beside the site name — the app's green `.tag-net`,
   // stated as file colours so both PPTX writers and print carry the same one.
   // Asked for on 2026-09-29: a slide that mixes operators has to say which is
@@ -2715,7 +2774,8 @@
       groups[nk].forEach((r, i) => {
         const c = t => ({ t: String(t), fill, color: '000000', align: 'ctr' });
         out.push([
-          c(r.power), c(r.bw), c(r.freq), c(r.sector),
+          // LTR, or the minus lands on the right — see renderTable
+          { ...c(r.power), ltr: true }, c(r.bw), c(r.freq), c(r.sector),
           { ...c(r.site), align: 'r', ltr: isLtrText(r.site), tag: chipOf(r) }, c(r.rank),
           { t: i === 0 ? `נק' ${nk}` : '', fill: TBL.group,
             color: 'FFFFFF', bold: true, align: 'ctr' },
@@ -2744,7 +2804,7 @@
                                             align: 'ctr', bd: bdLean(last ? L.end : L.hair) }, o);
         const lv = outStyle === 'coverage' ? rsrpClass(r.power) : null;
         out.push([
-          c(r.power, lv ? { fill: lv.tint } : null),
+          c(r.power, Object.assign({ ltr: true }, lv ? { fill: lv.tint } : null)),
           c(r.bw), c(r.freq), c(r.sector),
           c(r.site, { align: 'r', ltr: isLtrText(r.site), tag: chipOf(r) }),
           c(r.rank, { color: L.dim }),
@@ -2785,14 +2845,6 @@
     try {
       const pptx = tidyPptx(new PptxGenJS());
       pptx.layout = 'LAYOUT_WIDE';
-      const slide = pptx.addSlide();
-      slide.background = { color: 'FFFFFF' };
-
-      slide.addText('טבלת נתונים', lean()
-        ? { x: 0.3, y: 0.2, w: 12.7, h: 0.6, fontSize: 22, bold: true, color: LEAN.ink,
-            align: 'right', rtlMode: true, fontFace: 'Arial' }
-        : { x: 0.4, y: 0.12, w: 12.5, h: 0.7, fontSize: 28, bold: true, color: '1a1a2e',
-            align: 'center', rtlMode: true, fontFace: 'Arial' });
 
       const BD = { type: 'solid', pt: TBL.border.pt, color: TBL.border.color };
       const matrix = tableMatrix(lastRows);
@@ -2805,30 +2857,61 @@
         { text: '\u00a0' + c.tag.t + '\u00a0', options: { color: c.tag.color, highlight: c.tag.hl,
                                                    fontSize: c.tag.sz, fontFace: 'Arial', rtlMode: !c.ltr } },
       ];
-      const rows = matrix.map(row => row.map(c => ({
+      const toRow = row => row.map(c => ({
         text: c.tag ? runs(c) : c.t,
         options: {
           fill: { color: c.fill }, color: c.color, bold: !!c.bold,
           align: c.align === 'r' ? 'right' : 'center', valign: 'middle',
           rtlMode: !c.ltr, border: pgBorder(c, BD), fontSize: TBL.size, fontFace: 'Arial',
         },
-      })));
+      }));
 
-      slide.addTable(rows, {
-        x: 0.3, y: 1.0, w: 12.7, colW: TBL.colW, rowH: TBL.rowH,
-      });
-
+      const keys = Object.keys(lastRows).map(Number).sort((a, b) => a - b);
       const cap = legendCaption();
-      if (cap) {
-        const y = 1.0 + TBL.rowH * matrix.length + 0.15;
-        slide.addText(cap.label, { x: 10.3, y, w: 2.7, h: 0.3, fontSize: 9, bold: true,
-          color: LEAN.ink, align: 'right', rtlMode: true, fontFace: 'Arial' });
-        slide.addText(legendRuns(cap), { x: 0.3, y, w: 10.0, h: 0.3, fontSize: 9,
-          align: 'right', rtlMode: false, fontFace: 'Arial' });
+      const { pages, rowH } = paginate(keys.map(k => lastRows[k].length), !!cap);
+      // the point each body row belongs to, for a slide that starts inside one
+      const ptOf = [null];
+      keys.forEach(k => lastRows[k].forEach((_, i) => ptOf.push({ k, first: i === 0 })));
+      const head = matrix[0];
+
+      for (const idx of pages) {
+        const slide = pptx.addSlide();
+        slide.background = { color: 'FFFFFF' };
+        slide.addText('טבלת נתונים', lean()
+          ? { x: 0.3, y: 0.2, w: 12.7, h: 0.6, fontSize: 22, bold: true, color: LEAN.ink,
+              align: 'right', rtlMode: true, fontFace: 'Arial' }
+          : { x: 0.4, y: 0.12, w: 12.5, h: 0.7, fontSize: 28, bold: true, color: '1a1a2e',
+              align: 'center', rtlMode: true, fontFace: 'Arial' });
+
+        const body = idx.map((ri, j) => {
+          let row = matrix[ri];
+          if (j === 0 && ri > 1) {
+            // A continued slide: its first row meets the HEADER, so the edge
+            // they share is the header's — the lean styles state every edge
+            // on both of its sides, and the two must agree.
+            row = row.map((c, n) => (c.bd ? { ...c, bd: { ...c.bd, t: head[n].bd.b } } : c));
+            // a point cut across slides (only ever a long legacy one) keeps its label
+            if (!ptOf[ri].first) row[6] = { ...row[6], t: `נק' ${ptOf[ri].k}` };
+          }
+          return row;
+        });
+        slide.addTable([head].concat(body).map(toRow), {
+          x: 0.3, y: PAGE.top, w: 12.7, colW: TBL.colW, rowH,
+        });
+
+        // the legend is on every slide: a tint means nothing without its key
+        if (cap) {
+          const y = PAGE.top + rowH * (body.length + 1) + 0.15;
+          slide.addText(cap.label, { x: 10.3, y, w: 2.7, h: 0.3, fontSize: 9, bold: true,
+            color: LEAN.ink, align: 'right', rtlMode: true, fontFace: 'Arial' });
+          slide.addText(legendRuns(cap), { x: 0.3, y, w: 10.0, h: 0.3, fontSize: 9,
+            align: 'right', rtlMode: false, fontFace: 'Arial' });
+        }
       }
 
       await pptx.writeFile({ fileName: 'TableX.pptx' });
       toast(T('toast.pptxDone'));
+      if (global.TableXPeek) global.TableXPeek.cheer({ box: '#docPage' });
     } catch (e) {
       toast(T('toast.pptxFail', { e: e.message }), true);
     } finally {

@@ -196,4 +196,8 @@
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initTracks);
   else initTracks();
+
+  // The rings, for something that transmits without being pressed — the
+  // peeking ghost's cheer (js/peek.js). el sizes them and picks the colour.
+  window.TableXMotion = { rings };
 })();

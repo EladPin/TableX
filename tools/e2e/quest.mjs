@@ -16,8 +16,25 @@
  * TS to establish — the group columns, and bookSST — plus the collision guard,
  * since a Site ID that already exists would overwrite a real site for a whole
  * team if it ever reached Planet.
+ *
+ * Generating SAVES the group on the server (api/grp), so this suite writes
+ * real records. Like the deck suite with its templates, it notes which groups
+ * existed before it ran and deletes only the ones it made — in a finally, so
+ * a run that dies halfway does not leave TX_Suite in somebody's list.
  */
-export default async function quest({ ev, ok, sleep, open, shot, send }) {
+export default async function quest(t) {
+  const before = await t.ev(`return (await (await fetch('api/grp', { cache: 'no-store' })).json()).map(g => g.id);`);
+  try {
+    await flow(t, before);
+  } finally {
+    await t.ev(`
+      const before = ${JSON.stringify(before)};
+      const now = await (await fetch('api/grp', { cache: 'no-store' })).json();
+      for (const g of now) if (!before.includes(g.id)) await fetch('api/grp/' + g.id, { method: 'DELETE' });`);
+  }
+}
+
+async function flow({ ev, ok, sleep, open, shot, send }, grpBefore) {
   await open('/');
 
   // ── a miniature group export, parsed by the app's own importer ────────
@@ -325,6 +342,82 @@ export default async function quest({ ev, ok, sleep, open, shot, send }) {
   await sleep(500);
   ok('...and removed again', await ev(`return window.TableXQuest._state().rows[0].sectors.length === 2;`));
 
+  // ── the antenna file follows the band ─────────────────────────────────
+  // Planet's antenna FILE is per band (EGV465DR6_700 / _1800 are one antenna,
+  // two patterns), so a sector moved to another band must not keep the old
+  // band's pattern without anyone saying so.
+  const sec = i => ev(`
+    const sec = document.querySelectorAll('.q-sec:not(.q-sec-head)')[${i}];
+    const m = sec.querySelector('[data-s="model"]'), note = sec.querySelector('[data-note]');
+    const sw = note.querySelector('[data-swap]');
+    return { model: m.value, off: m.classList.contains('off'), note: note.classList.contains('on'),
+             text: note.textContent, swap: sw ? sw.dataset.swap : null,
+             state: window.TableXQuest._state().rows[0].sectors[${i}].model };`);
+  const setBand = (i, v) => ev(`
+    const b = document.querySelectorAll('.q-sec [data-s="band"]')[${i}];
+    b.value = ${JSON.stringify(v)};
+    b.dispatchEvent(new Event('change', { bubbles: true }));`);
+  const setModel = (i, v) => ev(`
+    const m = document.querySelectorAll('.q-sec [data-s="model"]')[${i}];
+    m.value = ${JSON.stringify(v)};
+    m.dispatchEvent(new Event('input', { bubbles: true }));`);
+
+  await setBand(0, '700_10');
+  await sleep(100);
+  let s0 = await sec(0);
+  ok('a band change takes the same antenna\'s file for the new band',
+     s0.model === 'EGV465DR6_700.pafx' && s0.state === s0.model && !s0.off && !s0.note, JSON.stringify(s0));
+  await setBand(0, '1800_20');
+  await sleep(100);
+  s0 = await sec(0);
+  ok('...and back again', s0.model === 'EGV465DR6_1800.pafx' && !s0.off, JSON.stringify(s0));
+
+  await setModel(1, 'MULTIBAND.pafx');
+  let s1 = await sec(1);
+  ok('a file that names no band is never questioned', !s1.off && !s1.note, JSON.stringify(s1));
+  await setModel(1, 'TESTANT_1800.pafx');
+  s1 = await sec(1);
+  ok('a file for another band is marked while typing',
+     s1.off && s1.note && /1800/.test(s1.text) && /700/.test(s1.text), JSON.stringify(s1));
+  ok('...with nothing to switch to when no database has its 700 file', s1.swap === null, String(s1.swap));
+
+  await ev(`document.getElementById('qGo').click();`);
+  await sleep(300);
+  const asked = await ev(`return { open: !document.getElementById('askOverlay').classList.contains('hidden'),
+    text: document.getElementById('askTitle').textContent + ' ' + document.getElementById('askBody').textContent };`);
+  ok('generate asks about it once, naming the file', asked.open && asked.text.includes('TESTANT_1800.pafx'),
+     JSON.stringify(asked));
+  await ev(`document.getElementById('askNo').click();`);
+  await sleep(300);
+  ok('...and writes nothing when cancelled', await ev(`return window.__caught === null;`));
+
+  // It is the planner's call — the real network has nine such sectors — so
+  // "generate anyway" writes the file exactly as typed.
+  await ev(`document.getElementById('qGo').click();`);
+  await sleep(300);
+  await ev(`document.getElementById('askYes').click();`);
+  await sleep(600);
+  const anyway = await ev(`
+    if (!window.__caught) return null;
+    const X = window.XLSX;
+    const wb = X.read(new Uint8Array(await window.__caught.arrayBuffer()), { type: 'array' });
+    const ant = X.utils.sheet_to_json(wb.Sheets.Antennas, { header: 1, defval: '' });
+    const fi = ant[0].indexOf('Antenna File');
+    return ant.slice(1).map(r => r[fi]);`);
+  ok('"generate anyway" writes the file as typed',
+     anyway && anyway.join(',') === 'EGV465DR6_1800.pafx,TESTANT_1800.pafx', JSON.stringify(anyway));
+  await ev(`window.__caught = null; window.__dl = null;`);
+
+  await setModel(1, 'EGV465DR6_1800.pafx');
+  s1 = await sec(1);
+  ok('the note offers the same antenna\'s file for the sector\'s band', s1.swap === 'EGV465DR6_700.pafx',
+     JSON.stringify(s1));
+  await ev(`document.querySelectorAll('.q-sec:not(.q-sec-head)')[1].querySelector('[data-swap]').click();`);
+  await sleep(100);
+  s1 = await sec(1);
+  ok('...and one press puts it in the field', s1.model === 'EGV465DR6_700.pafx' && s1.state === s1.model
+       && !s1.off && !s1.note, JSON.stringify(s1));
+
   // ── the CRS boost is editable ─────────────────────────────────────────
   await ev(`
     const c = document.querySelectorAll('.q-sec [data-s="crs"]')[0];
@@ -431,11 +524,173 @@ export default async function quest({ ev, ok, sleep, open, shot, send }) {
   ok('written with a sharedStrings part (bookSST)', sst.shared);
   ok('no t="str" cells — Planet refuses those', !sst.str);
 
+  // ── saved groups ──────────────────────────────────────────────────────
+  // Generating saved the group, keyed by its NAME: TX_Suite was generated
+  // twice above ("anyway", then for real) and is one record.
+  const mine = () => ev(`
+    const before = ${JSON.stringify(grpBefore)};
+    return (await (await fetch('api/grp', { cache: 'no-store' })).json()).filter(g => !before.includes(g.id));`);
+  const setIn = (sel, v) => ev(`
+    const el = document.querySelector(${JSON.stringify(sel)});
+    el.value = ${JSON.stringify(v)};
+    el.dispatchEvent(new Event('input', { bubbles: true }));`);
+  const cardJs = name => `[...document.querySelectorAll('#qLibList .q-gcard')]
+    .find(c => c.querySelector('.dk-name').textContent === ${JSON.stringify(name)})`;
+  const cardOf = name => ev(`const c = ${cardJs(name)};
+    return c ? { on: c.classList.contains('on'), dirty: c.classList.contains('dirty'),
+                 state: c.querySelector('[data-gstate]').textContent, text: c.textContent } : null;`);
+  const askNow = () => ev(`return { open: !document.getElementById('askOverlay').classList.contains('hidden'),
+    text: document.getElementById('askTitle').textContent + ' ' + document.getElementById('askBody').textContent };`);
+  const groupField = () => ev(`return document.getElementById('qGroup').value;`);
+  const AZ = '.q-sec [data-s="az"]';
+
+  let saved = await mine();
+  ok('generating saved the group, once per name',
+     saved.length === 1 && saved[0].name === 'TX_Suite', JSON.stringify(saved.map(g => g.name)));
+  const rec0 = saved[0] && saved[0].sites[0];
+  // the point as TYPED (GEO), though the form was showing UTM when it generated
+  ok('...as the form that made it, template and all',
+     rec0 && saved[0].net === 'pelephone' && saved[0].tmpl.id === 'EA0001A' && saved[0].file === 'TX_Suite.xlsx'
+       && rec0.siteId === 'TX0001A' && rec0.name === 'אתר חדש' && rec0.xy.fmt === 'geo' && rec0.xy.a === '34.95725'
+       && rec0.sectors.map(s => s.sectorId).join(',') === 'LTX0001Da,LTX0001Ia' && rec0.sectors[0].crs === '3',
+     JSON.stringify(rec0));
+  let c = await cardOf('TX_Suite');
+  ok('its card is in the list, marked as the open one',
+     c && c.on && !c.dirty && c.state && c.text.includes('TX0001A'), JSON.stringify(c));
+
+  await setIn(AZ, '5');
+  c = await cardOf('TX_Suite');
+  ok('an edit marks the open group as not saved', c && c.on && c.dirty, JSON.stringify(c));
+  await setIn(AZ, '0');
+  c = await cardOf('TX_Suite');
+  ok('...and putting the value back clears it', c && c.on && !c.dirty, JSON.stringify(c));
+
+  // ── copy it into the next group ───────────────────────────────────────
+  await ev(`${cardJs('TX_Suite')}.querySelector('[data-gcopy]').click();`);
+  await sleep(700);
+  let st2 = await ev(`return window.TableXQuest._state();`);
+  ok('copy: the group\'s sites, under the next name in its series',
+     await groupField() === 'TX_Suite_2' && st2.rows.length === 1 && st2.rows[0].siteId === 'TX0001A'
+       && st2.curId === null && st2.copyFrom === 'TX_Suite',
+     JSON.stringify({ g: await groupField(), cur: st2.curId, from: st2.copyFrom }));
+  ok('copy: the note under the name says where it came from',
+     await ev(`const n = document.getElementById('qGroupNote');
+       return n.classList.contains('on') && !n.classList.contains('warn') && n.textContent.includes('TX_Suite');`));
+  const share = () => ev(`const n = document.querySelector('.q-site [data-share]');
+    return { on: n.classList.contains('on'), bad: n.classList.contains('bad'), text: n.textContent,
+             off: document.querySelector('.q-site [data-f="siteId"]').classList.contains('off') };`);
+  let sh = await share();
+  ok('a site the other group has, unchanged, is marked as the same site',
+     sh.on && !sh.bad && !sh.off && sh.text.includes('TX_Suite'), JSON.stringify(sh));
+  await shot('quest-copy');
+
+  // Planet has one site per Site ID: changing it here changes it there.
+  await setIn(AZ, '45');
+  sh = await share();
+  ok('...changed, it turns red: the import would change it there too', sh.on && sh.bad && sh.off, JSON.stringify(sh));
+  await ev(`window.__caught = null; window.__dl = null; document.getElementById('qGo').click();`);
+  await sleep(300);
+  const askSh = await askNow();
+  ok('generate asks about it, naming the site and the group',
+     askSh.open && askSh.text.includes('TX0001A') && askSh.text.includes('TX_Suite'), JSON.stringify(askSh));
+  await ev(`document.getElementById('askNo').click();`);
+  await sleep(300);
+  ok('...and writes nothing when cancelled', await ev(`return window.__caught === null;`));
+
+  await setIn('.q-site [data-f="siteId"]', 'TX0002A');
+  await sleep(100);
+  sh = await share();
+  ok('a new Site ID is no longer shared', !sh.on && !sh.off, JSON.stringify(sh));
+  ok('a copy\'s sector ids still follow its Site ID',
+     await ev(`return [...document.querySelectorAll('.q-sec [data-s="sectorId"]')].map(i => i.value).join(',');`)
+       === 'LTX0002Da,LTX0002Ia');
+  await ev(`document.getElementById('qGo').click();`);
+  await sleep(900);
+  ok('the copy generates under its own name', await ev(`return window.__dl;`) === 'TX_Suite_2.xlsx');
+  saved = await mine();
+  const rec1 = saved.find(g => g.name === 'TX_Suite_2'), recA = saved.find(g => g.name === 'TX_Suite');
+  ok('...and is saved as a new group that names its origin',
+     saved.length === 2 && rec1 && rec1.from === 'TX_Suite' && rec1.sites[0].siteId === 'TX0002A'
+       && rec1.sites[0].sectors[0].az === '45',
+     JSON.stringify(saved.map(g => [g.name, g.from || null])));
+  ok('the group it was copied from is untouched',
+     recA && recA.sites[0].siteId === 'TX0001A' && recA.sites[0].sectors[0].az === '0');
+  c = await cardOf('TX_Suite_2');
+  ok('the new card is the open one, and says it is a copy',
+     c && c.on && !c.dirty && /TX_Suite\b/.test(c.text.replace('TX_Suite_2', '')), JSON.stringify(c));
+  ok('...newest first', await ev(`return document.querySelector('#qLibList .q-gcard .dk-name').textContent;`)
+       === 'TX_Suite_2');
+
+  // ── open one again ────────────────────────────────────────────────────
+  await ev(`${cardJs('TX_Suite')}.click();`);
+  await sleep(700);
+  let st3 = await ev(`return window.TableXQuest._state();`);
+  ok('opening a saved group puts its sites back exactly',
+     st3.rows.length === 1 && st3.rows[0].siteId === 'TX0001A' && st3.rows[0].sectors[0].az === '0'
+       && st3.rows[0].sectors[0].crs === '3' && st3.rows[0].xy.a === '34.95725' && !st3.dirty
+       && st3.tmpl && st3.tmpl.id === 'EA0001A' && await groupField() === 'TX_Suite',
+     JSON.stringify(st3.rows[0]));
+
+  await setIn(AZ, '7');
+  await ev(`${cardJs('TX_Suite_2')}.click();`);
+  await sleep(300);
+  ok('leaving unsaved changes asks first', (await askNow()).open);
+  await ev(`document.getElementById('askNo').click();`);
+  await sleep(200);
+  ok('...cancelling keeps them', await ev(`return window.TableXQuest._state().rows[0].sectors[0].az === '7';`));
+  await ev(`${cardJs('TX_Suite_2')}.click();`);
+  await sleep(300);
+  await ev(`document.getElementById('askYes').click();`);
+  await sleep(700);
+  ok('...confirming opens the other group',
+     await ev(`const s = window.TableXQuest._state();
+       return s.rows[0].siteId === 'TX0002A' && s.rows[0].sectors[0].az === '45';`));
+
+  // ── a name another saved group has ────────────────────────────────────
+  // One file is one Planet group, and Windows file names ignore case.
+  await setIn('#qGroup', 'tx_suite');
+  ok('a name another saved group has is called out',
+     await ev(`const n = document.getElementById('qGroupNote');
+       return n.classList.contains('on') && n.classList.contains('warn');`));
+  await ev(`window.__caught = null; document.getElementById('qGo').click();`);
+  await sleep(300);
+  const askTw = await askNow();
+  ok('generating under it asks before replacing that group',
+     askTw.open && askTw.text.includes('TX_Suite'), JSON.stringify(askTw));
+  await ev(`document.getElementById('askNo').click();`);
+  await sleep(200);
+  ok('...and writes nothing when cancelled', await ev(`return window.__caught === null;`));
+  await setIn('#qGroup', 'TX_Suite_2');
+
+  // ── a new group, the naming rule, deleting ────────────────────────────
+  await ev(`document.querySelector('#qLibList [data-gnew]').click();`);
+  await sleep(500);
+  ok('a new group starts from the search, nothing carried over',
+     await ev(`const s = window.TableXQuest._state();
+       return !s.tmpl && !s.rows.length && s.curId === null && document.getElementById('qGroup').value === ''
+         && !document.getElementById('qPickBox').classList.contains('hidden');`));
+
+  const nx = await ev(`const n = window.TableXQuest._nextName;
+    return [n('לבנון_דפא_א', []), n('לבנון_דפא_א', ['לבנון_דפא_ב']), n('Run_09', []), n('Group_A', []), n('דפא', [])];`);
+  ok('the next name in a series', nx.join('|') === 'לבנון_דפא_ב|לבנון_דפא_ג|Run_10|Group_B|דפא_2', nx.join('|'));
+
+  await ev(`${cardJs('TX_Suite_2')}.querySelector('[data-gdel]').click();`);
+  await sleep(300);
+  const askDel = await askNow();
+  ok('deleting asks first, naming the group', askDel.open && askDel.text.includes('TX_Suite_2'), JSON.stringify(askDel));
+  await ev(`document.getElementById('askYes').click();`);
+  await sleep(800);
+  saved = await mine();
+  ok('...and removes it from the list and the server',
+     saved.length === 1 && saved[0].name === 'TX_Suite' && !(await ev(`return !!(${cardJs('TX_Suite_2')});`)),
+     JSON.stringify(saved.map(g => g.name)));
+
   // ── a network imported before the kit ─────────────────────────────────
   // The shipped idf.json comes from the ENM dump: it has sites, no kit.
   await ev(`
     window.__caught = null;
-    document.querySelector('[data-q-clear]').click();
+    const x = document.querySelector('[data-q-clear]');
+    if (x) x.click();
   `);
   await sleep(300);
   await ev(`if (!document.getElementById('askOverlay').classList.contains('hidden'))
@@ -456,4 +711,12 @@ export default async function quest({ ev, ok, sleep, open, shot, send }) {
              step3: document.getElementById('qStep3').classList.contains('hidden') };`);
   ok('a database without a kit says so instead of seeding',
      idf && idf.net === 'idf' && idf.warn && idf.go && idf.step3, JSON.stringify(idf));
+
+  // ── the list outlives the page ────────────────────────────────────────
+  await send('Page.reload');
+  await sleep(3000);
+  await ev(`document.querySelector('[data-goto="quest"]').click();`);
+  await sleep(800);
+  ok('after a reload the saved group is still listed', await ev(`return !!(${cardJs('TX_Suite')});`));
+  await shot('quest-groups');
 }

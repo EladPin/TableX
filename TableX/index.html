@@ -197,19 +197,6 @@
       </div>
     </div>
   </section>
-
-  <!-- The page's floor: the network at night, full width, with the footer
-       standing on its ground. Drawn by js/scene.js. -->
-  <div class="floor">
-    <div class="scene-host" id="sceneHost" aria-hidden="true"></div>
-    <footer class="foot">
-      <span>TableX</span>
-      <span class="foot-sep">·</span>
-      <span data-i18n="foot.tag"></span>
-      <span class="grow"></span>
-      <button class="credit" id="btnAbout" data-i18n="foot.credit" data-i18n-title="foot.creditTitle"></button>
-    </footer>
-  </div>
 </main>
 
 <!-- ══ DATABASES ══ its own view: the paste is a thing you do every time,
@@ -393,6 +380,16 @@
       <p class="section-sub" data-i18n="q.sub"></p>
     </div>
 
+    <!-- Saved groups: every group a file was generated from, to open again or
+         copy into the next one. Cards like the Decks view's templates. -->
+    <div class="q-lib" id="qLib">
+      <div class="q-lib-head">
+        <h3 class="q-lib-title" data-i18n="q.lib"></h3>
+        <span class="q-lib-n" id="qLibN"></span>
+      </div>
+      <div id="qLibList"><!-- rendered by quest.js --></div>
+    </div>
+
     <!-- Three steps on one rail: each lights its square when it is satisfied,
          and the next one rises in. -->
     <ol class="q-flow">
@@ -424,6 +421,8 @@
                  dir="auto" data-i18n-placeholder="q.phGroup"/>
           <span class="q-file" id="qFile"></span>
         </div>
+        <!-- a copy's origin, or a saved group this name would replace -->
+        <p class="q-group-note" id="qGroupNote"></p>
       </li>
 
       <li class="q-step hidden" id="qStep3">
@@ -511,6 +510,22 @@
     </div>
   </div>
 </main>
+
+<!-- The page's floor, under EVERY view, so the footer (and its credit) is on
+     every page. On home it is the network at night with the footer standing
+     on its ground (js/scene.js); everywhere else main.css collapses it to the
+     footer alone, on the page's cream. It must come AFTER the views: the CSS
+     reads which view is open through `#viewHome.hidden ~ .floor`. -->
+<div class="floor">
+  <div class="scene-host" id="sceneHost" aria-hidden="true"></div>
+  <footer class="foot">
+    <span>TableX</span>
+    <span class="foot-sep">·</span>
+    <span data-i18n="foot.tag"></span>
+    <span class="grow"></span>
+    <button class="credit" id="btnAbout" data-i18n="foot.credit" data-i18n-title="foot.creditTitle"></button>
+  </footer>
+</div>
 
 <!-- ══ SITE EDITOR ══ per-site add/remove, so a one-site change needs no xlsx ══ -->
 <div class="ed-overlay hidden" id="dbEditor">
@@ -690,5 +705,7 @@
 <script src="js/motion.js"></script>
 <!-- the "?" walkthrough; reads I18N and presses #btnSample, nothing else -->
 <script src="js/tour.js"></script>
+<!-- the ghost that peeks from behind the cards; reads SCENE.GH (the mark) -->
+<script src="js/peek.js"></script>
 </body>
 </html>

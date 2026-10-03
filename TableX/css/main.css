@@ -109,6 +109,12 @@ body {
   font-size: 16px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  /* A column, so the floor (and the footer on it) sits at the bottom of the
+     screen on a short page and after the content on a long one — on every
+     view, not only home. Everything else at body level is fixed. */
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
 }
 
 ::selection { background: var(--mint-line); color: var(--ink); }
@@ -615,16 +621,29 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .floor .foot :focus-visible { outline-color: #4ade9f; }
 
 /* Scene switched off in settings: the landscape goes, and so does the
-   night — the footer returns to the page like any other. */
+   night — the footer returns to the page like any other.
+
+   Every view but home looks the same way. The floor stands under all of
+   them so the footer and its credit are on every page, but the night is
+   the home page's alone (DESIGN.md invariant 2): off home the scene is not
+   drawn at all (display:none is also what parks scene.js's tick, through
+   its IntersectionObserver) and the footer sits on the page's own colour. */
 .floor:has(#scene.off) .scene-host { height: 0; opacity: 0; }
-.floor:has(#scene.off) .foot {
+#viewHome.hidden ~ .floor { padding-top: 72px; }
+#viewHome.hidden ~ .floor .scene-host { display: none; }
+/* the report's desk carries on under its footer */
+#viewTable:not(.hidden) ~ .floor { padding-top: 0; background: var(--mist); }
+.floor:has(#scene.off) .foot,
+#viewHome.hidden ~ .floor .foot {
   background: transparent;
   border-top: 1px solid var(--rule);
   color: var(--muted);
 }
-.floor:has(#scene.off) .foot-sep { color: var(--cloud); }
-.floor:has(#scene.off) .credit { color: var(--muted); border-color: var(--rule); }
-.floor:has(#scene.off) .credit:hover { color: var(--mint); border-color: var(--mint-line); }
+.floor:has(#scene.off) .foot-sep, #viewHome.hidden ~ .floor .foot-sep { color: var(--cloud); }
+.floor:has(#scene.off) .credit, #viewHome.hidden ~ .floor .credit { color: var(--muted); border-color: var(--rule); }
+.floor:has(#scene.off) .credit:hover,
+#viewHome.hidden ~ .floor .credit:hover { color: var(--mint); border-color: var(--mint-line); }
+#viewHome.hidden ~ .floor .foot :focus-visible { outline-color: var(--mint); }
 
 #scene {
   position: absolute;
@@ -733,8 +752,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   width: 100%;
 }
 /* The floor sits at the bottom of the screen, not wherever the card
-   happens to end — the landscape is the ground the page stands on. */
-#viewHome { display: flex; flex-direction: column; min-height: calc(100vh - 61px); }
+   happens to end — the landscape is the ground the page stands on. That is
+   body's flex column and the floor's `margin-top: auto` now, since the floor
+   moved out of this view to stand under all of them. */
 
 .card {
   background: var(--paper);
@@ -2915,6 +2935,67 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   }
 }
 
+/* ═══ PEEK — the ghost, from behind a card ═══════════════════════════
+   js/peek.js. The mark at the floor's 4 px a cell, coloured as the nav mark
+   is: mint, with the page's paper for its face — so it is the mark in
+   either theme. "Behind" is only the window: a clipping box laid against
+   the card's OUTSIDE edge, which the ghost slides into across that edge.
+   Above the page and below the nav, never a pointer target. */
+.pk-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 50;
+  pointer-events: none;
+}
+.pk-win { position: absolute; overflow: hidden; pointer-events: none; }
+.pk-ghost { position: absolute; display: block; width: 56px; height: 56px; will-change: transform; }
+.pk-body { fill: var(--mint); }
+.pk-face { fill: var(--paper); }
+.pk-eyes.shut .pk-row5 { visibility: hidden; }
+/* the cheer's happy eyes, ^ ^, in place of the open ones */
+.pk-joy { display: none; }
+.pk-ghost.joy .pk-joy { display: inline; }
+.pk-ghost.joy .pk-eyes { display: none; }
+/* the skirt waves on the loader's own 500 ms rhythm */
+.pk-s0, .pk-s1 { animation: pkSkirt 1s steps(1, end) infinite; }
+.pk-s1 { animation-delay: -0.5s; }
+@keyframes pkSkirt { 0% { opacity: 1; } 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pk-layer { display: none; } }
+
+/* ═══ NOT FOUND — the ghost a search shows when it finds nothing ═══════
+   js/peek.js lostSvg(), in Find a site, Site spec and New sites: the mark at
+   3 px a cell under a "?", looking up at it one way and then the other with
+   its head cocked after its eyes — a cell at a time (steps), like everything
+   on this grid. The "?" bobs. Static under reduced motion; gone with the
+   scenery switched off, like the floor and the peek. */
+.nf-ghost { display: block; width: 42px; height: 69px; margin: 0 auto 14px; }
+.nf-ghost .pk-body, .nf-ghost .nf-q { fill: var(--mint); }
+.nf-ghost .pk-face { fill: var(--paper); }
+.nf-ghost .pk-eyes { animation: nfLook 3.6s steps(1, end) infinite; }
+.nf-ghost .pk-l2 { animation: nfCock 3.6s steps(1, end) infinite; }
+.nf-ghost .nf-q { animation: nfAsk 1.2s steps(1, end) infinite; }
+@keyframes nfLook {
+  0%  { transform: translate(-1px, -1px); }
+  35% { transform: translate(1px, -1px); }
+  70% { transform: translate(0, 0); }
+}
+@keyframes nfCock {
+  0%  { transform: translate(-1px, 0); }
+  35% { transform: translate(1px, 0); }
+  70% { transform: translate(0, 0); }
+}
+@keyframes nfAsk { 50% { transform: translate(0, -1px); } }
+:root:has(#scene.off) .nf-ghost { display: none; }
+
+/* The nav's mark answers a click with a blink (js/peek.js markHop): its two
+   eyes take the body's colour for a beat. The fill="" here is the one the
+   mark's own markup writes; CSS beats a presentation attribute. */
+.brand-mark.blink rect[y="5"][fill="var(--paper)"],
+.brand-mark.blink rect[y="6"][fill="var(--paper)"] { fill: currentColor; }
+
 @media (max-width: 900px) {
   .db-grid { grid-template-columns: repeat(2, 1fr); }
   .tpl-work { grid-template-columns: 1fr; }
@@ -2941,7 +3022,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 
 /* ═══ PRINT — only the document survives ════════════════════════════ */
 @media print {
-  .nav, .toolbar, .foot, .notice, #viewHome, #viewDb, #viewLookup, .toast { display: none !important; }
+  .nav, .toolbar, .foot, .floor, .pk-layer, .notice, #viewHome, #viewDb, #viewLookup, .toast { display: none !important; }
   body { background: #fff; }
   .doc-wrap { background: #fff; padding: 0; min-height: 0; }
   .doc-shell { max-width: none; }
@@ -3048,6 +3129,70 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   animation: rise 0.55s var(--ease-out) both;
   animation-delay: var(--d, 0ms);
 }
+/* opening a saved group scrolls a step to the top — clear of the sticky nav */
+.q-step { scroll-margin-top: 92px; }
+
+/* ── 0. saved groups ──
+   The Decks view's template cards (.dk-card, .dk-act, the dashed .dk-new),
+   so "a thing I made, kept here" looks the same in both places. The pixel
+   square says what the rail's squares say: lit while the form below is what
+   was saved, hollow once it holds changes not generated yet. */
+.q-lib { max-width: 1040px; margin-bottom: 48px; }
+.q-lib-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.q-lib-title { font-size: 15px; font-weight: 600; color: var(--ink); }
+.q-lib-n {
+  min-width: 22px;
+  padding: 1px 7px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--mist);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.q-lib-n:empty { display: none; }
+.q-lib-empty { max-width: 64ch; font-size: 14px; line-height: 1.6; color: var(--muted); }
+.q-gcards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+}
+.q-gcard-top { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.q-gcard-top .dk-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.q-gcard-top .tag { flex: none; }
+.q-gcard-sq {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 1px;
+  border: 1px solid var(--mint);
+  background: var(--mint);
+  transition: background var(--t-med) var(--ease);
+}
+.q-gcard.dirty .q-gcard-sq { background: transparent; }
+.q-gcard.on .q-gcard-sq { animation: qPop 0.5s var(--spring); }
+.q-gcard-ids { font-size: 12px; color: var(--black); }
+.q-gcard-ids .mono { font-size: 12px; }
+.q-gcard-state { font-size: 12px; font-weight: 500; color: var(--mint); }
+.q-gcard-state:empty { display: none; }
+.q-gcard.on { cursor: default; }
+.dk-card.q-rise {
+  opacity: 0;
+  transform: translateY(12px);
+  animation: rise 0.48s var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.q-lib-more {
+  margin-top: 10px;
+  padding: 2px 6px;
+  margin-inline-start: -6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--mint);
+  border-radius: 4px;
+  transition: background var(--t-fast) var(--ease);
+}
+.q-lib-more:hover { background: var(--mint-wash); }
 
 /* ── 1. the template ── */
 .q-pick .lk-bar { margin-bottom: 10px; }
@@ -3185,6 +3330,11 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .q-file-arrow { display: inline-block; color: var(--mint); }
 :root[dir="rtl"] .q-file-arrow { transform: scaleX(-1); }
 .q-file .mono { font-size: 13px; animation: chipIn 0.34s var(--spring); }
+/* a copy's origin, or (red) a saved group this name would replace */
+.q-group-note { margin-top: 8px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.q-group-note:not(.on) { display: none; }
+.q-group-note.on { animation: rowIn 0.3s var(--ease-out); }
+.q-group-note.warn { color: var(--err); }
 
 /* ── inputs: a well until you are in it, then paper and a mint ring ── */
 .q-in {
@@ -3207,6 +3357,9 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 .q-in::placeholder { color: var(--muted); opacity: 0.6; }
 .q-in:disabled { cursor: not-allowed; background: transparent; border-style: dashed; }
 .q-in.bad { border-color: var(--err); box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 12%, transparent); }
+/* an antenna file for another band (quest.js offBand): the red edge without
+   the refusal's ring — it is a question, not a "no" */
+.q-in.off { border-color: var(--err); }
 /* a value the form filled or converted flashes, so a change you did not
    type is a change you saw */
 .q-in.flash { animation: qFlash 0.8s var(--ease-out); }
@@ -3310,12 +3463,57 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
 :root[dir="rtl"] .q-co-hint { text-align: right; }
 .q-co-hint.bad { color: var(--err); font-family: var(--font); white-space: normal; }
 
+/* Another saved group already generated this Site ID: a quiet line when it
+   is the same site, red when this one differs. Opens by height like the
+   band note below (.q-sec-note), so the sectors glide down. */
+.q-site-note {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--t-med) var(--ease-out);
+}
+.q-site-note > div {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear var(--t-med);
+}
+.q-site-note.on { grid-template-rows: 1fr; }
+.q-site-note.on > div { visibility: visible; transition-delay: 0s; }
+.q-site-note p {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0 0;
+  margin-inline-start: 36px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+  opacity: 0;
+  translate: 0 -3px;
+  transition: opacity var(--t-med) var(--ease), translate var(--t-med) var(--ease-out),
+              color var(--t-med) var(--ease);
+}
+.q-site-note p::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--mint);
+  translate: 0 -1px;
+}
+.q-site-note.on p { opacity: 1; translate: none; }
+.q-site-note.bad p { color: var(--err); }
+.q-site-note.bad p::before { background: var(--err); }
+
 .q-secs { display: grid; gap: 6px; margin-top: 12px; }
 .q-sec {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.05fr) repeat(3, minmax(0, 0.58fr))
                          minmax(0, 0.78fr) minmax(0, 1.8fr) minmax(0, 0.75fr) minmax(0, 0.66fr) 24px;
-  gap: 6px;
+  /* no row gap: there is one row of fields, and a gap would only ever sit
+     above the band note's row — which must take no space while closed */
+  gap: 0 6px;
   align-items: center;
 }
 .q-sec-head span {
@@ -3337,6 +3535,62 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
                 color var(--t-fast) var(--ease), scale var(--t-med) var(--spring); }
 .q-sec:hover .ed-rm, .q-sec .ed-rm:focus-visible { opacity: 1; }
 .q-addsec { margin-top: 6px; margin-inline-start: -10px; }
+
+/* The line under an antenna file that names another band. It sits under the
+   antenna column and opens by HEIGHT (0fr -> 1fr), so the sectors and sites
+   below glide down rather than jump — no FLIP needed for a layout change
+   the browser animates itself. Always in the markup; closed, it takes no
+   space (see the row gap on .q-sec) and its button leaves the tab order. */
+.q-sec-note {
+  grid-column: 7 / -1;
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--t-med) var(--ease-out);
+}
+.q-sec-note > div {
+  min-height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear var(--t-med);
+}
+.q-sec-note.on { grid-template-rows: 1fr; }
+.q-sec-note.on > div { visibility: visible; transition-delay: 0s; }
+.q-sec-note p {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding: 5px 2px 1px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--err);
+  opacity: 0;
+  translate: 0 -3px;
+  transition: opacity var(--t-med) var(--ease), translate var(--t-med) var(--ease-out);
+}
+.q-sec-note p::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 1px;
+  background: var(--err);
+}
+.q-sec-note.on p { opacity: 1; translate: none; }
+/* the same antenna's file for this band — one press puts it in the field */
+.q-swap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 6px;
+  margin-inline: -2px;
+  font-size: 12px;
+  color: var(--ink);
+  border-radius: 4px;
+  transition: background var(--t-fast) var(--ease), translate var(--t-med) var(--spring);
+}
+.q-swap .mono { font-size: 12px; color: var(--mint); }
+.q-swap:hover { background: var(--mist); translate: 0 -1px; }
 
 .q-foot {
   display: flex;
@@ -3444,7 +3698,10 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
     /* dense: the antenna spans three columns, so power and CRS fill the row
        it cannot fit into instead of leaving it half empty */
     grid-auto-flow: row dense;
-    padding: 10px 0;
+    row-gap: 6px;
+    /* 10px at the foot, less the one row gap the closed band note's empty
+       row still takes — so a sector measures what it did before the note */
+    padding: 10px 0 4px;
     border-top: 1px dashed var(--rule);
   }
   .q-c::before {
@@ -3456,6 +3713,7 @@ button { font: inherit; color: inherit; cursor: pointer; border: none; backgroun
   }
   .q-c-model { grid-column: span 3; }
   .q-sec .ed-rm { opacity: 1; justify-self: end; }
+  .q-sec-note { grid-column: 1 / -1; }
 }
 @media (max-width: 560px) {
   .q-step { padding-inline-start: 26px; }

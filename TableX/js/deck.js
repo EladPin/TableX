@@ -625,6 +625,7 @@
         a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
         global.TableXUI.toast(T('dk.built', { n: plan(tpl).slides.length }));
+        if (global.TableXPeek) global.TableXPeek.cheer();
       } catch (e) {
         global.TableXUI.toast(T('dk.buildFail', { e: e.message }), true);
       } finally {

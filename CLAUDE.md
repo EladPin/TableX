@@ -49,6 +49,23 @@ So: run the point analysis, paste, click, and the slide is ready.
 
 ---
 
+## This file is the project's memory — keep it that way
+
+Elad works on TableX from **two machines**: an office dev box (`C:\projects\TableX`, the one with
+PowerPoint 2010 and Excel on it, and `Partner_May_26_V3.xlsx` on its desktop) and his main computer
+at home. A Claude session's own memory (`~/.claude/projects/.../memory/`) stays on the machine it was
+written on, so **the only memory that travels is this file, through git.** A decision Elad made, a
+constraint, what a photograph from TS showed — anything a later session must not re-derive or
+re-litigate — goes HERE, in the section it belongs to. On 2026-10-03 the office box's memory notes
+were folded in (the IDF_Share decision, the naming rules, the Planet Sites-tree photo, the motion
+expectation), and the session ideas that were not taken are under "Planet quests".
+
+Paths recorded below are from whichever box wrote them. The office box has only `C:`; the `D:\` and
+`F:\` paths (the ENM dump, `D:\projects\UbiPlus`, `start.bat` under "How to run it") were written
+elsewhere.
+
+---
+
 ## Sibling projects — same team, same conventions
 
 TableX is the small one. Read these when a convention here needs justifying:
@@ -138,6 +155,9 @@ GET    api/tpl               lists deck templates (metadata only)
 POST   api/tpl/<id>          writes TableX/data/tpl/<id>.json   (metadata)
 POST   api/tpl/<id>/deck     writes TableX/data/tpl/<id>.pptx   (raw bytes)
 DELETE api/tpl/<id>          removes both
+GET    api/grp               lists the saved new-site groups
+POST   api/grp/<id>          writes TableX/data/grp/<id>.json
+DELETE api/grp/<id>          removes it
 ```
 
 Everything else is a static file under the `TableX/` web root (deliberately not the repo root, so
@@ -152,6 +172,8 @@ template is a real `.pptx` anyone can just open.
 **Template ids are constrained, not whitelisted** — the user creates them, so `$TPL_ID` allows
 `[a-z0-9-]` only, which contains no `.` and no separator and therefore cannot name a path outside
 `data\tpl`. Matched with **`-cmatch`**, for exactly the reason the database route documents.
+Saved-group ids (`api/grp`, see "Saved groups" under "Planet quests") follow the same rule through
+the same `$TPL_ID`, so a Hebrew group name lives inside its file and never names a path.
 
 `file://` will not work any more — the app `fetch()`es `data/*.json` at startup, which a
 `file://` origin blocks. Always go through the server.
@@ -205,19 +227,21 @@ build checked rather than assumed.
   "devDependencies": { "electron": "33.4.11", "electron-builder": "26.15.3" },
   "build": { "productName": "TableX", "asar": false, "win": { "target": "dir", "icon": "icon.ico" },
   "files": ["main.js","package.json","server.ps1","icon.ico","TableX/**",
-            "!TableX/data/*.bak","!TableX/data/tpl/**"] } }
+            "!TableX/data/*.bak","!TableX/data/tpl/**","!TableX/data/grp/**"] } }
 ```
 
-**The two negations are not optional.** `"TableX/**"` sweeps in `data/*.bak` and `data/tpl/` alike,
+**The negations are not optional.** `"TableX/**"` sweeps in `data/*.bak`, `data/tpl/` and `data/grp/` alike,
 and the 2026-09-10 build shipped a stale `idf.json.bak` before they were added — a rollback copy of
 somebody's database riding inside everyone's install, which is the same leak the `tpl/` warning
-below describes, one directory over. Both are gitignored, so `git status` says nothing either way.
+below describes, one directory over. All three are gitignored, so `git status` says nothing either
+way. **`data/grp/` was added 2026-10-03, after the last build** — the next `package.json` must carry
+its line, or the dev box's test groups ship inside everyone's install.
 
 `asar: false` and `target: "dir"` are both deliberate: `dir` avoids the winCodeSign symlink failure
 that `--win portable` hits, and an unpacked app means `server.ps1` can read `TableX/` off disk.
 `server.ps1` resolves its web root from `$PSScriptRoot`, so it needs no change when packaged.
 
-**Still look in `TableX/data/tpl/` before building.** The `!TableX/data/tpl/**` negation above now
+**Still look in `TableX/data/tpl/` (and `data/grp/`) before building.** The `!TableX/data/tpl/**` negation above now
 keeps it out of the package, but a deck template is somebody's actual presentation and the
 directory is gitignored, so `git status` will not warn you either way — and a build config is one
 edit away from losing that line. Look at the folder; it costs a second.
@@ -330,6 +354,7 @@ TableX/
   js/i18n.js                  he/en dictionary + DOM applier (chrome only)
   js/motion.js                press, rings and sliding indicators, for every button
   js/tour.js                  the "?" on the paste card — Planet -> paste -> table, in 5 steps
+  js/peek.js                  the ghost that peeks out from behind the cards, now and then
   js/xlsx.full.min.js         SheetJS — vendored, reads an uploaded workbook
   js/pptxgen.bundle.js        PptxGenJS 3.12.0 — vendored, writes the deck.
                               ALSO where window.JSZip comes from; pptx.js needs it
@@ -342,11 +367,13 @@ TableX/
   data/pelephone.json         empty stub - the real DB is built on TS, cannot ship
   data/tpl/                   deck templates, written by the server — GITIGNORED,
                               per-installation, and never in a build (see Electron)
+  data/grp/                   saved new-site groups, written by the server — the
+                              same three rules as tpl/
   favicon.ico                 browser tab (MUST stay under TableX/ to be served)
   img/elad.jpg                builder photo (About the builder)
   img/ghost.svg               standalone ghost mark
 icon.ico / icon-256.png       Electron build icons — MUST stay at the repo root
-.gitignore                    data/*.bak, data/tpl/, icon scratch, build scaffolding
+.gitignore                    data/*.bak, data/tpl/, data/grp/, icon scratch, build scaffolding
 ```
 
 **The source workbooks are no longer in the repo.** `TableX/DB/DEMO_DB.xlsx` (5.9 MB) and
@@ -367,7 +394,7 @@ because that step cost a click on every single use and the whole product is spee
 
 | Slot | Label | State |
 |------|-------|-------|
-| `idf` | IDF | **shipped**, 334 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name |
+| `idf` | IDF | **shipped**, 334 sites / 792 sectors — built from an ENM CLI dump, 236 sites carry a Hebrew name. **To be replaced on TS by the `IDF_Share` import** (111 / 356 — smaller, and right; see "IDF used to come from an ENM CLI dump") |
 | `cellcom` | Cellcom | **ships empty**, but the import is proven — 2,575 sites / 18,891 sectors on TS |
 | `partner` | Partner | **shipped**, 3,129 sites / 16,510 sectors, with the plant — the May-26 export (see "Sibling projects") |
 | `pelephone` | Pelephone | **ships empty**, but the import is proven — 2,383 sites / 18,217 sectors on TS |
@@ -704,6 +731,17 @@ Three things make it work, all documented under the workbook contract: the `<Sit
 composite key (which is what point inspect reports), the trailing-note split, and `'earfcn'` mode
 for the frequency column.
 
+**That import will SHRINK the database, and that is correct** (Elad, 2026-10-03). Planet's Sites
+tree shows `IDF_Share` at **111 sites / 356 sectors** against the shipped ENM build's 334 / 792 —
+under the 60% guard, so the import asks first (`db.shrink`): **answer yes.** The ENM CLI dump lists
+every site that was ever *configured*; `IDF_Share` holds the ones that are real today, and a site
+Planet does not have can never come back from a point inspect, so nothing is lost. **Do not build
+anything to keep the ENM-only sites** — a merge or a "kit-only" IDF import was proposed once and is
+not wanted. The same import is what gives IDF its new-site kit. It is exported from Planet as
+`IDF_Share` (`IDF_Active_Share` 100 / 308 and `IDF_Inactive_Share` 14 / 46 also exist) and loaded
+through IDF's `עדכן`, like the other three. Waiting on הלבנת תוכנה for the build that carries it
+(Elad's commander was due around 2026-10-05).
+
 **`tools/build_idf.py` and the ENM dump are kept as the fallback** until the Planet import has been
 run for real on TS. The rest of this section describes that path, and the chained-site reasoning in
 it is still the best record of which IDF sites are fibred where.
@@ -798,6 +836,14 @@ one site, or a `FAMILY` row naming a whole numbered family with `{N}` for the nu
 (`MMSL_Takti_{N}` → `בארי {N}`, leading zeros dropped, so `T_014` is `תק"ש 14`). `_SL` and `_T`
 are variants of one physical site and share its name. **Unescape Excel's CSV quoting when reading
 that file** — it writes `מצפ"ש` as `"מצפ""ש"`, and the doubled quote would otherwise reach the slide.
+
+The rules settled with Elad on 2026-09-06, kept for the record: `Halif_{N}` → `כיפת שמיים {N}` (his
+operational name — deliberately NOT DOGMA's `חליף {N}`); `KD{N}` → `ק.ד {N}` (from DOGMA's KD134
+and KD208); `T_{N}` → `תק"ש {N}` was INFERRED from `T_951B` and never confirmed. DOGMA's 12 entries
+are not a name source — they disagree with each other (`Asaf_M4` expands the M4, `Hardon_M3` drops
+it). **Never transliterate a name nobody gave**: a confident wrong Hebrew name on a commander's
+slide is the failure this app exists to prevent. Band 28 prints `700` on this path, chosen knowing
+Planet labels it `750` — do not "fix" it.
 
 **An IDF refresh does not go through the `עדכן` button** — that path is xlsx-only. Re-run the tool.
 
@@ -1055,6 +1101,11 @@ unnamed site falls back to its Site ID in `lookup()`, so a row renders readably 
 but it renders in Latin. Filling `Description` in Planet, or naming sites through the site editor,
 is the fix; the importer cannot invent Hebrew that is not in the file.
 
+**Settled since, both halves.** Pelephone: **Latin names are acceptable** (Elad, 2026-09-06 — "we can
+display them in latin, doesn't matter"), so a Latin `Description` is not an import failure and
+nothing should transliterate or infer Hebrew. IDF: Elad filled every site's `Description` in Planet
+(2026-09-23), so the names arrive with the `IDF_Share` export.
+
 ### Band Name is three different formats, and none of them can be checked here
 
 **The Cellcom and Pelephone workbooks live on TS and can never be sent out.** Same constraint as
@@ -1138,7 +1189,9 @@ site id, which is exactly the `Sector ID` on the sectors sheet.
 2. ~~A **pasted** Cellcom and Pelephone point analysis.~~ **Done 2026-09-06** — see the code-shape
    table under "Input format". All four operators' point-inspect codes are settled and
    `planetKey()` resolves them.
-3. IDF is **not** coming from a Planet group export — an ENM CLI dump is the source, and it
+3. ~~IDF is not coming from a Planet group export~~ — **it is, since 2026-09-23**, and the smaller
+   database that makes is the right one (see "IDF used to come from an ENM CLI dump"). What follows
+   is the record of the ENM path: an ENM CLI dump was the source, and it
    arrived on 2026-09-06 (849 rows / 343 nodes / 792 cells). It carries site, sector,
    `dlChannelBandwidth` (kHz) and `earfcndl`, keyed by **NodeId + EUtranCellFDDId** — the cell id
    alone repeats across 51 ids. Still missing: the **Hebrew site names**, written by hand into
@@ -1363,7 +1416,29 @@ is exactly the 20 minutes the app removes. Details that are load-bearing:
 - **The row-reveal stagger is suppressed after the first render** (`tableAnim` → `.no-anim`), or
   the whole table re-animates on every keystroke's commit.
 
-**PPTX** (`btnPptx`): PptxGenJS, `LAYOUT_WIDE`, **one slide**, fixed `colW`. Two traps:
+**PPTX** (`btnPptx`): PptxGenJS, `LAYOUT_WIDE`, fixed `colW`, **one slide when it fits and as
+many as it needs when it does not** (2026-10-03, `PAGE` + `paginate()` in `app.js`):
+
+- **The typical job did NOT fit, whatever this file used to say.** At 0.36 in a row a 7-point
+  table (22 rows) ended at **8.92 in on a 7.5 in slide** — four rows off the bottom, on every
+  ordinary export. Measured from the written XML, then confirmed in PowerPoint 2010 (below).
+- **Rows close up first**, down to `PAGE.min` (0.28 in), to keep a table on ONE slide: 7 points
+  now end at 7.16 in. A table that already fitted (5 points or fewer) is byte-for-byte the row
+  height it was. PowerPoint 2010 lays 10 pt Arial out in a 0.28 in row without growing it —
+  checked by reading `Shape.Height` back over COM.
+- **Past that, more slides**, each with the title and the header row: a point is never cut in two
+  (only a legacy point taller than a whole slide can be), and the points are spread EVENLY over
+  as few slides as fit — 12 points are 6 + 6, not 7 + 5; Coverage's 7 are 4 + 3, not 6 + 1.
+  Coverage reserves `PAGE.legend` for its key, which is on every slide.
+- **A continued slide's first row meets the HEADER**, so in the lean styles its top edge is
+  rewritten to the header's bottom rule — every edge is stated by both cells, and they must agree.
+- The template path (Decks) is NOT paginated: a table slot still gets one table. See Known gaps.
+
+**The level column is LTR** (2026-10-03): `td-ltr` in the HTML, `ltr: true` on the level cell
+in both matrices, which both PPTX writers read. In an RTL cell the bidi algorithm put a leading
+minus on the RIGHT — `-72.42` read `72.42-` on the sheet and on the slide.
+
+Two traps:
 
 - **Column order is reversed by hand.** PowerPoint tables have no RTL column order —
   `rtlMode: true` only sets text direction *inside* a cell. The row arrays are built
@@ -1519,8 +1594,15 @@ cream into night. **The footer stands on its ground** — `.floor .foot` takes `
 is why the scene palette lives on `.floor` rather than on `#scene`. The old coupling — `.bridge`
 −84px ↔ `GROUND_PX` — went with the hero; nothing binds the floor's height but `.scene-host`.
 
-It is on the home page only, and it is still bounded: the bottom of one page (DESIGN.md
-invariant 2).
+The SCENE is on the home page only, and it is still bounded: the bottom of one page (DESIGN.md
+invariant 2). **The floor itself stands under every view since 2026-10-03**, so the footer and its
+"Built by Elad Pinhasov" credit are on every page (asked for by Elad). It moved out of `#viewHome`
+to follow all the `<main>` views, and `body` became a flex column, so the floor's `margin-top: auto`
+puts the footer at the bottom of the screen on a short page and after the content on a long one.
+Off home, CSS reads the open view through `#viewHome.hidden ~ .floor` — which is why the floor must
+come AFTER the views in the markup — and gives it the "scenery off" look: no scene
+(`display:none`, which also parks the tick through its IntersectionObserver), the footer on the
+page's cream. Under the report the floor takes `--mist`, so the desk carries on under it.
 
 Things worth not re-breaking:
 
@@ -1557,6 +1639,60 @@ Things worth not re-breaking:
 - **Switched off in settings, the night goes with the landscape**: `.floor:has(#scene.off)`
   collapses the sky and returns the footer to the page's own cream, so a scene-less page does not
   end in a dark slab with nothing on it.
+
+## The peek — the ghost behind the cards
+
+Asked for by Elad, 2026-10-03: on every box, "something sort of peeking, in a sneaking vibe, from
+behind the box, then going back in". `js/peek.js`. Now and then the ghost creeps out from behind a
+card's edge — one eye first, a nervous glance, then further out, leaning round the corner — looks
+at what is on the card, blinks, and ducks back in. Over a top edge it raises its head and cocks it
+one way and the other. A pointer that comes close startles it straight back in.
+
+- **It is the mark, read from `SCENE.GH`, not a copy** — the same 14×14 grid as the nav, the .ico,
+  the loader and the floor. The eyes are lifted onto their own layer (rows 5-6 of the body filled
+  underneath) so they can look a cell either way; the skirt waves on the loader's 500 ms rhythm.
+- **"Behind" is a clipping WINDOW laid against the card's OUTSIDE edge**, which the ghost slides
+  into across that edge — never a negative z-index. Which of two things is in front depends on every
+  stacking context between them, and the cards sit in several (animated ones among them). The
+  window follows the card every frame while the ghost is out.
+- **The lean is on the pixel grid, never a rotation.** The head is split by rows (0-3, 4-7) and
+  shifted a cell at a time. A rotation was tried first and jagged the cells, against DESIGN.md's
+  one unit of ornament.
+- **Only into empty page.** Each candidate spot is hit-tested on an 8 px grid with
+  `elementFromPoint`, and only page furniture (`OPEN`: html, body, the view, `.section`,
+  `.bridge`, the report's desk) may lie under it — never text, a control, the quest's rail or
+  another card. In practice: the side gutters on a wide screen, the space above a card on a narrower
+  one, nothing on a phone. Surveyed 2026-10-03 at 1400 / 1280 / 1100px: every view has a spot at
+  1400 and 1280 except Find a site with results showing (the rows are a list, with no box edge to
+  hide behind — its empty panel and direct-hit card do qualify).
+- **The boxes are one list**, `BOXES`, like motion.js's `QUIET`. A new kind of card is one entry.
+- **Rarely, and never in the way**: 3.5-6 s after the page settles, 6-11 s after a view opens, then
+  every 20-40 s. Never in a background tab, under an open dialog, within 2 s of a keystroke, under
+  `prefers-reduced-motion`, or with the scenery switched off — **the settings switch (תפאורה /
+  Scenery) governs both** the floor and the peek. A resize sends it back in at once.
+- **Screenshots: never `captureBeyondViewport`.** It resizes the viewport for the capture, which
+  fires `resize` and ends the peek — and it also drops some rows that are mid-animation from the
+  picture. Clip in viewport coordinates instead.
+- `TableXPeek.peek({ box, side })` forces one (the `app` suite does), `stop()` ends it,
+  `_free(x, y, w, h)` is the hit test.
+
+**Three more moments of the same ghost** (Elad, 2026-10-03), all in `peek.js`:
+
+- **The cheer** — `TableXPeek.cheer(opts)`, called when something is FINISHED: Generate table
+  (650 ms after, once the sheet has risen), the report PPTX, both site-sheet exports, the
+  new-site workbook and a deck build. It pops out beside the result (not sneaking: the system's
+  spring), with happy eyes (`JOY`, ^ ^), hops twice in the one cell of headroom the side window
+  keeps (`HOP`), transmits through `TableXMotion.rings` (motion.js exports it for this), looks
+  at what was made, and goes back in. It takes over from a peek in progress and obeys `calm()` —
+  no dialog, tab, reduced motion or scenery-off — but not the typing rule: you just clicked.
+  **It replaced the idea that was asked for**, the floor's ghost running to the flag: Generate
+  leaves the home page, so the floor is not on screen at either moment.
+- **The lost ghost** — `TableXPeek.lostSvg()`, in the no-results state of Find a site, Site
+  spec and New sites, and ONLY there (a search that finds something has none). The mark at 3 px a
+  cell under a 4 x 6 pixel "?", looking up at it one way and the other, its head cocked after its
+  eyes, a cell at a time (main.css "NOT FOUND"). Its viewBox starts at -9: one row of headroom,
+  or the "?"'s bob lifts its top row out of the frame — which it did, once.
+- **The nav's mark** — a click blinks it (its eyes take `currentColor` for 140 ms) and hops it.
 
 ---
 
@@ -1782,6 +1918,31 @@ each one, add it to the map the user already has set up, zoom to the site and `S
 ... Type "PNG"`. The PNGs then go to `מצגות` in order, which is positional — so **name them in the
 order the deck consumes them** (site 1 קיים, site 1 + new, site 1 without Partner, site 2 …).
 
+#### Planet's Sites tree, photographed 2026-10-03
+
+A group's label reads `(sites / ? / sectors / ?)`: `Pelephone_Share (2383/2383/18217/0)` matches the
+2026-09-06 TS import exactly, which is what settles the reading.
+
+| group | sites / sectors | against what TableX has |
+|---|---|---|
+| `Partner_Share` | 3,130 / 16,526 | shipped `partner.json`, 3,129 / 16,510 — slightly behind |
+| `Cellcom_Share` | 2,586 / 19,069 | the TS import of 2026-09-06, 2,575 / 18,891 — behind |
+| `Pelephone_Share` | 2,383 / 18,217 | identical to the TS import |
+| `IDF_Share` | 111 / 356 | the ENM build's 334 / 792 — the smaller one is right (see the IDF section) |
+| `IDF_Active_Share` · `IDF_Inactive_Share` | 100 / 308 · 14 / 46 | |
+
+Also in the tree: band groups per operator (`Partner_1800/2600/700/700_9435`, `IDF_700/900/2600`,
+`Cellcom_*`, `Pelephone_*`); scenario groups (`צפון_מצב_נוכחי` 1,255 sites, `דרום_מצב_נוכחי` 424, and
+`*_כלים_פעילים`); and **candidate sites in ONE-SITE groups** — `SAAR_OPTION` → `IDF_SAAR_OPTION`,
+`צפוני_לבד` → `IDF_M_Zefoni_1`, `bait` → `omer` — with one place modelled for two operators
+(`IDF_Havat_Hashomer` beside `Havat_Hashomer_Partner`). So new sites are often IDF and often one per
+group; whether that is the rule is **unconfirmed** (the quest makes one file per group either way).
+
+Two more things it shows. A grown `*_Share` means **the collision guard is only as fresh as the last
+import** — a Site ID added in Planet since is invisible to it. And the map's status bar reads UTM
+Zone 36 Northern, with **Excel, PowerPoint and Word on the TS taskbar**: Office IS there (its
+version is still unknown), which bears on the Excel round trip and on checking a PPTX.
+
 ### The site writer — `sitegen.js`, built 2026-10-02
 
 Elad's idea, and it is better than waiting for the single-site photograph: **a full group export is
@@ -1971,6 +2132,31 @@ The projection is `js/geo.js`: the Krüger series, checked against Wikipedia's w
 own network first, then the ones on the sector's band, then the most used (`<Generic>` is never
 offered). Arrows, Enter, Tab and Escape behave like a combobox; any other name can still be typed.
 
+**The antenna file follows the band** (2026-10-03). Planet's antenna FILE is per band —
+`EGV465DR6_700.pafx` and `EGV465DR6_1800.pafx` are one antenna and two radiation patterns, and the
+pattern is what coverage is predicted with — and in the May-26 Partner export **13,392 of the 13,401
+files that name a band sit on a sector of that band**. So a sector moved to 700 that kept its
+`_1800` file would be predicted with the wrong pattern, and nothing would say so. Now:
+
+- **A band change takes the same antenna's file for the new band** when any database carries one
+  (template's network first, then the most used), and flashes it. 20 of Partner's 61 band-named
+  antenna families have files for several bands.
+- **Otherwise the field keeps its file and a red line under it says so** (`q.offBand`), with a
+  one-press switch (`q.offSwap`) wherever a sibling exists — which also catches a mismatched file
+  typed by hand or inherited from the template.
+- **Asked, never refused.** Generate asks once (`q.offAsk`), naming the sectors. The real network
+  has nine such sectors (`EGV465DR6_2100` on 1800, `_800` on 700), so it can be deliberate; "generate
+  anyway" writes the file exactly as typed.
+- **The band is the trailing `_<MHz>` before the extension**, and counts only if it is one of
+  `EARFCN_BANDS`' labels (read through `self.TableXBands`, not copied) or `750` — band 28's Planet
+  name (`P3M_750LTE`, `P3M_750MHz_*`), treated as 700. A file naming no band — the ODI multi-band
+  panels, `80010864.pafx` — serves any band and is never questioned. The antenna list ranks a file
+  for another band below one naming none.
+- **The note opens by height** (`grid-template-rows` 0fr → 1fr), so what is below glides. That is
+  why `.q-sec` has no row gap in the wide layout and the narrow one pads 4px at the foot instead of
+  10: a closed note's row would otherwise add 6px to every sector. Measured against the previous
+  build at 1400, 820 and 500px: identical heights with every note closed.
+
 **The view states the Excel step every time it generates**, in the toast and in a panel under the
 button. It is the one thing between a generated file and a working import, and burying it in a
 README would mean rediscovering it.
@@ -1981,6 +2167,42 @@ site rise in; a removed site or sector leaves and the ones below GLIDE up (`flip
 converted value flashes; a refused generate shakes the fields it is about and scrolls to the first;
 the antenna list's highlight glides like the seg thumbs. Every ✕ turns a quarter and every + turns a
 quarter, as everywhere else. All of it stops under reduced motion.
+
+#### Saved groups — "the same group, with a couple of sites changed"
+
+Asked for by Elad, 2026-10-03: he generates `לבנון_דפא_א`, then wants `לבנון_דפא_ב` — the same
+sites with a couple changed — and to see the groups he has made. **`הקבוצות שלי` sits above the
+rail**, as the Decks view's template cards (`.dk-card`, so a kept thing looks the same in both): a
+card OPENS its group, `העתק לקבוצה חדשה` copies it, `מחק` removes it from the list, and the dashed
+card starts over. Stored on the server (`api/grp`, `data/grp/<id>.json`), not in the browser, for
+the reason templates are: it belongs to that copy of the app. Gitignored and kept out of builds.
+
+- **A saved group IS what was last generated — never a draft.** Generate saves it, and nothing
+  else does. That is the invariant everything below rests on: a saved group is what Planet was
+  handed. The cost is that an edit is not kept until it is generated, so the open group's card says
+  so (its square goes hollow, `פתוחה למטה · שינויים שעוד לא נוצר מהם קובץ`), and leaving unsaved
+  work asks first (`q.switch`). "Unsaved" is a signature of the form against the one it was opened
+  or saved as, so typing a value back clears it.
+- **Keyed by NAME, like the file.** Generated again under its own name a group replaces its record;
+  under a new name it is a new group and the one it came from stays. A name another saved group has
+  (case-insensitive — Windows file names are) is flagged under the field and asked about at generate.
+- **A copy takes the next name in its series** — `_א` → `_ב`, `_A` → `_B`, `_09` → `_10`, else
+  `_2`, skipping names already saved. Only a single letter after a separator counts, so a name
+  ending in a word (`דפא`) is not taken for one. The copy records where it came from.
+- **A copy keeps its Site IDs, and the form says what that means.** Planet has one site per Site ID.
+  A site this form shares with ANOTHER saved group is marked under its head: quietly when it is the
+  same site (writing it again changes nothing and adds it to this group), in red when it differs (the
+  import would change it in that group too — give it a new Site ID to keep both). Generate asks about
+  the red ones, never refuses: fixing a site everywhere at once can be the point. "Same" compares
+  every field the workbook writes, numbers as numbers and the point in degrees to ~1 m.
+  **What Planet does with a re-imported existing site is NOT verified on TS** — see Open threads.
+- **It is also the only thing that knows a site generated earlier.** Such a site is in Planet but
+  in none of the databases, so the collision guard cannot see it; saved groups can — and only warn.
+- **The record is the form, plus the template it was seeded from**, so opening a group restores
+  exactly what was typed (the point in the format it was typed in; sector ids the form filled still
+  follow the Site ID) and "add a site" seeds from the same template even if the database changed.
+- The suite writes real records, so it notes the ids that existed first and deletes only its own,
+  in a `finally` — the deck suite's rule for templates.
 
 #### What the writer is checked against
 
@@ -2050,6 +2272,37 @@ Round 3 was asked for on 2026-09-18 and has not come back. In rough order of how
    collision with an EXISTING site; it does not give the team a convention, which is still theirs
    to decide. `TX` is used for test sites because no real Partner site uses that prefix.
 
+### Ideas offered for the quest and not yet taken (2026-10-03)
+
+Proposed to Elad in two lists that day; he picked the antenna-band check and saved groups, both
+built. The rest, so a later session neither re-derives them nor re-proposes the one he turned down:
+
+- **Catch swapped coordinates.** Israel's longitudes (34–36) and latitudes (29.5–33.5) do not
+  overlap, so a latitude typed into the longitude box is always detectable; today GEO accepts any
+  point on Earth and such a site lands west of Cyprus. With it: range checks on azimuth (0–360),
+  height, both tilts and power; watts beside dBm, and `80W` accepted as input.
+- **The nearest existing site under the נ.צ** (`גג בית העם דישון · 1.4 km · 230°`), across all four
+  databases — one glance confirms the point landed where it was meant.
+- **One group per site**, or per round as a toggle: each row its own group name and its own file.
+- **Variants**: "duplicate site" (same נ.צ, an `_OPT2` id, change the azimuth), and "the same site for
+  another network" (IDF ↔ Partner), each from its own network's kit, in separate files.
+- **Remove the Excel step**: test dropping `xl/metadata.xml` ALONE on TS; failing that, `server.ps1`
+  re-saves through Excel over COM (Excel is on the TS taskbar), falling back to today's behaviour.
+- **A checklist per saved group**: saved in Excel ✓, imported ✓, Generate Predictions ✓.
+- **Proposed sites resolve in ניתוח נקודות.** After the analysis, point inspect reports
+  `IDF_SAAR_OPTION_1`, which comes back לא נמצא — for the very site the slide is about. Saved groups
+  could be a fifth lookup source, tagged `אתר מוצע` so a proposed site never passes for a built one;
+  then proposed sites in מפרט אתר and the Stylish drawing.
+- **Hand-typed values marked in the PPTX** — a corrected cell exports looking exactly like a Planet
+  prediction (see Known gaps).
+- **Turned down: a kit-only IDF import** (take `IDF_Share`'s kit, keep the 334-site ENM database).
+  Not wanted — IDF imports normally, and the smaller database is the right one.
+
+**Questions still open with Elad:** what format a new site's נ.צ arrives in (GEO, UTM, MGRS, the
+Israeli grid — and as a table that could be pasted, rather than typed 13 times?); whether it is
+always one group per site; and whether Planet's import creates a group that does not exist yet, or
+it must be made first (this file assumes the latter).
+
 ### What TableX already has that this needs
 
 Most of the quest is glue, which is the reason to build it here rather than as a new app: the
@@ -2064,7 +2317,7 @@ what is still genuinely new is an `AnalysisSpecification.xml` cloner and whateve
 
 ```
 .\server.ps1 -NoLaunch            # in one window
-node tools/e2e/run.mjs            # in another — 200 checks, ~90 s
+node tools/e2e/run.mjs            # in another — 263 checks, ~2 min
 node tools/e2e/run.mjs deck       # one suite
 node tools/e2e/run.mjs --keep-shots
 ```
@@ -2078,8 +2331,8 @@ server, `TABLEX_VERBOSE=1` prints passing checks too.
 |-------|----------------|
 | `engine` | `js/pptx.js` — parse a package, insert a picture, clone/reorder/delete slides, then **re-open the output** and assert on it, including that no relationship dangles |
 | `deck`   | the whole Decks flow — upload a template, mark slots, mark a slide repeating, save to the server, drop images, build, re-open, and confirm the report table came out as a native `<a:tbl>` |
-| `app`    | the lookup view, in-table editing, the site editor's add form, that a chained cell resolves under BOTH its ENM and its Planet spelling, the site-data sheet, the databases view, and the "?" tour end to end |
-| `quest`  | אתרים חדשים end to end — builds a seven-sheet group export in the page, runs it through the app's importer and checks the kit (and a composite IDF-style one: donors matched by site + sector), seeds it as a database, picks a template from the search, clears and re-picks it, refuses Site IDs from ANOTHER network and from the kit's sector-less sites, follows the Site ID into the sector ids, converts GEO ↔ UTM and back exactly, picks an antenna from the list, generates in UTM, and reads the workbook back: one group column named after the group and TRUE, the per-band donor's propagation model, PCI blanked, electrical tilt carried, an edited CRS written, antennas renumbered, a `sharedStrings` part with no `t="str"` cell — and that a database without a kit says so |
+| `app`    | the lookup view, in-table editing, the site editor's add form, that a chained cell resolves under BOTH its ENM and its Planet spelling, the site-data sheet, the databases view, the "?" tour end to end, the footer and its credit on every view, the peek (empty page only, against the card's edge, out and back in), the level cell LTR on the sheet and the slide, the standalone PPTX fitting and paginating (7 points on one slide, 12 as 6 + 6, Coverage's 7 as 4 + 3, the header on each), and the ghost's other moments (the cheer on generate, the lost ghost in all three searches and only on no results, the nav mark's blink and hop) |
+| `quest`  | אתרים חדשים end to end — builds a seven-sheet group export in the page, runs it through the app's importer and checks the kit (and a composite IDF-style one: donors matched by site + sector), seeds it as a database, picks a template from the search, clears and re-picks it, refuses Site IDs from ANOTHER network and from the kit's sector-less sites, follows the Site ID into the sector ids, converts GEO ↔ UTM and back exactly, picks an antenna from the list, moves an antenna file with its band and back, marks a file for another band (with and without a switch to offer), asks before writing one and writes it as typed on "generate anyway", generates in UTM, and reads the workbook back: one group column named after the group and TRUE, the per-band donor's propagation model, PCI blanked, electrical tilt carried, an edited CRS written, antennas renumbered, a `sharedStrings` part with no `t="str"` cell — and that a database without a kit says so. Then the saved groups: generating saves the group once per name, as the form that made it; an edit marks the open card and a value typed back clears it; a copy takes the next name, marks a shared site as the same one and then red once it differs, asks at generate, and saves as a new group naming its origin while the original stays untouched; opening restores a group exactly; leaving unsaved work asks; a name another group has is flagged and asked about; a new group starts clean; the next-name rule; delete asks and removes; the list survives a reload — and only the suite's own groups are deleted afterwards |
 
 **Why a browser and not unit tests.** Everything worth testing here is interactive — clicking a
 slot onto a slide, dragging it, typing into a table cell, feeding a `.pptx` through a file input.
@@ -2091,12 +2344,25 @@ presentation namespace for its transform) were invisible to reading the code.
 real PowerPoint passes through them, and nothing here checks how a deck *looks*. Treat a green
 run as "the packages are well-formed and the flow holds together", not as "it is right".
 
+**But PowerPoint 2010 is on the dev box** (`Office14\POWERPNT.EXE`), and it can be driven over
+COM the way Excel is for the quest: `Presentations.Open(path, -1, 0, 0)`, then
+`Slides(i).Export(png, 'PNG', 1600, 900)` to SEE a slide, and a table shape's `Top`/`Height`
+(points) to MEASURE it as PowerPoint laid it out. That is how the pagination and the level cell
+were checked on 2026-10-03, and how the point label below was caught. An old PowerPoint is the
+right one to check against: TS's Office version is unknown.
+
 **The deck suite cleans up after itself, and deletes only what it made.** It used to assert
 that the server held exactly one template, while never removing the one it saved — so it
 passed on a clean machine and failed on every run after, which is the worst possible
 behaviour for a check you are told to run before pushing. It now records the template ids
 that existed first, asserts on the single new one, and `DELETE`s just that at the end. It
 must never clear the directory wholesale: a deck template is somebody's actual presentation.
+
+**A session that starts the server for the suites must stop it when it is done.** A background
+`server.ps1` holds port 8094, and Elad's own `start.bat` then cannot start — which happened on
+2026-10-03. If his server is already up, run the suites against it (the default URL) rather than
+starting a second; if one of your own is needed beside his, `-Port 8099` and `TABLEX_URL`.
+**Restart the server after changing `server.ps1`** — a new route does not exist until it does.
 
 **A suite that needs the server is not optional about it** — the runner refuses to start rather
 than reporting a wall of failures. Suites each get a fresh page, because one leaving a saved
@@ -2162,8 +2428,8 @@ times a day, and the answer was a Planet session.
   text in a 200px void, which read as a search that had broken rather than as an answer.
   The "these databases are empty on this machine" line belongs INSIDE that panel rather
   than as a second orphaned paragraph. Deliberately not `.ed-msg`: `deck.js` styles its own
-  empty states with that class and has no reason to change. **No illustration here** — that
-  stays on the home page's floor and in the loader.
+  empty states with that class and has no reason to change. **The no-hits panel carries the
+  lost ghost** (asked for 2026-10-03, see "The peek"); the empty and hint states stay plain.
 - Site names, site ids and sector codes are click-to-copy (`data-copy`, delegated).
 
 ---
@@ -2285,8 +2551,8 @@ async. Four details worth keeping:
 - **`.btn-primary.danger` uses `--err` on `--paper`.** Both swap with the theme, so it is dark red
   on white in light and light red on near-black in dark, with no second hardcoded colour.
 
-Four prompts use it: `db.clearConfirm`, `db.shrink`, `db.unknownBand` and `ed.discard`. Adding a
-fifth means a string in **both** dictionaries, as always.
+Six prompts use it: `db.clearConfirm`, `db.shrink`, `db.unknownBand`, `ed.discard`, and the
+quest's `q.discard` and `q.offAsk`. Adding another means a string in **both** dictionaries, as always.
 
 ## Settings: theme, language and the scene
 
@@ -2311,7 +2577,8 @@ explicit setting, separate from this one. The settings popover says so in `set.n
 
 **The scene** is the third control (`tablex_scene`, key read in `SCENE.init()`, not in the
 head script — it is decoration, so a flash of it is not a defect worth a third inline read).
-See "The floor" below.
+See "The floor" below. It is the decoration switch as a whole: the peeking ghost obeys it too, which
+is why its English label became `Scenery` (2026-10-03; the Hebrew `תפאורה` already said that).
 
 `js/i18n.js` holds both dictionaries. Markup uses `data-i18n` (textContent),
 `data-i18n-html` (innerHTML, only for strings carrying markup), `data-i18n-placeholder` and
@@ -2376,13 +2643,30 @@ the raw key.
   commits. There is no build and no lint, so a moved function is exactly the defect this codebase
   cannot catch by itself — which is why `num` is now reached as `self.TableXNum`, the way `mhzOf()`
   reaches `EARFCN_BANDS`, and why the `app` suite now presses that button.
+- **Line endings differ file to file in the working copy.** The repo stores LF and `core.autocrlf`
+  is true, so most files check out CRLF — but `geo.js`, `i18n.js`, `motion.js`, `peek.js` and
+  `tools/e2e/app.mjs` are LF (2026-10-03). An edit made by a script must read the file's ending
+  and write the same one back, or a multi-line match silently misses — or lands and leaves the
+  file mixed. **`git ls-files --eol <file>` tells you** (`w/crlf` or `w/lf`). Do NOT trust Git
+  Bash's `grep -c $'\r$'`: it does not see the `\r` and reports an LF file as CRLF. The Edit tool
+  copes either way.
+- **Git Bash's `curl` mangles Hebrew in its arguments** to `?????` before it is sent, which looks
+  exactly like a server that cannot store Hebrew. Probe a route with Node's `fetch` instead.
 - **Verifying Hebrew in a terminal is useless here** — the console codepage mangles it and it
   looks like corruption when the data is fine. Verify by *comparing against a known-good
   source* (that is what the Interfex cross-check is for), not by eyeballing console output.
 
-## Open threads — where 2026-10-02 left off
+## Open threads — where 2026-10-03 left off
 
-**What happened that day, since it moved the project more than anything since the Signal redesign:**
+**2026-10-03, at the office box.** אתרים חדשים: the antenna file follows its sector's band, and every
+generated group is SAVED, to open again or copy into the next one (see "Saved groups"). The ghost
+grew up: it peeks from behind the cards, cheers when something is finished, shrugs on a search with
+no results, and blinks when the nav's mark is clicked; the footer and its credit are on every view.
+The deliverable: levels read `-72.42` (the minus was on the right), and the standalone PPTX fits a
+7-point table on one slide and paginates past it — both checked in PowerPoint 2010 over COM, which
+is how the `נק' 1` label bug below was found. 263 checks.
+
+**2026-10-02 — what happened that day, since it moved the project more than anything since the Signal redesign:**
 Partner was rebuilt from `Partner_May_26_V3.xlsx` (the 2026-09-29 revert turned out to rest on a
 wrong premise — the plant was always in that file, the parser just could not read it yet); the
 **first Planet quest was built and proven on TS**, so TableX now writes a new-site workbook Planet
@@ -2400,11 +2684,23 @@ See "The kit" and "The view" under "Planet quests".
 
 Things raised with Elad and not settled. Each is small; none is a defect in what shipped.
 
+- **What Planet does with a site it already has** (saved groups, 2026-10-03). A copied group keeps
+  the Site IDs of the sites it did not change, and its workbook carries them with `Group: <new> =
+  TRUE`. The design assumes Planet's import UPDATES an existing site (the rule the collision guard
+  already rests on) and adds it to the new group while leaving its old membership alone. Never
+  tried. The first `_ב` import is the test: check in Planet that the shared sites are in BOTH
+  groups afterwards. If Planet refuses or duplicates them instead, a copy has to renumber every site.
+
 - **Cellcom, Pelephone and IDF need ONE re-import on TS before they can seed a new site.** Their
   databases were imported before the kit existed (IDF's shipped one is the ENM build, which has no
   workbook behind it at all). Their DB cards say so, and so does the quest view. Partner ships with
   a kit. The first IDF import from `IDF_Share` is also the first real test of the composite-key kit
   and of the IDF `Antenna File` spellings.
+  **That IDF import WILL ask about shrinking, and the answer is yes** (Elad, 2026-10-03). A photo of
+  Planet's tree shows `IDF_Share` at 111 sites / 356 sectors against the ENM build's 334 / 792 —
+  under the 60% guard. The ENM dump lists every site that was ever configured; the sites in
+  `IDF_Share` are the ones that are real today, and a site Planet does not have cannot come back
+  from a point inspect anyway. Waiting on הלבנת תוכנה for the build that carries this session's work.
 
 - ~~**Partner is the 2024 export**, 434 sites short of today's network.~~ **Closed 2026-10-02** —
   rebuilt from `Partner_May_26_V3.xlsx`, which carried the plant all along (see "Sibling projects").
@@ -2420,10 +2716,16 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   e2e fixture.** Nothing suggests it will not work — the May-26 file IS a real group export — but
   the first real round is worth watching, particularly whether a new site needs
   `Generate Predictions` before an analysis will use it (unknown #5, now the most load-bearing one).
-- **Levels show their minus on the right in the Hebrew report** — `72.42-`, in all three styles
-  and in the old table too. It is the bidi algorithm placing a neutral `-` in an RTL cell. Offered
-  and not changed, because it changes the deliverable; the fix is to isolate the level cell as LTR
-  the way `td-ltr` does for codes. Check the PPTX cell as well as the HTML before calling it done.
+- ~~**Levels show their minus on the right in the Hebrew report**~~ — **fixed 2026-10-03** (see
+  "Output"): the level cell is LTR in the HTML and in both PPTX writers.
+- **The point label prints wrong in PowerPoint** — `נק' 1` is drawn `' 1נק`, so a slide reads
+  "נק1 '". Found 2026-10-03 by rendering in PowerPoint 2010; the browser draws it right, so the
+  sheet and the print were never wrong — only the slide. PowerPoint resolves the ASCII apostrophe
+  (a neutral) with the number after it. Tried in PowerPoint 2010: an RLM after the apostrophe
+  fixes the order but loses the space (`1'נק`); the Hebrew GERESH `׳` (U+05F3, a strong RTL
+  letter-mark, and the correct Hebrew abbreviation mark) draws `1 ׳נק` — right. Offered to Elad,
+  not changed: it changes the deliverable. If taken, change it in `renderTable` AND both matrices,
+  so the sheet and the slide stay one table.
 - **CRS is Planet's BOOST**, and it is `0 dB` on all 16,510 sectors of the May-26 export too, so
   the column prints `0 dB` for every Partner site. If the operator's request form turns out to want
   the RS power itself, it is the render-time conversion under the workbook contract — ask which the
@@ -2453,7 +2755,8 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   Hebrew pattern yet — `MMSL_{N}` (21 sites), `Relay_{N}` (14), `Beeri_Pakar_{N}` (13),
   `Petel_{N}` (10), `G_{N}`, `MiniSite_{N}`, `MMSL_Pakar_{N}`, `M_Zefoni_{N}`, `Mehola_{N}`,
   `Ofek_{N}`. Ten lines in the name list would cover 83 of them. A Latin name is the deliberate
-  fallback rather than a guess, but it is still Latin on a Hebrew slide.
+  fallback rather than a guess, but it is still Latin on a Hebrew slide. **This is the ENM build's
+  gap only — it ends with the `IDF_Share` import**, whose names Elad filled in Planet.
 - **A chained site can only be found by its cell's NAME.** `site_of()` moves a cell to the site it
   is named after, and `CHAINED` says which of those names are real sites — but a chained cell that
   was named after its *baseband* in ENM looks exactly like an ordinary one, and the dump carries no
@@ -2465,9 +2768,9 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   consequence understood; it is the one place in the deliverable where a column carries two units.
   This also retired the earlier band-28-prints-700-not-750 question — IDF no longer prints a band
   label at all, so the disagreement with Planet's `750` label is moot.
-- **PPTX is one slide with no pagination.** ~7 points (21 rows) fits; past ~15 rows the table
-  runs off the bottom. `slide.addTable` supports `autoPage`; not enabled. The template path has
-  the same limit: a table slot gets one table, however many rows it holds.
+- **The template path is one table per slot.** The standalone PPTX fits and paginates since
+  2026-10-03 (see "Output"), but a table slot in a deck template still gets one table, however
+  many rows it holds — paginating it would mean cloning the slot's slide.
 - **The template preview is a wireframe, not a renderer.** Background, pictures and text land in
   the right place at roughly the right size; gradients collapse to their first stop, and
   SmartArt, charts and WordArt draw as an empty frame. It exists so someone can point at a place
@@ -2481,7 +2784,8 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
   the packages we write are well-formed. A real unit template, opened in real PowerPoint, is
   still the test that matters.
 - **Deck templates are gitignored** (`TableX/data/tpl/`) — they are somebody's actual
-  presentation, per-installation data like `data/*.bak`.
+  presentation, per-installation data like `data/*.bak`. Saved new-site groups
+  (`TableX/data/grp/`) are the same.
 - **The site editor caps the rendered list at 150 rows** (`ED_ROW_CAP`). Fine for IDF-sized
   data; on Partner you must search to reach a specific site.
 - **The lookup stops scanning at 400 matching sites** (`LK_SCAN_CAP`), so a very broad query
@@ -2529,8 +2833,16 @@ Things raised with Elad and not settled. Each is small; none is a defect in what
 - **A new button gets its press and its rings from `motion.js` for free.** A new button KIND gets
   at most one hover move of its own, saying what it does, on `translate` / `rotate` / `scale` —
   never `transform`, and never by adding an element inside the button. See DESIGN.md "Motion".
-- **Illustration stays on the home page's floor and in the loader.** If you touch the scene, keep
-  colour in `main.css` and animated opacity in attributes — see "The floor".
+- **Illustration stays on the home page's floor, in the loader, in the peek and in a search with no
+  results.** If you touch the scene, keep colour in `main.css` and animated opacity in attributes —
+  see "The floor". The peek only ever goes into empty page beside a card; see "The peek".
+- **Every view moves like the rest of the app, and Elad checks.** The first אתרים חדשים — plain
+  numbered form cards — worked and was sent back as "static" (2026-10-02). Design the motion WITH
+  the view, from the existing tokens and `motion.js`: rise on reveal, glide (`flip()`) on remove,
+  flash on a value the app filled, sliding markers, ✕ and + turning a quarter. Look at it in
+  screenshots, in both languages and both themes, before calling it done.
+- **A decision Elad makes goes in this file**, in the section it belongs to — see "This file is the
+  project's memory".
 - When you touch the workbook contract, **touch both parsers** — `js/dbparse.js` and
   `tools/build_db.py` — **and check `js/sitegen.js`**, which reads the same export to clone a site
   out of it and looks up a dozen headers by name. Its `makeKit()` has a Python twin, `make_kit()` in

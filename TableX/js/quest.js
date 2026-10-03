@@ -24,6 +24,13 @@
    3. EDIT AND GENERATE. The נ.צ is typed in GEO or UTM 36N, whichever it
       arrived in; the other is shown beside it as a check.
 
+   SAVED GROUPS (2026-10-03). Every group a file is generated from is kept on
+   the server (api/grp), as the form that made it, so it can be opened again
+   or copied into the next one — a round is usually "the same group, with a
+   couple of sites changed". A saved group IS what was last generated, never
+   a draft: that is what lets the form say which of its sites Planet already
+   has from another group, and whether they still match it.
+
    Prompts and toasts go through TableXUI so this speaks in the app's voice;
    the databases are read through TableXDB.
    ═══════════════════════════════════════════════════════════════════ */
@@ -67,6 +74,15 @@
   let fresh = new Set();           // what to animate in on the next render
   let taken = null;                // every site id in every database, lazily
   let fmt = readFmt();
+
+  const LIB_CAP = 6;               // saved groups shown before "show all"
+  let lib = [];                    // the saved groups, newest first
+  let libAll = false;              // showing every one of them
+  let libAnim = false;             // the next list render rises in, staggered
+  const libFresh = new Set();      // ...or only these ids do
+  let curId = null;                // the saved group the form was opened from
+  let copyFrom = null;             // the group the form was copied from
+  let base = '';                   // the form as last opened or saved — "unsaved" is measured from here
 
   function readFmt() {
     try { return localStorage.getItem(FMT_KEY) === 'utm' ? 'utm' : 'geo'; }
@@ -222,6 +238,8 @@
     $('qAfter').classList.add('hidden');
     if (kit) addRow();
     render();
+    settle();                          // a freshly seeded site is nothing to lose
+    paintLib();
     // Straight to the first thing that must be typed: the new Site ID.
     if (kit) setTimeout(() => {
       const f = $('qGroup').value.trim() ? document.querySelector('#qRows [data-f="siteId"]') : $('qGroup');
@@ -230,17 +248,21 @@
   }
 
   // Picked the wrong one: back to the search. The new sites were seeded from
-  // it, so they go too — but anything typed is worth one question first.
+  // it, so they go too — but anything unsaved is worth one question first.
+  // A saved group that is put back loses nothing: it is still in the list.
   async function clearTmpl() {
-    const typed = rows.some(r => r.siteId.trim() || r.name.trim());
-    if (typed && !(await UI().ask(T('q.discard', { n: rows.length }),
-                                  { ok: 'q.discardOk', danger: true }))) return;
+    if (dirty() && !(await UI().ask(T('q.discard', { n: rows.length }),
+                                    { ok: 'q.discardOk', danger: true }))) return;
     const card = $('qTmpl').firstElementChild;
     leave(card, () => {
       tmpl = null;
       rows = [];
+      curId = null;
+      copyFrom = null;
       $('qAfter').classList.add('hidden');
       render();
+      settle();
+      paintLib();
       setTimeout(() => $('qPick').focus(), 30);
     });
   }
@@ -360,6 +382,401 @@
     h.classList.toggle('bad', c.bad);
   }
 
+  /* ── the antenna file names its band ─────────────────────────────── */
+
+  // Planet's antenna FILE is per band: EGV465DR6_700.pafx and
+  // EGV465DR6_1800.pafx are one physical antenna and two radiation patterns,
+  // and the pattern is what coverage is predicted with. In the May-26 Partner
+  // export 13,392 of the 13,401 files that name a band sit on a sector of
+  // that band. So a sector moved to 700 that keeps its _1800 file is
+  // predicted with the wrong pattern, and nothing would say so.
+  //
+  // The band is the trailing `_<MHz>` before the extension, and only an
+  // operator's band label counts — dbparse.js EARFCN_BANDS, read rather than
+  // copied. A file that names no band (the ODI multi-band panels,
+  // 80010864.pafx, <Generic>) serves any band and is never questioned.
+  // Band 28 has two names: 700 as the operators and that table print it, 750
+  // as Planet labels it (P3M_750LTE, P3M_750MHz_*), so _750 is a 700 file.
+  const band28 = m => (m === 750 ? 700 : m);
+  let labels = null;
+  function bandLabels() {
+    if (!labels && global.TableXBands) labels = new Set(global.TableXBands.map(b => b[2]).concat(750));
+    return labels || new Set();
+  }
+
+  // { mhz, label, fam } — `fam` is the file with its band taken out, which
+  // is what makes EGV465DR6_700.pafx and EGV465DR6_1800.pafx one antenna.
+  function fileBand(file) {
+    const t = String(file == null ? '' : file).trim();
+    const m = /_(\d{3,4})(\.[^._]*)?$/.exec(t);
+    if (!m || !bandLabels().has(+m[1])) return null;
+    return { mhz: band28(+m[1]), label: m[1],
+             fam: (t.slice(0, m.index) + t.slice(m.index + m[1].length + 1)).toLowerCase() };
+  }
+
+  // A sector's band against its file's: null when they agree, when either
+  // is unknown, or when this network's export carries no antenna column.
+  function offBand(s) {
+    if (!carries('model')) return null;
+    const fb = fileBand(s.model);
+    const m = band28(Number(s.mhz));
+    if (!fb || !m) return null;
+    return fb.mhz === m ? null : { file: fb.label, sector: m };
+  }
+
+  // The same antenna's file for another band, from any database — the
+  // template's own network first, then the most used. Null when no database
+  // carries one.
+  function sibling(file, mhz) {
+    const fb = fileBand(file);
+    if (!fb) return null;
+    const own = tmpl ? tmpl.net : null;
+    let best = null;
+    for (const net of DBX().NETWORKS) {
+      for (const f of filesOf(DBX().get(net))) {
+        if (!f.band || f.band.mhz !== mhz || f.band.fam !== fb.fam) continue;
+        const mine = net === own ? 1 : 0;
+        if (!best || mine > best.mine || (mine === best.mine && f.n > best.n)) best = { file: f.file, mine, n: f.n };
+      }
+    }
+    return best ? best.file : null;
+  }
+
+  function offNote(s, off) {
+    const next = sibling(s.model, off.sector);
+    return '<span>' + esc(T('q.offBand', { f: off.file, s: off.sector })) + '</span>' +
+      (next ? '<button type="button" class="q-swap" data-swap="' + esc(next) + '">' +
+                '<span>' + esc(T('q.offSwap')) + '</span><span class="mono">' + esc(next) + '</span>' +
+              '</button>' : '');
+  }
+
+  // In place, never a re-render, so the field being typed in keeps focus.
+  // The note opens and closes by HEIGHT in CSS, so whatever is below it
+  // glides rather than jumps.
+  function paintBand(secEl, s) {
+    if (!secEl || !s) return;
+    const off = offBand(s);
+    const inp = secEl.querySelector('[data-s="model"]');
+    if (inp) inp.classList.toggle('off', !!off);
+    const note = secEl.querySelector('[data-note]');
+    if (!note) return;
+    if (off) note.firstElementChild.firstElementChild.innerHTML = offNote(s, off);
+    note.classList.toggle('on', !!off);
+  }
+
+  // A band change takes the file with it when the same antenna has one for
+  // the new band — the swap a planner makes without thinking — and flashes
+  // it, so a value you did not type is one you saw. Without one the file
+  // stays and the note says so. Never refused: the real network has nine
+  // sectors whose file names another band, so it is the planner's call.
+  function followBand(secEl, s) {
+    const off = offBand(s);
+    const next = off && sibling(s.model, off.sector);
+    if (next) {
+      s.model = next;
+      const inp = secEl && secEl.querySelector('[data-s="model"]');
+      if (inp) { inp.value = next; flash(inp); }
+    }
+    paintBand(secEl, s);
+  }
+
+  /* ── saved groups ────────────────────────────────────────────────── */
+
+  // Ids are generated, never typed: the server constrains them to [a-z0-9-],
+  // and a name like לבנון_דפא_א cannot be one (deck.js does the same).
+  const newGid = () => 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const sameName = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+  const recOf = id => (id && lib.find(g => g.id === id)) || null;
+  const sortLib = () => lib.sort((a, b) => String(b.made || '').localeCompare(String(a.made || '')));
+
+  async function loadLib() {
+    let got = [];
+    try {
+      const r = await fetch('api/grp', { cache: 'no-store' });
+      got = r.ok ? await r.json() : [];
+    } catch (e) {
+      got = [];                        // opened without the server
+    }
+    lib = (Array.isArray(got) ? got : []).filter(g => g && g.id && g.name && Array.isArray(g.sites));
+    sortLib();
+    if (curId && !recOf(curId)) curId = null;
+  }
+
+  // 3.10.26, 14:20 — the same in both languages, like the coordinates.
+  function fmtDate(iso) {
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const p = x => String(x).padStart(2, '0');
+    return d.getDate() + '.' + (d.getMonth() + 1) + '.' + p(d.getFullYear() % 100) +
+      ', ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  // A site as it is stored: the form's own fields, so opening it again IS
+  // the form it was — sector ids the form filled still follow the Site ID.
+  function siteOut(r) {
+    return {
+      siteId: r.siteId.trim(), name: r.name.trim(),
+      xy: { fmt: r.xy.fmt, a: val(r.xy.a).trim(), b: val(r.xy.b).trim() },
+      sectors: r.sectors.map(s => ({
+        sectorId: val(s.sectorId).trim(), auto: !!s.auto, code: s.code || '', band: s.band || '',
+        mhz: s.mhz == null ? null : s.mhz,
+        az: val(s.az).trim(), height: val(s.height).trim(), tilt: val(s.tilt).trim(),
+        etilt: val(s.etilt).trim(), model: val(s.model).trim(), pwr: val(s.pwr).trim(),
+        crs: val(s.crs).trim(),
+      })),
+    };
+  }
+
+  function siteIn(s) {
+    const uid = ++seq;
+    fresh.add('s' + uid);
+    const xy = s.xy || {};
+    return {
+      uid, siteId: val(s.siteId), name: val(s.name),
+      xy: { fmt: xy.fmt === 'utm' ? 'utm' : 'geo', a: val(xy.a), b: val(xy.b) },
+      sectors: (s.sectors || []).map(x => ({
+        k: ++sk, sectorId: val(x.sectorId), auto: !!x.auto, code: x.code || '', band: x.band || '',
+        mhz: x.mhz, az: val(x.az), height: val(x.height), tilt: val(x.tilt), etilt: val(x.etilt),
+        model: val(x.model), pwr: val(x.pwr), crs: val(x.crs),
+      })),
+    };
+  }
+
+  // What a site IS, for telling whether two groups hold the same one: every
+  // field the workbook writes, numbers compared as numbers, and the point in
+  // degrees to ~1 m — so a site typed in UTM in one group and in GEO in the
+  // other is still one site.
+  function siteSig(s) {
+    const n = v => { const x = numOf(v); return x == null ? '' : Number.isFinite(x) ? String(x) : String(v).trim(); };
+    let pt = [s.xy.fmt, n(s.xy.a), n(s.xy.b)];
+    const a = numOf(s.xy.a), b = numOf(s.xy.b);
+    if (Number.isFinite(a) && Number.isFinite(b)) {
+      const g = s.xy.fmt === 'utm' ? GEO().fromUtm(a, b) : [a, b];
+      pt = [g[0].toFixed(5), g[1].toFixed(5)];
+    }
+    return JSON.stringify([s.name.trim(), pt, s.sectors.map(x => [
+      String(x.sectorId).trim().toLowerCase(), x.band, n(x.az), n(x.height), n(x.tilt), n(x.etilt),
+      String(x.model || '').trim(), n(x.pwr), n(x.crs)])]);
+  }
+
+  // A saved group's sites, lower-cased id -> signature, worked out once.
+  function sigsOf(g) {
+    if (!g._sigs) {
+      g._sigs = new Map();
+      for (const s of g.sites) g._sigs.set(String(s.siteId).trim().toLowerCase(), siteSig(s));
+    }
+    return g._sigs;
+  }
+
+  // The form, for "is anything here unsaved": the group, the template and
+  // every site. Nothing to lose until there is a template.
+  function snapSig() {
+    if (!tmpl) return '';
+    return JSON.stringify([$('qGroup').value.trim(), tmpl.net, tmpl.id,
+      rows.map(r => [r.siteId.trim(), siteSig(siteOut(r))])]);
+  }
+  const dirty = () => !!tmpl && snapSig() !== base;
+  const settle = () => { base = snapSig(); };
+
+  // The OTHER saved groups a site of this form was already generated in.
+  // Planet has one site per Site ID, so writing it again changes it there
+  // too: harmless when it is the same site (it only joins this group as
+  // well), a real change when it is not. The group this name replaces is
+  // not "other" — it is the one being rewritten.
+  function sharedOf(r) {
+    const id = r.siteId.trim().toLowerCase();
+    if (!id || !lib.length) return null;
+    const g = $('qGroup').value.trim();
+    let sig = null;
+    const all = [], diff = [];
+    for (const rec of lib) {
+      if (sameName(rec.name, g)) continue;
+      const theirs = sigsOf(rec).get(id);
+      if (theirs == null) continue;
+      if (sig == null) sig = siteSig(siteOut(r));
+      all.push(rec.name);
+      if (theirs !== sig) diff.push(rec.name);
+    }
+    return all.length ? { all, diff } : null;
+  }
+
+  // The next name in a series: לבנון_דפא_א -> לבנון_דפא_ב, Run_A -> Run_B,
+  // Run_09 -> Run_10, anything else gets _2 — and on until no saved group
+  // has it. Only a SINGLE letter after a separator counts, so a name that
+  // ends in a word (דפא) is not taken for one; a final form (ך) or the last
+  // letter (ת) starts a _2.
+  const HEB = 'אבגדהוזחטיכלמנסעפצקרשת';
+  function bump(n) {
+    let m = /^(.*[_\-\s])([א-ת])$/.exec(n);
+    const h = m ? HEB.indexOf(m[2]) : -1;
+    if (h >= 0 && h < HEB.length - 1) return m[1] + HEB[h + 1];
+    m = /^(.*[_\-\s])([A-Ya-y])$/.exec(n);
+    if (m) return m[1] + String.fromCharCode(m[2].charCodeAt(0) + 1);
+    m = /^(.*?)(\d+)$/.exec(n);
+    if (m) return m[1] + String(+m[2] + 1).padStart(m[2].length, '0');
+    return n + '_2';
+  }
+  function nextName(name, names) {
+    const have = new Set((names || lib.map(g => g.name)).map(x => String(x).trim().toLowerCase()));
+    let n = String(name).trim();
+    for (let i = 0; i < 60; i++) {
+      n = bump(n);
+      if (!have.has(n.toLowerCase())) return n;
+    }
+    return n;
+  }
+
+  // Open a saved group, or COPY it into a new one under the next name in its
+  // series. Either way the form becomes that group's sites, with the
+  // template it was made from — stored with it, so a database re-imported
+  // since does not change what "add a site" seeds. Unsaved work in the form
+  // is asked about first.
+  async function openRec(id, copy) {
+    const rec = recOf(id);
+    if (!rec) return;
+    if (!copy && id === curId && !dirty()) return toForm(false);
+    if (dirty() && !(await UI().ask(T('q.switch'), { ok: 'q.switchOk', danger: true }))) return;
+    acClose();
+    const db = DBX().get(rec.net);
+    const t = rec.tmpl || {};
+    tmpl = { net: rec.net, id: t.id || '', name: t.name || '', xy: t.xy || null,
+             kit: (db && db.kit) || null, sectors: Array.isArray(t.sectors) ? t.sectors : [] };
+    rows = rec.sites.map(siteIn);
+    curId = copy ? null : rec.id;
+    copyFrom = copy ? rec.name : (rec.from || null);
+    $('qGroup').value = copy ? nextName(rec.name) : rec.name;
+    $('qPick').value = '';
+    $('qAfter').classList.add('hidden');
+    render();
+    settle();
+    paintLib();
+    if (copy) UI().toast(T('q.copied', { g: rec.name, n: rec.sites.length }));
+    toForm(copy);
+  }
+
+  // Down to what was opened: a copy's new name first — it is the one thing
+  // that must change — otherwise the sites.
+  function toForm(copy) {
+    const el = copy ? $('qStep2') : $('qStep3');
+    el.scrollIntoView({ block: 'start', behavior: reduced() ? 'auto' : 'smooth' });
+    if (!copy) return;
+    setTimeout(() => {
+      const g = $('qGroup');
+      g.focus({ preventScroll: true });
+      g.select();
+      flash(g);
+    }, reduced() ? 0 : 320);
+  }
+
+  async function newGroup() {
+    if (dirty() && !(await UI().ask(T('q.switch'), { ok: 'q.switchOk', danger: true }))) return;
+    acClose();
+    tmpl = null;
+    rows = [];
+    curId = null;
+    copyFrom = null;
+    $('qGroup').value = '';
+    $('qPick').value = '';
+    $('qAfter').classList.add('hidden');
+    render();
+    settle();
+    paintLib();
+    $('qStep1').scrollIntoView({ block: 'start', behavior: reduced() ? 'auto' : 'smooth' });
+    setTimeout(() => $('qPick').focus({ preventScroll: true }), reduced() ? 0 : 320);
+  }
+
+  // From the list only — Planet keeps the group, and the ask says so.
+  async function delRec(id) {
+    const rec = recOf(id);
+    if (!rec) return;
+    if (!(await UI().ask(T('q.delAsk', { g: rec.name }), { ok: 'q.del', danger: true }))) return;
+    try {
+      const r = await fetch('api/grp/' + rec.id, { method: 'DELETE' });
+      if (!r.ok) throw new Error((await r.text()) || ('HTTP ' + r.status));
+    } catch (e) {
+      UI().toast(T('q.delFail', { e: e.message }), true);
+      return;
+    }
+    const box = $('qLibList');
+    leave(box.querySelector('[data-gid="' + rec.id + '"]'), () => {
+      flip(box, '.dk-card', () => {
+        lib = lib.filter(g => g.id !== rec.id);
+        // The form stays as it is, but nothing holds it any more: leaving
+        // it now is leaving unsaved work, and is asked about.
+        if (curId === rec.id) { curId = null; base = ''; }
+        renderLib();
+      });
+      paintGroupNote();
+      paintShares();
+    });
+    UI().toast(T('q.deleted', { g: rec.name }));
+  }
+
+  // The group as generated, into the list. Keyed by NAME, like the file it
+  // made: generated again under its own name it replaces its record; under
+  // another name it is a new group, and the one it came from stays as it was.
+  async function saveGroup(groupName, file) {
+    const prev = lib.find(g => sameName(g.name, groupName)) || null;
+    const cur = recOf(curId);
+    const now = new Date().toISOString();
+    const from = cur && !sameName(cur.name, groupName) ? cur.name
+      : (copyFrom || (prev && prev.from) || null);
+    const rec = {
+      v: 1,
+      id: prev ? prev.id : newGid(),
+      name: groupName,
+      net: tmpl.net,
+      tmpl: { id: tmpl.id, name: tmpl.name, xy: tmpl.xy, sectors: tmpl.sectors },
+      sites: rows.map(siteOut),
+      file,
+      created: (prev && prev.created) || now,
+      made: now,
+    };
+    if (from) rec.from = from;
+    try {
+      const r = await fetch('api/grp/' + rec.id, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(rec),
+      });
+      if (!r.ok) throw new Error((await r.text()) || ('HTTP ' + r.status));
+    } catch (e) {
+      UI().toast(T('q.saveFail', { e: e.message }), true);
+      return;
+    }
+    flip($('qLibList'), '.dk-card', () => {
+      lib = lib.filter(g => g.id !== rec.id);
+      lib.unshift(rec);
+      libFresh.add(rec.id);
+      curId = rec.id;
+      copyFrom = rec.from || null;
+      renderLib();
+    });
+    settle();
+    paintLib();
+    paintGroupNote();
+    paintShares();
+  }
+
+  // Every site whose Site ID another saved group already generated with
+  // other data — asked about once at generate, like the antenna files.
+  function sharedList() {
+    const out = [];
+    rows.forEach(r => {
+      const sh = sharedOf(r);
+      if (sh && sh.diff.length) {
+        out.push({ id: r.siteId.trim(), g: sh.diff, sel: '.q-site[data-uid="' + r.uid + '"] [data-f="siteId"]' });
+      }
+    });
+    return out;
+  }
+
+  function sharedAsk(list) {
+    const items = list.slice(0, 4).map(x => T('q.shItem', { id: x.id, g: x.g.join(', ') }));
+    if (list.length > 4) items[3] += T('q.andMore', { n: list.length - 4 });
+    return T('q.shAsk', { n: list.length, list: items.join('\n\n') });
+  }
+
   /* ── what is still wrong ─────────────────────────────────────────── */
 
   // Each problem names the field it is about, so a refused generate can
@@ -409,13 +826,118 @@
   /* ── render ──────────────────────────────────────────────────────── */
 
   function render() {
+    renderLib();
     renderResults();
     renderNets();
     renderTmpl();
     renderFile();
+    paintGroupNote();
     renderFmt();
     renderRows();
     renderSteps();
+  }
+
+  // The saved groups, as cards like the Decks view's templates: a card opens
+  // its group, its actions copy or delete it, and the dashed one starts over.
+  function renderLib() {
+    const box = $('qLibList');
+    if (!box) return;
+    $('qLibN').textContent = lib.length ? String(lib.length) : '';
+    if (!lib.length) {
+      box.innerHTML = '<p class="q-lib-empty">' + esc(T('q.libEmpty')) + '</p>';
+    } else {
+      const list = libAll ? lib : lib.slice(0, LIB_CAP);
+      box.innerHTML = '<div class="q-gcards">' + list.map(gcard).join('') +
+        '<button class="dk-card dk-new q-gnew' + (libAnim ? ' q-rise' : '') + '" data-gnew data-key="new"' +
+          ' style="--i:' + list.length + '">' +
+          '<span class="dk-plus" aria-hidden="true">+</span>' +
+          '<span class="dk-name">' + esc(T('q.newGroup')) + '</span>' +
+          '<span class="dk-meta">' + esc(T('q.newGroupSub')) + '</span>' +
+        '</button></div>' +
+        (lib.length > LIB_CAP
+          ? '<button class="q-lib-more" data-gmore>' +
+              esc(T(libAll ? 'q.libLess' : 'q.libAll', { n: lib.length })) + '</button>'
+          : '');
+    }
+    libAnim = false;
+    libFresh.clear();
+    paintLib();
+  }
+
+  function gcard(g, i) {
+    const secs = g.sites.reduce((a, s) => a + (s.sectors || []).length, 0);
+    const ids = g.sites.map(s => s.siteId).filter(Boolean);
+    const idText = ids.slice(0, 3).join(', ') + (ids.length > 3 ? '  +' + (ids.length - 3) : '');
+    const when = [T('q.made', { d: fmtDate(g.made) })];
+    if (g.from) when.push(T('q.from', { g: g.from }));
+    return '<button class="dk-card q-gcard' + (libAnim || libFresh.has(g.id) ? ' q-rise' : '') +
+      '" data-gid="' + esc(g.id) + '" data-key="' + esc(g.id) + '" style="--i:' + i + '">' +
+      '<span class="q-gcard-top">' +
+        '<span class="q-gcard-sq" aria-hidden="true"></span>' +
+        '<span class="dk-name" dir="auto">' + esc(g.name) + '</span>' +
+        '<span class="tag tag-net">' + esc(DBX().label(g.net)) + '</span>' +
+      '</span>' +
+      '<span class="dk-meta">' + esc(T('q.count', { n: g.sites.length, s: secs })) + '</span>' +
+      (idText ? '<span class="q-gcard-ids"><span class="mono">' + esc(idText) + '</span></span>' : '') +
+      '<span class="dk-meta">' + esc(when.join(' · ')) + '</span>' +
+      '<span class="q-gcard-state" data-gstate></span>' +
+      '<span class="dk-acts">' +
+        '<span class="dk-act" data-gcopy="' + esc(g.id) + '">' + esc(T('q.copy')) + '</span>' +
+        '<span class="dk-act danger" data-gdel="' + esc(g.id) + '">' + esc(T('q.del')) + '</span>' +
+      '</span>' +
+    '</button>';
+  }
+
+  // The open group's card, marked IN PLACE so nothing re-animates: its
+  // square lit while the form is what was saved, hollow once it is not.
+  function paintLib() {
+    const d = dirty();
+    document.querySelectorAll('#qLibList .q-gcard').forEach(el => {
+      const on = el.dataset.gid === curId;
+      el.classList.toggle('on', on);
+      el.classList.toggle('dirty', on && d);
+      const st = el.querySelector('[data-gstate]');
+      const t = on ? T(d ? 'q.openDirty' : 'q.openNow') : '';
+      if (st && st.textContent !== t) st.textContent = t;
+    });
+  }
+
+  // Under the group name: a saved group this name would replace, or — for
+  // a copy not generated yet — the group it was copied from.
+  function paintGroupNote() {
+    const el = $('qGroupNote');
+    if (!el) return;
+    const g = $('qGroup').value.trim();
+    const twin = g ? lib.find(x => x.id !== curId && sameName(x.name, g)) : null;
+    const t = twin ? T('q.twin', { n: twin.sites.length, d: fmtDate(twin.made) })
+      : copyFrom && !curId ? T('q.copyNote', { g: copyFrom }) : '';
+    if (el.textContent !== t) el.textContent = t;
+    el.classList.toggle('on', !!t);
+    el.classList.toggle('warn', !!twin);
+  }
+
+  // Under a site's head, when another saved group already generated it:
+  // quiet when it is the same site, red when this one differs. Opens by
+  // height, like the band note, and keeps its text while it closes.
+  function paintShare(el, r) {
+    const note = el.querySelector('[data-share]');
+    if (!note) return;
+    const sh = sharedOf(r);
+    const diff = !!(sh && sh.diff.length);
+    const t = !sh ? '' : T(diff ? 'q.shDiff' : 'q.shSame', { g: (diff ? sh.diff : sh.all).join(', ') });
+    const p = note.querySelector('p');
+    if (t && p.textContent !== t) p.textContent = t;
+    note.classList.toggle('on', !!sh);
+    note.classList.toggle('bad', diff);
+    const inp = el.querySelector('[data-f="siteId"]');
+    if (inp) inp.classList.toggle('off', diff);
+  }
+
+  function paintShares() {
+    document.querySelectorAll('#qRows .q-site').forEach(el => {
+      const r = rows.find(x => x.uid === +el.dataset.uid);
+      if (r) paintShare(el, r);
+    });
   }
 
   function renderResults() {
@@ -429,7 +951,10 @@
         const db = DBX().get(n);
         return !db || !Object.keys(db.sectors || {}).length;
       }).map(DBX().label);
-      box.innerHTML = '<div class="lk-empty q-empty"><p class="lk-empty-main">' + esc(T('q.noSite')) + '</p>' +
+      // no results gets the ghost, shrugging under a "?" (js/peek.js)
+      box.innerHTML = '<div class="lk-empty q-empty">' +
+        (global.TableXPeek ? global.TableXPeek.lostSvg() : '') +
+        '<p class="lk-empty-main">' + esc(T('q.noSite')) + '</p>' +
         (empty.length ? '<p class="lk-empty-sub">' + esc(T('lk.noHitsEmpty', { list: empty.join(', ') })) + '</p>' : '') +
         '</div>';
       return;
@@ -520,7 +1045,7 @@
     fresh.clear();
     box.querySelectorAll('.q-site').forEach(el => {
       const r = rows.find(x => x.uid === +el.dataset.uid);
-      if (r) paintHint(el, r);
+      if (r) { paintHint(el, r); paintShare(el, r); }
     });
     paintCount();
   }
@@ -542,6 +1067,8 @@
           '" aria-label="' + esc(T('q.remove')) + '">×</button>' +
         '<p class="q-co-hint mono" data-hint></p>' +
       '</div>' +
+      // another saved group already generated this Site ID (paintShare)
+      '<div class="q-site-note" data-share><div><p></p></div></div>' +
       '<div class="q-secs">' +
         '<div class="q-sec q-sec-head" aria-hidden="true">' +
           ['sectorId', 'band', 'az', 'height', 'tilt', 'etilt', 'model', 'pwr', 'crs']
@@ -574,11 +1101,12 @@
     const opts = '<option value=""' + (s.band ? '' : ' selected') + '>' + esc(T('q.pickBand')) + '</option>' +
       bands.map(b => '<option value="' + esc(b) + '"' + (b === s.band ? ' selected' : '') + '>' +
         esc(b) + '</option>').join('');
+    const off = offBand(s);
     const cell = (f, inner) => '<label class="q-c q-c-' + f + '" data-l="' + esc(T('q.c_' + f)) + '">' + inner + '</label>';
-    const inp = (f, extra) => (f in COLS && !carries(f))
+    const inp = (f, extra, cls) => (f in COLS && !carries(f))
       ? '<input class="q-in mono" data-s="' + f + '" value="" placeholder="—" disabled title="' +
         esc(T('q.notCarried')) + '"/>'
-      : '<input class="q-in mono" data-s="' + f + '" value="' + esc(s[f]) +
+      : '<input class="q-in mono' + (cls ? ' ' + cls : '') + '" data-s="' + f + '" value="' + esc(s[f]) +
         '" spellcheck="false" autocomplete="off"' + (extra || '') + '/>';
     return '' +
     '<div class="q-sec' + (fresh.has('s' + r.uid) || fresh.has('k' + s.k) ? ' q-new' : '') +
@@ -589,11 +1117,16 @@
       cell('height', inp('height', ' inputmode="decimal"')) +
       cell('tilt', inp('tilt', ' inputmode="decimal"')) +
       cell('etilt', inp('etilt', ' inputmode="decimal"')) +
-      cell('model', inp('model', ' data-ac role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="qAc"')) +
+      cell('model', inp('model', ' data-ac role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="qAc"',
+                        off ? 'off' : '')) +
       cell('pwr', inp('pwr', ' inputmode="decimal"')) +
       cell('crs', inp('crs', ' inputmode="decimal" title="' + esc(T('q.crsTitle')) + '"')) +
       '<button class="ed-rm q-rmsec" data-rmsec="' + s.k + '" title="' + esc(T('q.rmSec')) +
         '" aria-label="' + esc(T('q.rmSec')) + '">−</button>' +
+      // Always present, open only when the file names another band: the
+      // three wrappers are what lets CSS open it by height (see main.css).
+      '<div class="q-sec-note' + (off ? ' on' : '') + '" data-note><div><p>' +
+        (off ? offNote(s, off) : '') + '</p></div></div>' +
     '</div>';
   }
 
@@ -617,6 +1150,8 @@
     const ready = !!(tmpl && tmpl.kit);
     $('qStep2').classList.toggle('done', ready && !!$('qGroup').value.trim());
     $('qStep3').classList.toggle('done', ready && rows.length > 0 && !problems(false).length);
+    paintShares();
+    paintLib();
   }
 
   function reveal(el, on, delay) {
@@ -630,25 +1165,72 @@
 
   /* ── generate ────────────────────────────────────────────────────── */
 
-  function generate() {
+  // Take the user to what a stopped generate is about: shake each field,
+  // scroll to the first and put the cursor in it.
+  function point(sels, mark) {
+    sels.forEach(sel => {
+      const el = document.querySelector(sel);
+      if (el && el.classList.contains('q-in')) { if (mark) el.classList.add('bad'); restart(el, 'q-shake'); }
+    });
+    const first = document.querySelector(sels[0]);
+    if (first) {
+      first.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
+      setTimeout(() => first.focus({ preventScroll: true }), reduced() ? 0 : 280);
+    }
+  }
+
+  // Every sector whose antenna file names another band. Asked about once,
+  // here, rather than left to one red line under one of forty sectors.
+  function offList() {
+    const out = [];
+    rows.forEach(r => r.sectors.forEach(s => {
+      const off = offBand(s);
+      if (off) out.push({ s, off, sel: '.q-site[data-uid="' + r.uid + '"] [data-key="' + s.k + '"] [data-s="model"]' });
+    }));
+    return out;
+  }
+
+  function offAsk(off) {
+    const list = off.slice(0, 4).map(x => T('q.offItem',
+      { id: String(x.s.sectorId).trim(), file: x.s.model, f: x.off.file, s: x.off.sector }));
+    if (off.length > 4) list[3] += T('q.andMore', { n: off.length - 4 });
+    return T('q.offAsk', { n: off.length, list: list.join('\n\n') });
+  }
+
+  async function generate() {
     if (!tmpl || !tmpl.kit) return;
     document.querySelectorAll('#viewQuest .q-in.bad').forEach(el => el.classList.remove('bad'));
     const bad = problems(true);
     if (bad.length) {
-      bad.forEach(p => {
-        const el = document.querySelector(p.sel);
-        if (el && el.classList.contains('q-in')) { el.classList.add('bad'); restart(el, 'q-shake'); }
-      });
-      const first = document.querySelector(bad[0].sel);
-      if (first) {
-        first.scrollIntoView({ block: 'center', behavior: reduced() ? 'auto' : 'smooth' });
-        setTimeout(() => first.focus({ preventScroll: true }), reduced() ? 0 : 280);
-      }
+      point(bad.map(p => p.sel), true);
       UI().toast(bad[0].msg + (bad.length > 1 ? T('q.andMore', { n: bad.length - 1 }) : ''), true);
+      return;
+    }
+    // Asked, not refused — the planner may mean it. With nothing to ask
+    // there is no await, so a clean generate stays synchronous.
+    const off = offList();
+    if (off.length && !(await UI().ask(offAsk(off), { ok: 'q.offOk' }))) {
+      point(off.map(x => x.sel), false);
+      return;
+    }
+    // A site another saved group already generated, with other data: the
+    // import would change it in that group too. Asked, for the same reason —
+    // fixing a site everywhere at once can be exactly what is meant.
+    const shared = sharedList();
+    if (shared.length && !(await UI().ask(sharedAsk(shared), { ok: 'q.offOk' }))) {
+      point(shared.map(x => x.sel), false);
       return;
     }
 
     const groupName = $('qGroup').value.trim();
+    // A saved group by this name that is not the one open: this file is
+    // the same Planet group, so its record is replaced — asked first.
+    const twin = lib.find(g => g.id !== curId && sameName(g.name, groupName));
+    if (twin && !(await UI().ask(T('q.twinAsk', { g: twin.name, n: twin.sites.length, d: fmtDate(twin.made) }),
+                                 { ok: 'q.twinOk', danger: true }))) {
+      point(['#qGroup'], false);
+      return;
+    }
     const specs = rows.map(r => {
       const [x, y] = shown(r.xy).map(numOf);
       return {
@@ -679,12 +1261,16 @@
       // The one manual step, stated every time rather than buried in a doc:
       // Planet refuses the file until Excel has re-saved it. See sitegen.js.
       UI().toast(T('q.done', { f: name, n: specs.length }));
+      if (global.TableXPeek) global.TableXPeek.cheer();
       const after = $('qAfter');
       after.classList.remove('hidden');
       if (!reduced()) restart(after, 'q-enter');
     } catch (e) {
       UI().toast(T('q.buildFail', { e: e.message }), true);
+      return;
     }
+    // Only once the file exists: a saved group is what was generated.
+    await saveGroup(groupName, SG().groupFileName(groupName));
   }
 
   /* ── the antenna list ────────────────────────────────────────────── */
@@ -709,6 +1295,7 @@
     }
     list = [...m].map(([file, n]) => ({
       file, n, low: file.toLowerCase(), flat: file.toLowerCase().replace(/[^a-z0-9]/g, ''),
+      band: fileBand(file),
     }));
     filesCache.set(db, list);
     return list;
@@ -718,11 +1305,14 @@
     return DBX().NETWORKS.some(n => filesOf(DBX().get(n)).some(f => f.file === file));
   }
 
+  // On the band: 2 when the file names this sector's band, 1 when it names
+  // none (a multi-band panel serves any), 0 when it names another — which
+  // would only be picked to be marked as wrong.
   function candidates(q, mhz) {
     const own = tmpl ? tmpl.net : null;
     const nets = [own].concat(DBX().NETWORKS.filter(n => n !== own)).filter(Boolean);
     const ql = q.trim().toLowerCase(), qf = ql.replace(/[^a-z0-9]/g, '');
-    const onBand = mhz ? new RegExp('(^|[^0-9])' + mhz + '([^0-9]|$)') : null;
+    const m = band28(Number(mhz));
     const seen = new Set(), out = [];
     nets.forEach((net, ni) => {
       for (const f of filesOf(DBX().get(net))) {
@@ -736,7 +1326,7 @@
         }
         seen.add(f.file);
         out.push({ file: f.file, n: f.n, net, own: ni === 0 ? 1 : 0,
-                   pre: pos === 0 ? 1 : 0, band: onBand && onBand.test(f.file) ? 1 : 0 });
+                   pre: pos === 0 ? 1 : 0, band: !m || !f.band ? 1 : f.band.mhz === m ? 2 : 0 });
       }
     });
     out.sort((a, b) => (b.own - a.own) || (b.pre - a.pre) || (b.band - a.band) ||
@@ -834,6 +1424,7 @@
     if (s) s.model = it.file;
     inp.classList.remove('bad');
     flash(inp);
+    paintBand(inp.closest('.q-sec'), s);
     acClose();
     paintDone();
   }
@@ -903,8 +1494,27 @@
     $('qGroup').addEventListener('input', () => {
       $('qGroup').classList.remove('bad');
       renderFile();
-      paintDone();
+      paintGroupNote();
+      paintDone();                     // the name decides which groups are "other"
     });
+
+    $('qLibList').addEventListener('click', e => {
+      if (e.target.closest('[data-gmore]')) {
+        // the cards that come into view rise in; the rest stay put
+        if (!libAll) lib.slice(LIB_CAP).forEach(g => libFresh.add(g.id));
+        libAll = !libAll;
+        renderLib();
+        return;
+      }
+      if (e.target.closest('[data-gnew]')) return newGroup();
+      const cp = e.target.closest('[data-gcopy]');
+      if (cp) return openRec(cp.dataset.gcopy, true);
+      const del = e.target.closest('[data-gdel]');
+      if (del) return delRec(del.dataset.gdel);
+      const card = e.target.closest('[data-gid]');
+      if (card) openRec(card.dataset.gid, false);
+    });
+    loadLib().then(renderLib);
 
     $('qFmt').addEventListener('click', e => {
       const b = e.target.closest('[data-q-fmt]');
@@ -953,7 +1563,10 @@
         if (!s) return;
         s[el.dataset.s] = el.value;
         if (el.dataset.s === 'sectorId') s.auto = false;
-        if (el.dataset.s === 'model' && AC.input === el) { AC.exact = false; AC.active = -1; acRender(); }
+        if (el.dataset.s === 'model') {
+          paintBand(el.closest('.q-sec'), s);
+          if (AC.input === el) { AC.exact = false; AC.active = -1; acRender(); }
+        }
       }
       paintDone();
     });
@@ -965,12 +1578,25 @@
         s.band = e.target.value;
         const d = tmpl.kit.bands[s.band];
         s.mhz = d && d.fb ? DBX().mhz(d.fb[0], tmpl.net) : null;
+        followBand(e.target.closest('.q-sec'), s);
       }
       e.target.classList.remove('bad');
       paintDone();
     });
 
     rowsBox.addEventListener('click', e => {
+      // the same antenna's file for the sector's band, offered by the note
+      const sw = e.target.closest('[data-swap]');
+      if (sw) {
+        const sec = sw.closest('.q-sec'), s = sectorOfInput(sw);
+        if (!s || !sec) return;
+        s.model = sw.dataset.swap;
+        const inp = sec.querySelector('[data-s="model"]');
+        if (inp) { inp.value = s.model; inp.classList.remove('bad'); flash(inp); }
+        paintBand(sec, s);
+        paintDone();
+        return;
+      }
       const del = e.target.closest('[data-del]');
       if (del) {
         const uid = +del.dataset.del;
@@ -1039,6 +1665,13 @@
   // have changed since (an import that added a kit, a site added by hand).
   function enter() {
     taken = null;
+    // The saved groups rise in with the view, from what is already loaded;
+    // the server is asked again behind them, and only a change re-renders.
+    libAnim = true;
+    const had = lib.map(g => g.id + g.made).join();
+    loadLib().then(() => {
+      if (lib.map(g => g.id + g.made).join() !== had) { renderLib(); paintGroupNote(); paintShares(); }
+    });
     if (tmpl) {
       const db = DBX().get(tmpl.net);
       const kit = (db && db.kit) || null;
@@ -1061,7 +1694,9 @@
     // app.js calls this on a language switch, like every other JS-rendered view
     relocalize: () => { acClose(); render(); },
     // the e2e suite reaches in rather than driving 40 inputs by hand
-    _state: () => ({ tmpl, rows, fmt }),
+    _state: () => ({ tmpl, rows, fmt, curId, copyFrom, dirty: dirty(),
+                     lib: lib.map(g => ({ id: g.id, name: g.name, from: g.from || null, n: g.sites.length })) }),
+    _nextName: nextName,
   };
 
   if (document.readyState === 'loading') {

@@ -749,4 +749,170 @@ export default async function ({ ev, ok, shot, sleep, send }) {
   await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: inject.result.identifier });
   await send('Page.reload');
   await sleep(2500);
+
+  // ── THE FOOTER, ON EVERY VIEW ─────────────────────────────────────────
+  // It stood in the home page's floor only. The floor now stands under every
+  // view: the night and its ground at home, the footer alone on the page's
+  // cream everywhere else — at the bottom of the screen when the page is short.
+  const foot = await ev(`
+    const out = {};
+    for (const v of ['home', 'site', 'quest', 'lookup', 'decks', 'db']) {
+      document.querySelector('[data-goto="' + v + '"]').click();
+      await new Promise(r => setTimeout(r, 150));
+      const f = document.querySelector('.floor .foot'), r = f.getBoundingClientRect();
+      out[v] = { shown: document.getElementById('btnAbout').getClientRects().length > 0,
+                 dark: getComputedStyle(f).backgroundColor !== 'rgba(0, 0, 0, 0)',
+                 scene: document.getElementById('sceneHost').getClientRects().length > 0,
+                 short: document.documentElement.scrollHeight <= innerHeight,
+                 atBottom: Math.abs(r.bottom - innerHeight) < 2 };
+    }
+    return out;`);
+  ok('the credit is on every view', Object.values(foot).every(f => f.shown), JSON.stringify(foot));
+  ok('home keeps the night and the footer on its ground', foot.home.dark && foot.home.scene, JSON.stringify(foot.home));
+  ok('every other view: the footer alone, on the page',
+     ['site', 'quest', 'lookup', 'decks', 'db'].every(v => !foot[v].dark && !foot[v].scene), JSON.stringify(foot));
+  ok('on a short page the footer sits at the bottom of the screen',
+     Object.values(foot).filter(f => f.short).every(f => f.atBottom), JSON.stringify(foot));
+  await ev(`document.getElementById('btnAbout').click();`);
+  await sleep(300);
+  ok('the credit opens the builder card from any view',
+     await ev(`const m = document.getElementById('aboutModal'); const o = !m.classList.contains('hidden');
+               document.getElementById('btnAboutClose').click(); return o;`));
+  await sleep(300);
+
+  // ── THE PEEK ──────────────────────────────────────────────────────────
+  // The ghost sneaks out from behind a card's edge — only into empty page.
+  const pk = await ev(`
+    const P = window.TableXPeek;
+    P.stop();
+    const led = document.querySelector('.db-ledger'), lr = led.getBoundingClientRect();
+    const title = document.querySelector('#viewDb .section-title').getBoundingClientRect();
+    const res = {
+      gutterFree: P._free(Math.round(lr.left) - 70, Math.round(lr.top) + 40, 66, 56),
+      titleFree: P._free(Math.round(title.left), Math.round(title.top), 60, 30),
+      cardFree: P._free(Math.round(lr.left) + 20, Math.round(lr.top) + 20, 60, 60),
+      started: P.peek({ box: led, side: 'left' }),
+    };
+    const a = P._active();
+    const w = a && a.win.getBoundingClientRect();
+    res.side = a && a.side;
+    res.edge = w ? Math.round(w.right - lr.left) : null;
+    const g0 = a && a.ghost.getBoundingClientRect();
+    res.hiddenFirst = !!(g0 && g0.left >= w.right - 1);
+    await new Promise(r => setTimeout(r, 2000));
+    const g1 = a && a.ghost.getBoundingClientRect();
+    res.outLater = !!(g1 && g1.left < w.right - 16);
+    res.mark = !!(a && a.ghost.querySelector('.pk-eyes') && a.ghost.querySelectorAll('rect').length > 30);
+    P.stop();
+    await new Promise(r => setTimeout(r, 50));
+    res.gone = !document.querySelector('.pk-win') && !P._active();
+    return res;`);
+  ok('peek: only empty page will do', pk.gutterFree && !pk.titleFree && !pk.cardFree, JSON.stringify(pk));
+  ok('peek: the window lies against the card\'s outside edge',
+     pk.started && pk.side === 'left' && pk.edge === 0, JSON.stringify(pk));
+  ok('peek: it starts behind the card and sneaks out', pk.hiddenFirst && pk.outLater, JSON.stringify(pk));
+  ok('peek: it is the mark, eyes and all', pk.mark);
+  ok('peek: and goes back in, leaving nothing behind', pk.gone);
+
+  // ── THE REPORT ON THE SLIDE: the minus sign, and long tables ──────────
+  // N points built from the sample's own rows, generated in a style, and
+  // the standalone PPTX read back slide by slide.
+  const pptxOf = (n, style) => ev(`
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    document.querySelector('[data-goto="home"]').click();
+    await wait(200);
+    document.getElementById('btnSample').click();
+    const ta = document.getElementById('inputArea');
+    const lines = ta.value.trim().split('\\n');
+    ta.value = Array.from({ length: ${n} }, (_, i) =>
+      [String(i + 1)].concat(lines[i % lines.length].split('\\t').slice(1)).join('\\t')).join('\\n');
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+    document.getElementById('btnGenerate').click();
+    await wait(400);
+    document.querySelector('[data-out-style="${style}"]').click();
+    await wait(200);
+    const td = document.querySelector('#docPage td[data-e$=":power"]');
+    PptxGenJS.prototype.writeFile = async function () { window.__pptx = await this.write({ outputType: 'arraybuffer' }); };
+    window.__pptx = null;
+    document.getElementById('btnPptx').click();
+    for (let i = 0; i < 60 && !window.__pptx; i++) await wait(100);
+    const z = await JSZip.loadAsync(window.__pptx);
+    const slides = [];
+    for (let i = 1; z.file('ppt/slides/slide' + i + '.xml'); i++) slides.push(await z.file('ppt/slides/slide' + i + '.xml').async('string'));
+    return { slides, td: td && { text: td.textContent, dir: getComputedStyle(td).direction } };`);
+  const slideOf = xml => {
+    const top = +xml.match(/<p:graphicFrame>[\s\S]*?<a:off x="\d+" y="(\d+)"/)[1] / 914400;
+    const hs = [...xml.matchAll(/<a:tr h="(\d+)"/g)].map(m => +m[1] / 914400);
+    const i = xml.indexOf('>-72.42<');
+    // PptxGenJS writes rtl="1" for an RTL paragraph and leaves the attribute
+    // out for an LTR one — and absent is LTR in OOXML
+    const rtl = i < 0 ? null : /rtl="(\d)"/.exec(xml.slice(xml.lastIndexOf('<a:pPr', i), i));
+    return {
+      rows: hs.length, rowH: +hs[0].toFixed(2), bottom: +(top + hs.reduce((a, b) => a + b, 0)).toFixed(2),
+      points: [...xml.matchAll(/<a:t>נק(?:'|&apos;) (\d+)<\/a:t>/g)].map(m => +m[1]),
+      head: xml.includes('שם אתר משרת'), legend: xml.includes('RSRP'),
+      levelRtl: i < 0 ? null : rtl ? rtl[1] : '0',
+    };
+  };
+
+  const p7 = await pptxOf(7, 'classic');
+  ok('the level reads -72.42 on the sheet, left to right',
+     p7.td && p7.td.text === '-72.42' && p7.td.dir === 'ltr', JSON.stringify(p7.td));
+  const s7 = p7.slides.map(slideOf);
+  ok('...and on the slide: the level cell is LTR', s7[0].levelRtl === '0', JSON.stringify(s7[0]));
+  ok('a typical 7-point table fits ONE slide now (it ran to 8.92 in)',
+     s7.length === 1 && s7[0].bottom <= 7.2 && s7[0].points.join() === '1,2,3,4,5,6,7', JSON.stringify(s7));
+  const s5 = (await pptxOf(5, 'classic')).slides.map(slideOf);
+  ok('a table that already fitted is exactly as it was', s5.length === 1 && s5[0].rowH === 0.36, JSON.stringify(s5));
+  const s12 = (await pptxOf(12, 'classic')).slides.map(slideOf);
+  ok('a long one goes on over slides, the points spread evenly and never cut',
+     s12.length === 2 && s12[0].points.join() === '1,2,3,4,5,6' && s12[1].points.join() === '7,8,9,10,11,12',
+     JSON.stringify(s12.map(s => s.points)));
+  ok('...each slide with the header, and each inside the slide',
+     s12.every(s => s.head && s.rows === 19 && s.bottom <= 7.2), JSON.stringify(s12));
+  const sCov = (await pptxOf(7, 'coverage')).slides.map(slideOf);
+  ok('coverage keeps room for its legend: 7 points as 4 + 3, the legend on both',
+     sCov.length === 2 && sCov[0].points.length === 4 && sCov[1].points.length === 3 && sCov.every(s => s.legend && s.bottom <= 6.75),
+     JSON.stringify(sCov));
+  ok('coverage: the level cell is LTR too', sCov[0].levelRtl === '0', sCov[0].levelRtl);
+  await pptxOf(7, 'classic');                        // leave the default style behind
+
+  // ── THE GHOST'S OTHER MOMENTS ─────────────────────────────────────────
+  // Generate: it comes out beside the new report, with happy eyes.
+  const ch = await ev(`
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    window.TableXPeek.stop();
+    document.querySelector('[data-goto="home"]').click();
+    await wait(250);
+    document.getElementById('btnGenerate').click();
+    await wait(1150);
+    const a = window.TableXPeek._active();
+    return a && { box: a.box.id, joy: a.ghost.classList.contains('joy') };`);
+  ok('generate: the ghost comes out beside the report, cheering', ch && ch.box === 'docPage' && ch.joy, JSON.stringify(ch));
+
+  // A search that finds nothing shows it shrugging; one that finds something does not.
+  const nf = await ev(`
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const type = (id, v) => { const i = document.getElementById(id); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })); };
+    const out = {};
+    for (const [view, box, sel] of [['lookup', 'lkSearch', '#lkList'], ['site', 'sdSearch', '#sdResults'], ['quest', 'qPick', '#qPickResults']]) {
+      document.querySelector('[data-goto="' + view + '"]').click();
+      await wait(250);
+      type(box, 'zzqqxx'); await wait(250);
+      const lost = !!document.querySelector(sel + ' .nf-ghost');
+      type(box, 'SO5949'); await wait(250);
+      out[view] = { lost, onHit: !!document.querySelector(sel + ' .nf-ghost') };
+      type(box, '');
+    }
+    return out;`);
+  ok('no results: the ghost shrugs, in all three searches',
+     nf.lookup.lost && nf.site.lost && nf.quest.lost, JSON.stringify(nf));
+  ok('...and only when there are none', !nf.lookup.onHit && !nf.site.onHit && !nf.quest.onHit, JSON.stringify(nf));
+
+  // The nav's mark: a click is a blink and a hop.
+  const br = await ev(`
+    const svg = document.querySelector('#brandHome .brand-mark');
+    document.getElementById('brandHome').click();
+    return { blink: svg.classList.contains('blink'), hop: svg.getAnimations().length > 0 };`);
+  ok('the nav mark blinks and hops when clicked', br.blink && br.hop, JSON.stringify(br));
 }
